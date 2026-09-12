@@ -66,6 +66,7 @@ test('root config retains existing named exports and standalone provider order',
     config.plugins.slice(1).map((plugin) => plugin.name),
     [
       'safetrekr-read-only-core',
+      'safetrekr-operations-providers',
       ...providers.localProviderPlugins().map((plugin) => plugin.name),
     ],
   );

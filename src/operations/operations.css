@@ -532,24 +532,6 @@ body.operations {
   background: #0e1c21f5;
   font-size: 11px;
 }
-.ops-layers {
-  position: absolute;
-  z-index: 25;
-  bottom: 123px;
-  right: 16px;
-  background: #0e1c21;
-  border: 1px solid #35464b;
-  border-radius: 7px;
-  padding: 22px;
-  width: 280px;
-}
-.ops-layers h3 {
-  margin-bottom: 17px;
-}
-.ops-layers .ops-small {
-  border-top: 1px solid #35464b;
-  padding-top: 14px;
-}
 .ops-legend {
   position: absolute;
   z-index: 20;
@@ -745,5 +727,438 @@ body.operations {
     animation: none !important;
     transition: none !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* World controls sit over selection details and preserve the central map. */
+.ops-world-panel {
+  position: absolute;
+  z-index: 26;
+  top: 82px;
+  right: 16px;
+  bottom: 125px;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  flex-direction: column;
+  background: #0c1a20f7;
+  border: 1px solid #40564f;
+  border-radius: 9px;
+  box-shadow: 0 12px 35px #06121366;
+  overflow: hidden;
+}
+.ops-world-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22px 20px 18px;
+  border-bottom: 1px solid #2a3d40;
+}
+.ops-world-heading h2 {
+  margin: 8px 0 0;
+  font-size: 22px;
+  letter-spacing: -0.6px;
+}
+.operations .ops-world-close {
+  border: 0;
+  background: transparent;
+  padding: 8px;
+  font-size: 11px;
+}
+.ops-world-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  padding: 7px;
+  gap: 3px;
+  border-bottom: 1px solid #2a3d40;
+}
+.operations .ops-world-tabs button {
+  background: transparent;
+  border: 0;
+  padding: 9px 4px;
+  font-size: 12px;
+}
+.operations .ops-world-tabs button[aria-pressed='true'] {
+  background: #294c3e;
+  color: #c2efcd;
+}
+.ops-world-content {
+  overflow-y: auto;
+  padding: 18px;
+  scrollbar-width: thin;
+  scrollbar-color: #49605a transparent;
+}
+.ops-world-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #a7bdb0;
+  text-transform: uppercase;
+  letter-spacing: 1.3px;
+  margin: 0 0 12px;
+}
+.ops-world-private {
+  display: flex !important;
+  align-items: center;
+  gap: 9px;
+  font-size: 12px;
+  margin: 11px 0;
+}
+.ops-world-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid #2b3c40;
+  padding-top: 22px;
+  margin-top: 22px;
+}
+.operations .ops-world-section-header button {
+  font-size: 10px;
+  padding: 3px 0 10px;
+  background: transparent;
+  border: 0;
+  color: #adcfba;
+}
+.ops-world-layer {
+  padding: 15px 0;
+  border-bottom: 1px solid #283b3b;
+}
+.ops-world-layer > label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+.ops-world-layer label span {
+  display: grid;
+  gap: 4px;
+}
+.ops-world-layer strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.ops-world-layer small {
+  font-size: 10px;
+  color: #96aba4;
+}
+.ops-world-layer input {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+}
+.ops-feed-badge {
+  display: inline-block;
+  font-size: 10px;
+  margin: 12px 0 4px;
+  color: #a5b5ae;
+  font-variant-numeric: tabular-nums;
+}
+.ops-feed-badge::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  display: inline-block;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.ops-feed-badge[data-state='active'] {
+  color: #a0e1b6;
+}
+.ops-feed-badge[data-state='warning'] {
+  color: #e8be75;
+}
+.ops-world-description {
+  color: #a0b4aa;
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 3px 0 0;
+}
+.ops-world-layer .ops-error {
+  font-size: 10px;
+  color: #e8be75;
+  margin: 7px 0 0;
+  overflow-wrap: anywhere;
+}
+.ops-world-layer .ops-error:empty {
+  display: none;
+}
+.ops-world-shortcuts {
+  display: flex;
+  gap: 4px;
+  border-left: 1px solid #52645b;
+  margin-left: 5px;
+  padding-left: 9px;
+}
+.ops-world-shortcuts button {
+  color: #b2d6bb;
+}
+.ops-world-open .ops-detail {
+  visibility: hidden;
+  pointer-events: none;
+}
+.ops-roster-hidden .ops-sidebar {
+  display: none;
+}
+.ops-roster-hidden .ops-legend,
+.ops-roster-hidden #cesium-credits {
+  left: 16px !important;
+}
+.ops-visual-badge {
+  position: absolute;
+  bottom: 108px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 5px 9px;
+  border-radius: 3px;
+  background: #111d20ed;
+  color: #e5d3ad;
+  font-size: 10px;
+  z-index: 20;
+  pointer-events: none;
+}
+.ops-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.operations .ops-mode {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  align-items: flex-start;
+  text-align: left;
+  padding: 7px;
+  background: #14252a;
+  border: 1px solid #324a44;
+}
+.operations .ops-mode[aria-pressed='true'] {
+  border-color: #94d4a8;
+  box-shadow: 0 0 0 1px #94d4a840;
+  background: #203b30;
+}
+.ops-mode strong {
+  font-size: 11px;
+  font-weight: 600;
+}
+.ops-mode small {
+  font-size: 9px;
+  line-height: 1.4;
+  color: #a8b9b1;
+}
+.ops-mode kbd {
+  position: absolute;
+  top: 10px;
+  right: 9px;
+  padding: 1px 4px;
+  font: 9px monospace;
+  background: #091519bd;
+  color: #e6ece7;
+  border-radius: 2px;
+}
+.ops-mode-swatch {
+  display: block;
+  width: 100%;
+  height: 44px;
+  border-radius: 2px;
+  background:
+    repeating-linear-gradient(35deg, transparent 0 12px, #c2d7bb44 12px 14px),
+    linear-gradient(145deg, #425644, #152c39);
+}
+.ops-mode-surveillance .ops-mode-swatch {
+  background:
+    repeating-linear-gradient(0deg, transparent 0 3px, #0b170b55 3px 4px),
+    linear-gradient(135deg, #678c37, #183619);
+}
+.ops-mode-thermal .ops-mode-swatch {
+  filter: grayscale(1) brightness(1.9);
+}
+.ops-mode-blackhot .ops-mode-swatch {
+  filter: grayscale(1) invert(1);
+}
+.ops-mode-ironbow .ops-mode-swatch {
+  background: linear-gradient(
+    145deg,
+    #f1d878,
+    #c07c51 35%,
+    #863957 65%,
+    #1d283e
+  );
+}
+.ops-mode-retro .ops-mode-swatch {
+  background: repeating-linear-gradient(0deg, #275340 0 2px, #152b23 2px 4px);
+}
+.ops-mode-noir .ops-mode-swatch {
+  filter: grayscale(1) contrast(2);
+}
+.ops-mode-snow .ops-mode-swatch {
+  filter: saturate(0.25) brightness(2.5);
+}
+.ops-mode-anime .ops-mode-swatch {
+  filter: saturate(1.4) contrast(1.4);
+}
+.ops-effect-strength {
+  display: grid;
+  gap: 10px;
+  font-size: 12px;
+  margin: 23px 0;
+}
+.ops-effect-strength input {
+  width: 100%;
+}
+.ops-world-notice {
+  font-size: 11px;
+  line-height: 1.7;
+  color: #cbbd9e;
+  background: #aa835010;
+  border-left: 2px solid #aa8350;
+  padding: 11px 13px;
+}
+.ops-world-content .ops-muted {
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 0 0 15px;
+}
+.ops-camera-city-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+.ops-camera-city-actions select {
+  min-width: 0;
+  font-size: 11px;
+}
+.ops-camera-city-actions button {
+  font-size: 11px;
+  padding: 6px 9px;
+}
+.ops-camera-directory {
+  max-height: 310px;
+  overflow-y: auto;
+  margin: 13px 0 20px;
+  scrollbar-width: thin;
+}
+.operations .ops-camera-directory-row {
+  display: grid;
+  text-align: left;
+  gap: 5px;
+  padding: 12px 3px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid #293e3b;
+  border-radius: 0;
+  width: 100%;
+}
+.ops-camera-directory-row strong {
+  font-size: 11px;
+}
+.ops-camera-directory-row small {
+  font-size: 10px;
+  color: #a3b7ac;
+}
+.ops-add-camera {
+  border-top: 1px solid #3b5148;
+  padding-top: 15px;
+}
+.ops-add-camera summary {
+  cursor: pointer;
+  color: #ade1ba;
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+.ops-add-camera fieldset {
+  border: 0;
+  padding: 0;
+  margin: 15px 0;
+}
+.ops-add-camera label {
+  font-size: 11px;
+}
+.ops-add-camera input {
+  font-size: 12px;
+}
+.ops-camera-import {
+  border-top: 1px solid #293e3b;
+  padding-top: 13px;
+}
+.ops-add-camera .ops-small {
+  margin: 12px 0;
+}
+@media (max-width: 1100px) {
+  .ops-header .ops-environment {
+    display: none;
+  }
+  .ops-world-panel {
+    width: 330px;
+  }
+  .ops-map-controls {
+    gap: 4px;
+  }
+  .ops-map-controls button {
+    padding: 7px;
+    font-size: 10px;
+  }
+}
+@media (max-width: 600px) {
+  .ops-header {
+    padding: 0 12px;
+    gap: 7px;
+  }
+  .ops-header > img {
+    width: 93px;
+  }
+  .ops-header #ops-sync {
+    display: none;
+  }
+  .ops-header #ops-roster-button {
+    margin-left: auto;
+  }
+  .ops-world-panel {
+    top: 68px;
+    bottom: 118px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-width: none;
+  }
+  .ops-world-heading {
+    padding: 15px;
+  }
+  .ops-world-heading h2 {
+    font-size: 19px;
+  }
+  .ops-world-open .ops-sidebar {
+    visibility: hidden;
+    pointer-events: none;
+  }
+  .ops-detail {
+    bottom: 118px;
+  }
+  .ops-map-controls {
+    left: 8px;
+    right: 8px;
+    bottom: 33px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .ops-world-shortcuts {
+    border: 0;
+    padding: 0;
+    margin: 0;
+  }
+  .ops-map-controls > button {
+    flex: 1;
+  }
+  .ops-world-shortcuts {
+    flex: 1 1 100%;
+    justify-content: flex-end;
+  }
+  .ops-visual-badge {
+    bottom: 107px;
+    left: 8px;
+    transform: none;
   }
 }

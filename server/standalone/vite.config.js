@@ -1,8 +1,12 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig, loadEnv } from 'vite';
 import { createBrowserViteConfig } from '../../build/vite.js';
-import { localProviderPlugins } from '../providers/local.js';
+import {
+  localProviderPlugins,
+  invalidateCctvSources,
+} from '../providers/local.js';
 import { staffCoreProxy } from './staffCoreProxy.js';
+import { operationsProviders } from './operationsProviders.js';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 
@@ -15,6 +19,7 @@ export default defineConfig(({ mode }) => {
   return createBrowserViteConfig({
     plugins: [
       staffCoreProxy({ coreUrl: process.env.SAFETREKR_CORE_URL }),
+      operationsProviders({ root, invalidateCameras: invalidateCctvSources }),
       ...localProviderPlugins(),
     ],
     googleApiKey: process.env.GOOGLE_MAPS_API_KEY,

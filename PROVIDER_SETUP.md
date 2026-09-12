@@ -15,6 +15,9 @@ credentials are already configured separately in Core's ignored
 | `GOOGLE_MAPS_SERVER_API_KEY` (optional) | Street View imagery when an existing camera feed fails; this imagery is not live | Separate Google key with **Street View Static API** enabled; add Places API only if enabling upstream place-search features |
 | `CESIUM_ION_TOKEN` (optional) | Alternative route to Google 3D through Cesium ion | Cesium ion → Access Tokens; use `assets:read`, the needed assets, and allowed URLs |
 | `TFL_APP_KEY` (optional) | Registered access for London's camera catalog | TfL API developer portal; the current catalog also works without a key |
+| `TOMTOM_API_KEY` | Live road-flow speeds for Traffic | TomTom Developer Portal → create an application/API key with Traffic API access |
+| `FIRMS_MAP_KEY` | Satellite heat detections for Active fires | NASA FIRMS → request a free MAP_KEY by email |
+| `AISSTREAM_API_KEY` | Vessel positions for Global ships | AISStream account → create an API key |
 
 The direct Google key is sufficient for this fork's default 3D scene; a Cesium
 token is not also required. SafeTrekr authentication and source data are already
@@ -32,6 +35,9 @@ OPENSKY_CLIENT_SECRET=your_opensky_client_secret
 GOOGLE_MAPS_SERVER_API_KEY=your_separate_google_server_key
 CESIUM_ION_TOKEN=your_scoped_ion_token
 TFL_APP_KEY=your_tfl_key
+TOMTOM_API_KEY=your_tomtom_key
+FIRMS_MAP_KEY=your_firms_map_key
+AISSTREAM_API_KEY=your_aisstream_key
 ```
 
 Omit optional entries you are not using rather than entering these placeholders.
@@ -59,10 +65,39 @@ npm run dev -- --host 127.0.0.1 --port 4173
 ```
 
 No AviationStack key is used. Voice remains deferred, so no OpenAI key is needed.
-TomTom traffic, AIS ships, and FIRMS fire overlays are not mounted in this first
-staff console; adding those keys alone will not expose those layers. Automatic
-flight-number-to-aircraft matching also remains separate from supplying OpenSky
+The World controls panel now exposes TomTom traffic, AIS ships, and FIRMS fires.
+Satellites (CelesTrak), earthquakes (USGS), and publicly broadcasting military
+aircraft (adsb.lol) do not need new keys. Satellite positions are calculated from
+orbital elements; military and maritime coverage is incomplete. Automatic
+flight-number-to-aircraft matching remains separate from supplying OpenSky
 credentials: this version uses staff-confirmed aircraft links.
+
+## World controls
+
+Open **World controls** in the header, or use **Layers**, **Natural**, and
+**Camera cities** in the footer. **Trips** collapses the staff roster when you
+want more map space. **World view**, **Fit trip view**, and **Stop following**
+control navigation.
+
+- **Layers:** individual public-layer switches and source status, plus SafeTrekr
+  overlays. Zoom into a city for traffic and camera detail. Click a satellite,
+  aircraft, or ship for the upstream tracking/card interaction. Missing-key
+  states name the required variable.
+- **Visual modes:** Natural, Night vision, FLIR white hot, FLIR black hot,
+  Ironbow, CRT, Noir, Snow, and Illustrated. Keyboard 1–9 works outside text
+  fields. The intensity slider affects only the globe. FLIR/night vision are
+  visual effects, not measured heat or infrared imagery. Private map markers
+  are also shaded; the staff UI retains its normal colors.
+- **Traffic:** TomTom supplies observed road speeds when configured. Individual
+  moving vehicles are simulated. Without a key, the layer is labeled simulated;
+  configured feeds also show outages and degraded status.
+- **Active fires:** recent satellite heat detections, not verified incident
+  boundaries. **Global ships:** observed AIS contacts, not every ship worldwide.
+
+These providers run through the local Vite server. A production deployment must
+run the provider middleware/gateway as well as serve the built browser assets;
+a static-only host or `vite preview` does not supply these API routes. The local
+camera editor is available only through localhost.
 
 ## Cameras in other cities
 
@@ -74,27 +109,58 @@ The three adapters use periodically refreshed public still images.
 
 In the staff console:
 
-1. Choose **Layers → Public cameras**.
-2. Navigate the globe to a supported city and click a camera marker.
+1. Choose **World controls → Cameras** (or **Camera cities** in the footer).
+2. Select a city/region. Use **Go to city**, search by camera name, or click a
+   camera in the directory to enable its layer and open the camera viewer.
 3. For trip context, select a located traveler, lodging, venue, or safety point,
    choose a radius under **Nearby public cameras**, and click **Find cameras**.
 
-There is not yet a city-search or jump-to-city control in the staff shell. A trip
-selection or manual globe navigation supplies the location. Camera searches are
-centered on the selected subject, not the map viewport.
+The nearby-camera search in selection details remains centered on the selected
+subject. The new directory browses the catalog independently of that selection.
 
 For more California districts, set `CCTV_CALTRANS_DISTRICTS` to the desired
 comma-separated district numbers and adjust `CCTV_CALTRANS_MAX_SOURCES` and
 `CCTV_MAX_SOURCES` as needed. Other cities require a public/authorized feed pack
 or a new municipal adapter; a Google or Cesium key does not provide live CCTV.
 
-A custom pack can be a JSON array at `config/cctv_sources.safetrekr.json`, selected
-with `CCTV_SOURCES_FILE`. Each entry supplies `id`, `name`, `city`, `cityId`,
-`provider`, `lat`, `lon`, `feedType`, an actual image/video URL, and attribution.
-Without an explicit override, a nonempty custom pack replaces automatic live-pack
-loading. To retain Austin, Caltrans, and London alongside it, the existing loader
-uses the legacy setting `CCTV_FORCE_AUSTIN=1` (despite the name, it forces all
-enabled live packs). No custom pack has been installed by this guide.
+### Add a camera without code
+
+On this computer, open **Cameras → Add cameras**. Enter the camera name, city,
+agency, direct public HTTPS image URL, latitude/longitude, and attribution or
+permission. Click **Save camera**, then **Reload view to load saved cameras**.
+The URL must return an image directly; a municipal webpage, a redirect, or a
+YouTube/HLS stream requires an adapter. No shared CCTV key unlocks other cities.
+
+You can also import a JSON array (up to 100 entries/256 KB per import):
+
+```json
+[
+  {
+    "id": "city-square",
+    "name": "City square",
+    "city": "Your city",
+    "provider": "City transport agency",
+    "lat": 40.7128,
+    "lon": -74.006,
+    "feedType": "image",
+    "url": "https://YOUR_PUBLIC_CAMERA_HOST/snapshot.jpg",
+    "license": "Agency attribution and applicable permission"
+  }
+]
+```
+
+Replace the example location and URL with the actual camera. Imported feeds
+are stored in ignored, owner-readable
+`config/cctv_sources.safetrekr.local.json` (300 cameras total). Reimporting the
+same ID updates that camera. Built-in cities remain loaded. The image proxy
+rejects private network addresses, rechecks DNS on each fetch, and restricts
+image size and fetch duration. No custom feed has been installed by this guide.
+
+The existing advanced `CCTV_SOURCES_FILE` option still accepts an operator-managed
+pack and upstream-supported media formats. A nonempty file/env pack suppresses
+automatic live-pack loading unless `CCTV_FORCE_AUSTIN=1` is set; despite its name,
+that legacy flag forces all enabled live packs. This does not affect cameras
+added through the new local form.
 
 The bundled Shinjuku pack is demonstration video, **not live Tokyo footage**.
 Seed markers or Street View fallback imagery likewise do not establish a live
@@ -109,3 +175,6 @@ camera feed. Coverage, status, and source labels must remain visible.
 - [OpenSky use terms](https://opensky-network.org/about/terms-of-use): commercial and operational use require a written license, separately from credentials.
 - [Cesium token setup](https://cesium.com/learn/ion/cesium-ion-access-tokens/)
 - [TfL developer portal](https://api-portal.tfl.gov.uk/)
+- [TomTom Traffic API and key setup](https://docs.tomtom.com/traffic-api/documentation/tomtom-maps/v1/product-information/introduction)
+- [NASA FIRMS MAP_KEY signup](https://firms.modaps.eosdis.nasa.gov/api/map_key/)
+- [AISStream authentication](https://aisstream.io/documentation#authentication)

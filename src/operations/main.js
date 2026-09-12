@@ -35,7 +35,7 @@ root.innerHTML = `
   <div id="ops-console" hidden>
     <div id="cesiumContainer" aria-label="Interactive 3D operations globe"></div>
     <header class="ops-header"><img src="/safetrekr-logo.svg" alt="SafeTrekr" width="152" /><span class="ops-divider"></span><span>World View</span>
-      <span id="ops-environment" class="ops-environment">PRODUCTION · READ ONLY</span><span class="ops-header-spacer"></span><span id="ops-sync" role="status">Connecting…</span><button id="ops-signout">Sign out</button></header>
+      <span id="ops-environment" class="ops-environment">PRODUCTION · READ ONLY</span><span class="ops-header-spacer"></span><span id="ops-sync" role="status">Connecting…</span><button id="ops-roster-button" aria-pressed="true">Trips</button><button id="ops-layers-button" aria-expanded="false" aria-controls="ops-layers">World controls</button><button id="ops-signout">Sign out</button></header>
     <aside class="ops-sidebar" aria-label="Trips and participants">
       <div class="ops-sidebar-heading"><p class="ops-eyebrow">OPERATIONS</p><h2 id="ops-scope-title">Your world, at a glance</h2><p id="ops-totals"></p></div>
       <div class="ops-filters"><label for="ops-window">Trip window</label><select id="ops-window"><option value="current">Traveling today</option><option value="upcoming">Upcoming trips</option><option value="all">All trips</option></select>
@@ -45,8 +45,8 @@ root.innerHTML = `
       <div id="ops-list" class="ops-list"></div><div id="ops-pagination" class="ops-pagination"></div>
     </aside>
     <aside id="ops-detail" class="ops-detail" aria-label="Selection details"></aside>
-    <div class="ops-map-controls"><button id="ops-frame">Fit trip view</button><button id="ops-stop-follow">Stop following</button><button id="ops-layers-button" aria-expanded="false" aria-controls="ops-layers">Layers</button></div>
-    <section id="ops-layers" class="ops-layers" aria-label="Map layers" hidden></section>
+    <div class="ops-map-controls"><button id="ops-frame">Fit trip view</button><button id="ops-stop-follow">Stop following</button><button id="ops-world-reset">World view</button><div id="ops-world-shortcuts" class="ops-world-shortcuts"></div></div><div id="ops-visual-badge" class="ops-visual-badge" hidden></div>
+    <section id="ops-layers" class="ops-world-panel" aria-label="World controls" hidden></section>
     <div class="ops-legend"><span><i style="background:#71cc9a"></i>Traveler</span><span><i style="background:#75b9f2"></i>Chaperone</span><span><i style="background:#e6bb66"></i>Aging</span><span><i style="background:#d98585"></i>Last known</span></div>
     <div id="ops-loading" class="ops-loading" role="status"><span class="ops-spinner"></span><p id="ops-loader-status">Connecting to SafeTrekr…</p></div>
   </div>`;
@@ -114,6 +114,7 @@ const tabs = [
   ['safety', 'Safety'],
   ['status', 'Status'],
 ];
+let worldControls = null;
 let mfaFactor = null;
 let pendingCleanup = Promise.resolve();
 const visibleRoles = { traveler: true, chaperone: true };
@@ -179,6 +180,10 @@ async function lockView(message = '') {
   filters = { window: 'current', offset: 0, tripId: null };
   $('ops-window').value = 'current';
   tab = 'trips';
+  worldControls?.dispose();
+  worldControls = null;
+  $('ops-console').classList.remove('ops-roster-hidden');
+  $('ops-roster-button').setAttribute('aria-pressed', 'true');
   const oldGlobe = globe;
   globe = null;
   put('ops-auth-error', message);
@@ -244,7 +249,8 @@ async function openSession(nextSession, sample = false) {
       'ops-environment',
       sample ? 'SIMULATED DATA · SAMPLE TRIP' : 'PRODUCTION · READ ONLY',
     );
-    const { createOperationsGlobe } = await import('./globe.js');
+    const [{ createOperationsGlobe }, { mountWorldControls }] =
+      await Promise.all([import('./globe.js'), import('./worldControls.js')]);
     await pendingCleanup;
     if (epoch !== lifecycle) return;
     const created = await createOperationsGlobe({
@@ -257,7 +263,7 @@ async function openSession(nextSession, sample = false) {
       return;
     }
     globe = created;
-    buildLayers();
+    buildLayers(mountWorldControls);
     acceptSnapshot(data);
     globe.frameTrip(filters.tripId);
     show('ops-loading', false);
@@ -897,44 +903,17 @@ function updateAircraftLinks() {
   }
 }
 
-function buildLayers() {
-  const container = $('ops-layers');
-  container.replaceChildren(node('h3', 'Map layers'));
-  for (const [id, title, checked] of [
-    ['people', 'Travelers & chaperones', true],
-    ['places', 'Lodging & venues', true],
-    ['safety', 'Safety resources', true],
-    ['itinerary', 'Itinerary stops', false],
-    ['boundaries', 'Trip boundaries', true],
-    ['flights', 'Live aircraft', false],
-    ['cctv', 'Public cameras', false],
-    ['earthquakes', 'USGS earthquakes', false],
-  ]) {
-    const label = node('label', undefined, 'ops-checkbox');
-    const input = document.createElement('input');
-    input.type = 'checkbox';
-    input.checked = checked;
-    input.addEventListener('change', async () => {
-      if (['flights', 'cctv', 'earthquakes'].includes(id)) {
-        input.disabled = true;
-        try {
-          await globe.manager.setEnabled(id, input.checked, { origin: 'user' });
-        } catch {
-          input.checked = false;
-          paragraph(container, `${title} unavailable.`, 'ops-error');
-        } finally {
-          input.disabled = false;
-        }
-      } else globe.setLayer(id, input.checked);
-    });
-    label.append(input, document.createTextNode(title));
-    container.append(label);
-  }
-  paragraph(
-    container,
-    'Public feeds have separate coverage, update times, and access terms. Live aircraft use the existing OpenSky / ADS-B sources.',
-    'ops-small',
-  );
+function buildLayers(mountWorldControls) {
+  worldControls?.dispose();
+  worldControls = mountWorldControls({
+    globe,
+    panel: $('ops-layers'),
+    trigger: $('ops-layers-button'),
+    shortcuts: $('ops-world-shortcuts'),
+    badge: $('ops-visual-badge'),
+    onPanelChange: (open) =>
+      $('ops-console').classList.toggle('ops-world-open', open),
+  });
 }
 
 $('ops-window').addEventListener('change', (event) =>
@@ -950,11 +929,11 @@ $('ops-frame').addEventListener('click', () =>
 $('ops-stop-follow').addEventListener('click', () => globe?.stopFollowing());
 $('ops-signout').addEventListener('click', signOut);
 $('ops-switch-account').addEventListener('click', signOut);
-$('ops-layers-button').addEventListener('click', (event) => {
-  const open = $('ops-layers').hidden;
-  show('ops-layers', open);
-  event.currentTarget.setAttribute('aria-expanded', String(open));
+$('ops-roster-button').addEventListener('click', (event) => {
+  const hidden = $('ops-console').classList.toggle('ops-roster-hidden');
+  event.currentTarget.setAttribute('aria-pressed', String(!hidden));
 });
+$('ops-world-reset').addEventListener('click', () => globe?.resetView());
 $('ops-login-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   if (!auth) return;

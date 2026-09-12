@@ -1,4 +1,5 @@
 import { terrainHeightsProxy } from './terrain.js';
+import { loadCameraPack, fetchPublicCameraImage } from './camera-packs.js';
 import { tomtomProxy } from './traffic.js';
 import { firmsProxy } from './firms.js';
 import { gbfsProxy } from './gbfs.js';
@@ -1533,6 +1534,11 @@ let _cctvSourceCacheAt = 0;
  * callers so a post-TTL burst launches ONE refetch, not one per request. */
 let _cctvSourceInflight = null;
 
+export async function invalidateCctvSources() {
+  if (_cctvSourceInflight) await _cctvSourceInflight;
+  _cctvSourceCacheAt = 0;
+}
+
 /**
  * Coerce a value to a finite number, returning fallback if NaN/Infinity.
  *
@@ -2189,6 +2195,8 @@ async function getCctvSources() {
 async function refreshCctvSources() {
   const fromFile = loadSourcesFromFile();
   const fromEnv = loadSourcesFromEnv();
+  let fromOperations = [];
+  try { fromOperations = loadCameraPack(); } catch { console.warn('[CCTV] Local camera pack unavailable'); }
 
   const forceAustin = String(process.env.CCTV_FORCE_AUSTIN || '').trim() === '1';
   const preferAustin = String(process.env.CCTV_PREFER_AUSTIN || '1').trim() !== '0';
@@ -2212,7 +2220,7 @@ async function refreshCctvSources() {
     fromTfl = tflResult.status === 'fulfilled' ? tflResult.value : [];
   }
   // Live sources first so file/env overrides win on duplicate IDs (Map last-write).
-  const merged = [...fromAustin, ...fromCaltrans, ...fromTfl, ...fromFile, ...fromEnv];
+  const merged = [...fromOperations, ...fromAustin, ...fromCaltrans, ...fromTfl, ...fromFile, ...fromEnv];
 
   // Deduplicate by camera ID (last-write wins because of Map.set)
   const byId = new Map();
@@ -2224,7 +2232,7 @@ async function refreshCctvSources() {
   }
 
   const mergedSources = Array.from(byId.values());
-  const maxRaw = Number(process.env.CCTV_MAX_SOURCES || DEFAULT_CCTV_MAX_SOURCES);
+  const maxRaw = Number(process.env.CCTV_MAX_SOURCES || (DEFAULT_CCTV_MAX_SOURCES + fromOperations.length));
   const maxCount = Number.isFinite(maxRaw) ? Math.max(8, Math.min(1200, Math.floor(maxRaw))) : DEFAULT_CCTV_MAX_SOURCES;
   if (mergedSources.length > maxCount) {
     console.warn(`[CCTV] source catalog ${mergedSources.length} exceeds cap ${maxCount}; keeping the first ${maxCount} (raise CCTV_MAX_SOURCES or lower a per-pack cap to change which).`);
@@ -2590,7 +2598,7 @@ function cctvProxy() {
               const upstreamHeaders = { 'User-Agent': 'gods-eye-view-cctv-proxy/1.0' };
               const requestRange = req.headers?.range;
               if (requestRange) upstreamHeaders.Range = requestRange;
-              const upstream = await fetch(mediaUrl, {
+              const upstream = source?.sourceKind === 'local-camera-pack' ? await fetchPublicCameraImage(mediaUrl) : await fetch(mediaUrl, {
                 headers: upstreamHeaders,
               });
               const contentType = upstream.headers.get('content-type') || '';
@@ -2661,7 +2669,8 @@ function cctvProxy() {
             source?.snapshotUrl
             || (!isVideoFeedType(normalizeFeedType(source?.feedType)) ? source?.url : '');
 
-          const upstreamImage = await fetchCctvImageFromUpstream(upstreamCandidate);
+          const upstreamImage = await fetchCctvImageFromUpstream(upstreamCandidate,
+            source?.sourceKind === 'local-camera-pack' ? { fetchImpl: fetchPublicCameraImage } : {});
           if (upstreamImage?.ok) {
             setHealth(cameraId, {
               status: 'ok',

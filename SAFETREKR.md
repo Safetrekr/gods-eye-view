@@ -22,8 +22,15 @@ bootstrap are not mounted by the operations entry point.
   to an exact ICAO24 address already in the live feed. Linked aircraft are green;
   the selected aircraft uses the upstream cyan selection treatment. An optional
   filter hides unrelated aircraft. No AviationStack requests or dependency.
-- Public flight, CCTV, and earthquake layers; Google photorealistic tiles when
-  configured, with a satellite globe fallback.
+- Header and footer shortcuts to World controls: civilian/military flights,
+  satellites, AIS ships, TomTom traffic, FIRMS fires, earthquakes, and public
+  cameras, with provider status and missing-key guidance.
+- Nine visual modes including FLIR, night vision, CRT, and natural imagery;
+  effect strength and basemap selection. Effects are labeled as visual filters.
+- City camera directory with search, fly-to-city, and camera selection. Local
+  operators can add a public HTTPS snapshot or import a JSON pack without code.
+  Local camera configuration never changes Core or production participant data.
+- Google photorealistic tiles when configured, with a satellite globe fallback.
 
 ## Run locally
 
@@ -110,6 +117,7 @@ npm run check:boundaries
 npm run build
 # With the development server running:
 node scripts/operations-smoke.mjs
+node scripts/operations-world-smoke.mjs
 # Full upstream suite (canonical TMPDIR avoids a macOS symlink assertion):
 TMPDIR=/private/tmp npm test
 ```
@@ -117,3 +125,8 @@ TMPDIR=/private/tmp npm test
 The browser smoke test uses fictional records, checks the login gate, globe,
 stale/battery detail, flight form, narrow layout, and clearing private scene data
 on logout. It writes screenshots to ignored `output/operations/`.
+
+The world-controls smoke uses synthetic provider responses to render the added
+layers and all nine shaders, exercise the camera directory/form, check mobile
+and keyboard access, and verify missing-key states and full scene cleanup.
+Paid-provider authentication still requires real credentials for live testing.

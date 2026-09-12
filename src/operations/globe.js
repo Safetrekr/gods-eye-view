@@ -5,6 +5,20 @@ import { LAYER_STATE_REGISTRY } from '../data/layerState.js';
 import flights from '../data/flights.js';
 import cameras from '../data/cctv.js';
 import earthquakes from '../data/earthquakes.js';
+import satellites from '../data/satellites.js';
+import military from '../data/militaryFlights.js';
+import traffic from '../data/traffic.js';
+import ships from '../data/aisLiveVessels.js';
+import { createFirmsHeatmapLayer } from '../data/firmsHeatmap.js';
+import { createVisualModes } from './visualModes.js';
+import {
+  initWorldOverlay,
+  destroyWorldOverlay,
+} from '../overlays/worldOverlay.js';
+import {
+  initTrackedReadout,
+  destroyTrackedReadout,
+} from '../data/trackedReadout.js';
 import { currentFreshness, PEOPLE_COLORS, validPoint } from './model.js';
 
 export async function createOperationsGlobe({
@@ -35,8 +49,27 @@ export async function createOperationsGlobe({
     });
     const { viewer } = scene;
     viewer.targetFrameRate = 30;
+    initWorldOverlay(viewer);
+    cleanups.push(destroyWorldOverlay);
+    initTrackedReadout(viewer);
+    cleanups.push(destroyTrackedReadout);
     const manager = new DataLayerManager(viewer);
-    const publicLayers = [flights, cameras, earthquakes];
+    const fires = createFirmsHeatmapLayer({
+      id: 'local-firms',
+      name: 'Active fires',
+      icon: '▲',
+      source: 'NASA FIRMS',
+    });
+    const publicLayers = [
+      flights,
+      cameras,
+      earthquakes,
+      satellites,
+      military,
+      traffic,
+      fires,
+      ships,
+    ];
     for (const layer of publicLayers) manager.register(layer);
     manager.finalizeRegistrations(
       LAYER_STATE_REGISTRY.filter((entry) =>
@@ -45,6 +78,14 @@ export async function createOperationsGlobe({
     );
     cleanups.push(() => manager.destroyAll());
     cleanups.push(() => flights.setContactPresentation());
+    const visualModes = createVisualModes(viewer);
+    cleanups.push(() => visualModes.dispose());
+    // Public layers coordinate their own handoffs through trackedEntityChanged.
+    // Explicit staff navigation releases every owner before moving the camera.
+    const stopTracking = () => {
+      for (const layer of [flights, military, satellites]) layer.stopTracking();
+      viewer.trackedEntity = undefined;
+    };
     const people = new Cesium.CustomDataSource('SafeTrekr participants');
     const context = new Cesium.CustomDataSource('SafeTrekr trip context');
     await viewer.dataSources.add(people);
@@ -258,6 +299,17 @@ export async function createOperationsGlobe({
       manager,
       flights,
       cameras,
+      visualModes,
+      mapStack: scene.mapStackController,
+      resetView() {
+        stopTracking();
+        viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(-35, 25, 18000000),
+          duration: matchMedia('(prefers-reduced-motion: reduce)').matches
+            ? 0
+            : 1.2,
+        });
+      },
       dispose,
       mapMode: scene.tileset ? 'Google photorealistic 3D' : 'Satellite globe',
       setSnapshot(value) {
@@ -278,8 +330,7 @@ export async function createOperationsGlobe({
       },
       focus(point, range = 1400) {
         if (!validPoint(point)) return;
-        flights.stopTracking();
-        viewer.trackedEntity = undefined;
+        stopTracking();
         viewer.camera.flyToBoundingSphere(
           new Cesium.BoundingSphere(position(point), 30),
           {
@@ -299,21 +350,19 @@ export async function createOperationsGlobe({
           `person:${person.trip_id}:${person.id}`,
         );
         if (entity?.show) {
-          flights.stopTracking();
+          stopTracking();
           viewer.trackedEntity = entity;
         }
       },
       stopFollowing() {
-        flights.stopTracking();
-        viewer.trackedEntity = undefined;
+        stopTracking();
       },
       frameTrip(tripId) {
         const entities = people.entities.values.filter(
           (e) => !tripId || e.opsRecord.record.trip_id === tripId,
         );
         if (entities.length) {
-          flights.stopTracking();
-          viewer.trackedEntity = undefined;
+          stopTracking();
           const positions = entities.map((entity) =>
             entity.position.getValue(viewer.clock.currentTime),
           );
