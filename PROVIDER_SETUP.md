@@ -183,7 +183,7 @@ camera feed. Coverage, status, and source labels must remain visible.
 
 The Vercel project `safetrekr-gods-eye` uses the same provider variable names in
 its Production/Preview environment settings. The local `.env.local` is never
-uploaded. `SAFETREKR_CORE_URL` must be `https://api.safetrekr.com` there.
+uploaded. `SAFETREKR_CORE_URL` is `https://api.safetrekr.com/v1` there.
 `PROVIDER_SESSION_SECRET` is an additional random server-only signing secret,
 already generated and configured during setup. Never prefix it with `VITE_`.
 

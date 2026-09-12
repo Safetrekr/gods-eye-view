@@ -47,7 +47,7 @@ npm run dev -- --host 127.0.0.1 --port 4173
 
 Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` to the target Supabase
 project's public configuration. Set the server-only `SAFETREKR_CORE_URL` to Core's
-origin, without `/v1`. For the local GET-only Core runner it is
+base URL (with or without `/v1`; the proxy resolves `/v1/staff/operations`). For the local GET-only Core runner it is
 `http://127.0.0.1:8002`. The Vite middleware forwards only the staff GET request and
 the caller's bearer token to that fixed origin; it cannot proxy arbitrary Core
 routes or writes. `.env.local` is ignored. Never put a service-role key or the
@@ -99,10 +99,10 @@ The Vercel project is `safetrekr-gods-eye` in the `tarva` team. Its custom domai
 routes `/api/*` through `api/gateway.js`, a Node 24 function in `iad1`.
 
 Production environment variables live in the project's Vercel settings; they are
-independent of this computer's ignored `.env.local`. The production Core origin is
-`https://api.safetrekr.com`, never localhost. The Core companion branch must be
-released there before staff can enter the deployed globe. Do not point production
-at the local test server or bypass its authorization to work around a missing route.
+independent of this computer's ignored `.env.local`. The production Core base URL is
+`https://api.safetrekr.com/v1`. The deployed staff endpoint now responds with
+authentication required (HTTP 401) to an anonymous request. Staff snapshots still
+require a valid Supabase session and an authorized staff profile.
 
 A successful staff snapshot issues a signed, Secure, HttpOnly, SameSite=Strict
 five-minute cookie for public-provider access. Private snapshots always require
