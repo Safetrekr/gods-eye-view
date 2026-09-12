@@ -27,6 +27,9 @@ bootstrap are not mounted by the operations entry point.
 
 ## Run locally
 
+For exact credential names, provider signup links, and camera coverage, see
+[PROVIDER_SETUP.md](PROVIDER_SETUP.md).
+
 Use Node 24.14+ (24.x) or 26.x, matching upstream's package engines.
 
 ```sh
