@@ -64,7 +64,10 @@ test('root config retains existing named exports and standalone provider order',
   const config = standaloneConfig({ mode: 'test' });
   assert.deepEqual(
     config.plugins.slice(1).map((plugin) => plugin.name),
-    providers.localProviderPlugins().map((plugin) => plugin.name),
+    [
+      'safetrekr-read-only-core',
+      ...providers.localProviderPlugins().map((plugin) => plugin.name),
+    ],
   );
   assert.equal(config.plugins.at(-1).name, 'gev-key-setup');
 });

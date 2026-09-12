@@ -1,3 +1,7 @@
+> **SafeTrekr fork:** the default page is now the staff World View console.
+> See [SafeTrekr setup, features, and testing](SAFETREKR.md). The upstream project
+> documentation and attribution follow below.
+
 <div align="center">
 
 # 🌐 God's Eye View
