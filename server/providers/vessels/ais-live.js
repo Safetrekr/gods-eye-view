@@ -73,6 +73,35 @@ export function aisLiveProxy() {
   function install(middlewares) {
     middlewares.use('/api/ais-live', async (req, res) => {
       try {
+        if (process.env.AISSTREAM_SHARED_URL) {
+          const incoming = new URL(req.url || '/', 'http://localhost');
+          res.setHeader('Content-Type', 'application/json');
+          res.setHeader('Cache-Control', 'no-store');
+          if (incoming.pathname !== '/') {
+            res.statusCode = 404;
+            res.end(
+              '{"samples":[],"error":"Historical tracks are unavailable on the shared receiver"}',
+            );
+            return;
+          }
+          const shared = new URL(process.env.AISSTREAM_SHARED_URL);
+          if (
+            shared.protocol !== 'https:' ||
+            shared.username ||
+            shared.password
+          )
+            throw new Error('Invalid shared AIS receiver URL');
+          const response = await fetch(shared, {
+            headers: {
+              Authorization: `Bearer ${process.env.AISSTREAM_SHARED_TOKEN || ''}`,
+            },
+            redirect: 'error',
+            signal: AbortSignal.timeout(15000),
+          });
+          res.statusCode = response.status;
+          res.end(await response.text());
+          return;
+        }
         ensureAisStreamConnection();
         const incoming = new URL(req.url || '', 'http://localhost');
 
@@ -330,6 +359,7 @@ function aisStreamStatusSnapshot() {
  * open, and idempotent so a Vite in-process restart cannot stack intervals.
  */
 function startAisStreamWatchdogTick() {
+  if (process.env.AISSTREAM_SHARED_URL) return;
   if (_aisStreamTickTimer) return;
   _aisStreamTickTimer = setInterval(() => {
     try {

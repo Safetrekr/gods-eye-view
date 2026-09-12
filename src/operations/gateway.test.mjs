@@ -5,6 +5,7 @@ import handler from '../../api/gateway.js';
 
 test('deployed gateway grants public feeds only after Core authorizes staff, and never substitutes its cookie for private auth', async () => {
   let authorized = true;
+  process.env.CRON_SECRET = 'synthetic-collector-secret';
   const core = createServer((req, res) => {
     assert.equal(req.url, '/v1/staff/operations');
     assert.equal(req.headers.authorization, 'Bearer synthetic-test-session');
@@ -28,6 +29,23 @@ test('deployed gateway grants public feeds only after Core authorizes staff, and
     fetch(`${origin}/api/gateway?path=${path}`, options);
   try {
     assert.equal((await request('safetrekr/providers')).status, 401);
+    assert.equal((await request('safetrekr/ais-refresh')).status, 401);
+    assert.equal(
+      (
+        await request('safetrekr/providers', {
+          headers: { Authorization: 'Bearer synthetic-collector-secret' },
+        })
+      ).status,
+      401,
+    );
+    assert.equal(
+      (
+        await request('ais-live', {
+          headers: { Authorization: 'Bearer synthetic-collector-secret' },
+        })
+      ).status,
+      503,
+    );
     assert.equal((await request('safetrekr/operations')).status, 401);
     const response = await request('safetrekr/operations', {
       headers: { Authorization: 'Bearer synthetic-test-session' },

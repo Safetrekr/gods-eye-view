@@ -7,7 +7,7 @@ import {
 } from '../providers/vessels/ais-store.js';
 
 let inFlight;
-const CACHE_KEY = 'ais-world-sample-v1';
+const CACHE_KEY = 'ais-world-sample-v2';
 /** Bounded sampling: Vercel workers cannot own an always-on AIS connection. */
 async function sample() {
   let cached;
@@ -16,12 +16,13 @@ async function sample() {
   } catch {
     /* Cache is optional locally. */
   }
-  if (cached && Date.now() - cached.sampledAt < 60000) return cached;
+  if (cached && Date.now() - cached.sampledAt < 55000) return cached;
   let received = 0;
   let failed = false;
   await new Promise((resolve) => {
     const socket = new WebSocket('wss://stream.aisstream.io/v0/stream', {
       handshakeTimeout: 8000,
+      maxPayload: 1024 * 1024,
     });
     const finish = () => {
       clearTimeout(timeout);
@@ -93,11 +94,7 @@ async function sample() {
     staleAfterMs: 120000,
     sampling: true,
   };
-  try {
-    await getCache().set(CACHE_KEY, snapshot, { ttl: 900 });
-  } catch {
-    /* Next request may sample again. */
-  }
+  await getCache().set(CACHE_KEY, snapshot, { ttl: 900 });
   return snapshot;
 }
 
@@ -124,9 +121,37 @@ export async function aisSnapshot(req, res) {
     );
     return;
   }
+  const snapshot = await getCache().get(CACHE_KEY);
+  if (!snapshot) {
+    res.statusCode = 503;
+    res.end(
+      JSON.stringify({
+        rows: [],
+        status: 'connecting',
+        error: 'Waiting for the next scheduled AIS sample',
+        refreshing: true,
+      }),
+    );
+    return;
+  }
+  if (Date.now() - snapshot.sampledAt > 120000) {
+    snapshot.status = 'stale';
+    snapshot.error = 'Scheduled AIS sample is delayed';
+  }
+  res.end(JSON.stringify(snapshot));
+}
+
+/** Only the authenticated once-per-minute Cron can open the upstream socket. */
+export async function refreshAisSnapshot() {
+  if (!process.env.AISSTREAM_API_KEY) throw new Error('AIS key missing');
   if (!inFlight)
     inFlight = sample().finally(() => {
       inFlight = null;
     });
-  res.end(JSON.stringify(await inFlight));
+  const result = await inFlight;
+  return {
+    status: result.status,
+    count: result.rows.length,
+    sampledAt: result.sampledAt,
+  };
 }

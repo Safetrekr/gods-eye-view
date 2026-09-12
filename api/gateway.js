@@ -13,7 +13,10 @@ import {
   validProviderSession,
   clearProviderSession,
 } from '../server/standalone/providerSession.js';
-import { aisSnapshot } from '../server/standalone/aisSnapshot.js';
+import {
+  aisSnapshot,
+  refreshAisSnapshot,
+} from '../server/standalone/aisSnapshot.js';
 
 let routes;
 function registeredRoutes() {
@@ -75,9 +78,31 @@ export default async function handler(req, res) {
     );
     return;
   }
+  const isCollector =
+    Boolean(process.env.CRON_SECRET) &&
+    req.headers.authorization === `Bearer ${process.env.CRON_SECRET}`;
+  if (pathname === '/api/safetrekr/ais-refresh') {
+    if (!isCollector || req.method !== 'GET') {
+      res.statusCode = 401;
+      res.end();
+      return;
+    }
+    try {
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify(await refreshAisSnapshot()));
+    } catch {
+      console.error('[SafeTrekr AIS] Scheduled collection failed');
+      res.statusCode = 502;
+      res.end('{"error":"AIS collection failed"}');
+    }
+    return;
+  }
   const isCore = pathname === '/api/safetrekr/operations';
+  const isSharedAis =
+    pathname === '/api/ais-live' && isCollector && req.method === 'GET';
   if (
     !isCore &&
+    !isSharedAis &&
     !validProviderSession(
       req.headers.cookie,
       process.env.PROVIDER_SESSION_SECRET,

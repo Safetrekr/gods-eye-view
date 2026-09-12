@@ -114,9 +114,10 @@ OpenAI/voice endpoints and arbitrary upstream proxies are excluded.
 AIS on Vercel collects bounded 12-second samples and caches public vessel reports
 across requests for one minute. It retains at most 3,000 observed vessels, for at
 most 15 minutes. This is sampled coverage, not an always-on global receiver or
-historical track store. AISStream permits one connection per key; a continuously
-running local receiver using the same key can interfere with deployed sampling.
-Use a separate key for simultaneous local testing or stop the local receiver.
+historical track store. AISStream permits one connection per key. A once-per-minute Vercel Cron is the
+sole collector, authenticated by `CRON_SECRET`. Staff requests only read its
+public-data cache. Local testing uses `AISSTREAM_SHARED_URL` and server-only
+`AISSTREAM_SHARED_TOKEN` to read that same receiver without opening a second socket.
 
 The account currently lacks a Vercel GitHub login connection. Deployment is from
 the tested local checkout using `vercel deploy --prod --scope tarva --yes` with

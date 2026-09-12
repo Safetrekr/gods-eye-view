@@ -191,3 +191,8 @@ Allow `https://safetrekr-eye.tarva.studio/*` in the Google browser key’s websi
 restrictions. Caltrans streams and TfL clips require no additional playback key.
 Camera availability varies, and TfL clips are not continuous streams. See
 [deployment and playback details](SAFETREKR.md#production-deployment).
+
+The hosted AIS receiver uses a generated `CRON_SECRET`; collection runs once a
+minute. This computer’s `.env.local` also has `AISSTREAM_SHARED_URL` and
+`AISSTREAM_SHARED_TOKEN` configured automatically so both views share that
+receiver. These are server-only settings, not additional provider accounts.
