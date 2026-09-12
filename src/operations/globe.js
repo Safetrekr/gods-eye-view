@@ -11,6 +11,7 @@ import traffic from '../data/traffic.js';
 import ships from '../data/aisLiveVessels.js';
 import { createFirmsHeatmapLayer } from '../data/firmsHeatmap.js';
 import { createVisualModes } from './visualModes.js';
+import { createCameraPlayer } from './cameraPlayer.js';
 import {
   initWorldOverlay,
   destroyWorldOverlay,
@@ -80,6 +81,12 @@ export async function createOperationsGlobe({
     cleanups.push(() => flights.setContactPresentation());
     const visualModes = createVisualModes(viewer);
     cleanups.push(() => visualModes.dispose());
+    const cameraPlayer = createCameraPlayer();
+    cameras.setCameraOpenHandler((camera) => cameraPlayer.open(camera));
+    cleanups.push(() => {
+      cameras.setCameraOpenHandler(null);
+      cameraPlayer.dispose();
+    });
     // Public layers coordinate their own handoffs through trackedEntityChanged.
     // Explicit staff navigation releases every owner before moving the camera.
     const stopTracking = () => {

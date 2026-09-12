@@ -1,6 +1,9 @@
 // Fixed upstream and route. The browser sends its Supabase access token;
 // only Core resolves the trusted staff role and organization.
-export function staffCoreProxy({ coreUrl = 'http://127.0.0.1:8001' } = {}) {
+export function staffCoreProxy({
+  coreUrl = 'http://127.0.0.1:8001',
+  onAuthorized,
+} = {}) {
   const upstream = new URL(coreUrl);
   if (
     !['http:', 'https:'].includes(upstream.protocol) ||
@@ -47,7 +50,9 @@ export function staffCoreProxy({ coreUrl = 'http://127.0.0.1:8001' } = {}) {
         res.setHeader('Content-Type', 'application/json');
         const retry = result.headers.get('retry-after');
         if (retry) res.setHeader('Retry-After', retry);
-        res.end(await result.text());
+        const body = await result.text();
+        if (result.ok) onAuthorized?.(res);
+        res.end(body);
       } catch {
         if (!res.destroyed) {
           res.writeHead(502);

@@ -1,0 +1,13 @@
+.env*
+!.env.operations.example
+!.env.example
+.git
+output
+node_modules
+config/*local*
+pinokio
+docs/archive
+
+.mcp.json
+*.pem
+*.key

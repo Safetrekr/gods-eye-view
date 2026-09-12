@@ -17,3 +17,5 @@ pinokio/ENVIRONMENT
 pinokio/.installed
 # Local camera URLs and draft atomic-write files stay on this computer.
 config/cctv_sources.safetrekr.local.json*
+
+.vercel

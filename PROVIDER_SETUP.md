@@ -178,3 +178,16 @@ camera feed. Coverage, status, and source labels must remain visible.
 - [TomTom Traffic API and key setup](https://docs.tomtom.com/traffic-api/documentation/tomtom-maps/v1/product-information/introduction)
 - [NASA FIRMS MAP_KEY signup](https://firms.modaps.eosdis.nasa.gov/api/map_key/)
 - [AISStream authentication](https://aisstream.io/documentation#authentication)
+
+## Hosted configuration
+
+The Vercel project `safetrekr-gods-eye` uses the same provider variable names in
+its Production/Preview environment settings. The local `.env.local` is never
+uploaded. `SAFETREKR_CORE_URL` must be `https://api.safetrekr.com` there.
+`PROVIDER_SESSION_SECRET` is an additional random server-only signing secret,
+already generated and configured during setup. Never prefix it with `VITE_`.
+
+Allow `https://safetrekr-eye.tarva.studio/*` in the Google browser key’s website
+restrictions. Caltrans streams and TfL clips require no additional playback key.
+Camera availability varies, and TfL clips are not continuous streams. See
+[deployment and playback details](SAFETREKR.md#production-deployment).

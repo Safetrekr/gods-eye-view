@@ -19,6 +19,7 @@ function localRequest(req) {
 export function operationsProviders({
   root = process.cwd(),
   invalidateCameras = () => {},
+  allowCameraEditing = true,
 } = {}) {
   return {
     name: 'safetrekr-operations-providers',
@@ -45,7 +46,7 @@ export function operationsProviders({
             traffic: Boolean(process.env.TOMTOM_API_KEY),
             fires: Boolean(process.env.FIRMS_MAP_KEY),
             ships: Boolean(process.env.AISSTREAM_API_KEY),
-            cameraEditing: localRequest(req),
+            cameraEditing: allowCameraEditing && localRequest(req),
           }),
         );
       });
@@ -57,7 +58,7 @@ export function operationsProviders({
           });
           res.end(JSON.stringify(value));
         };
-        if (!localRequest(req)) {
+        if (!allowCameraEditing || !localRequest(req)) {
           send(403, {
             error: 'Camera editing is available only on this local computer.',
           });

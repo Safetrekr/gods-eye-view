@@ -24,7 +24,9 @@ const PUBLIC_LAYERS = [
     'ais-live-vessels',
     'Global ships',
     'AISStream',
-    'Observed vessel positions across available AIS coverage.',
+    import.meta.env.DEV
+      ? 'Observed vessel positions across available AIS coverage.'
+      : 'Sampled vessel reports, refreshed about once a minute; coverage is incomplete.',
     'ships',
     'AISSTREAM_API_KEY',
   ],
@@ -54,7 +56,7 @@ const PUBLIC_LAYERS = [
     'cctv',
     'Public cameras',
     'City & transport agencies',
-    'Public snapshots and configured feeds; availability varies.',
+    'Video streams, recent clips and refreshed snapshots. Click a camera to watch.',
   ],
 ];
 const PRIVATE_LAYERS = [
@@ -434,7 +436,10 @@ export function mountWorldControls({
       );
       row.append(
         e('strong', camera.name),
-        e('small', `${camera.city} · ${camera.provider}`),
+        e(
+          'small',
+          `${camera.city} · ${camera.provider} · ${camera.feedType === 'hls' ? 'Video stream' : ['mp4', 'webm'].includes(camera.feedType) ? 'Recent clip' : 'Snapshot'}`,
+        ),
       );
       if (camera.license) row.append(e('small', camera.license));
       list.append(row);

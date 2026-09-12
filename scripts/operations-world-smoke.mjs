@@ -181,6 +181,12 @@ try {
           },
         ],
       });
+    if (path.startsWith('/api/cctv/stream/'))
+      return void reply({
+        feedType: 'image',
+        frameUrl: '/api/cctv/frame/test',
+        provider: 'Synthetic fixture',
+      });
     if (path.startsWith('/api/cctv/frame/'))
       return void request.respond({
         status: 200,
@@ -367,6 +373,8 @@ try {
     { timeout: 15000 },
     cameraModuleUrl,
   );
+  await page.waitForSelector('.ops-camera-player[open] img');
+  await page.click('button[aria-label="Close camera"]');
   await page.click('#ops-layers-button');
   await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
   assert.equal(

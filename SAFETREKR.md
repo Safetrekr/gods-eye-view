@@ -94,20 +94,56 @@ The latest-fix table is not a historical movement trail.
 
 ## Production deployment
 
-The staff endpoint has not been deployed by this branch. Merge/release Core, then
-deploy the browser and a same-origin proxy equivalent to `staffCoreProxy.js`.
-Static hosting alone cannot serve the `/api/` provider routes. Vite is the local
-development/preview server, not the intended public production gateway. Configure
-staff authentication, rate limiting and provider-key protection on the hosting
-gateway before exposing the remaining upstream provider middleware publicly.
+The Vercel project is `safetrekr-gods-eye` in the `tarva` team. Its custom domain is
+`https://safetrekr-eye.tarva.studio`. `vercel.json` builds the Vite frontend and
+routes `/api/*` through `api/gateway.js`, a Node 24 function in `iad1`.
 
-Supply a referrer-restricted Google browser key with Map Tiles API enabled for
-photorealistic buildings, or an appropriate Cesium ion setup. No Maps key is needed
-for the fallback globe. Provider rights, costs, and camera availability remain
-separate from this fork's MIT code license; in particular review the operational
-terms for OpenSky and the upstream data-license exceptions before deployment.
-See [Google tile policies](https://developers.google.com/maps/documentation/tile/policies)
-and [OpenSky terms](https://opensky-network.org/about/terms-of-use).
+Production environment variables live in the project's Vercel settings; they are
+independent of this computer's ignored `.env.local`. The production Core origin is
+`https://api.safetrekr.com`, never localhost. The Core companion branch must be
+released there before staff can enter the deployed globe. Do not point production
+at the local test server or bypass its authorization to work around a missing route.
+
+A successful staff snapshot issues a signed, Secure, HttpOnly, SameSite=Strict
+five-minute cookie for public-provider access. Private snapshots always require
+Core's full Supabase session and current staff-scope checks. Logout clears the
+provider cookie. Responses bypass shared CDN caches. The deployed gateway mounts
+only the providers used by this console; key editing, local camera mutations,
+OpenAI/voice endpoints and arbitrary upstream proxies are excluded.
+
+AIS on Vercel collects bounded 12-second samples and caches public vessel reports
+across requests for one minute. It retains at most 3,000 observed vessels, for at
+most 15 minutes. This is sampled coverage, not an always-on global receiver or
+historical track store. AISStream permits one connection per key; a continuously
+running local receiver using the same key can interfere with deployed sampling.
+Use a separate key for simultaneous local testing or stop the local receiver.
+
+The account currently lacks a Vercel GitHub login connection. Deployment is from
+the tested local checkout using `vercel deploy --prod --scope tarva --yes` with
+`.vercel/project.json` linked to this project. Configure the Vercel GitHub
+connection and link `Safetrekr/gods-eye-view` to enable Git-triggered builds. Until
+then, pushing the branch alone does not update the website.
+
+Use a referrer-restricted Google browser key with Map Tiles API enabled and add
+`https://safetrekr-eye.tarva.studio/*` to its website restrictions. Optional preview
+and localhost origins need their own allowed referrers. Server credentials stay
+in Vercel; only the Google/Cesium browser configuration and Supabase public key
+are included in browser assets.
+
+## Camera playback
+
+Click a globe camera icon/preview, a camera-directory result, or a nearby-camera
+result to open the expanded player. It provides native playback controls,
+fullscreen, reload, keyboard dismissal and resource cleanup when closed.
+Caltrans HLS URLs and TfL MP4 clips are taken from their official camera catalogs.
+HLS manifests and child assets are proxied within the registered camera's own
+origin/directory. Hls.js enables playback in browsers without native HLS support.
+
+TfL publishes recent clips, not continuous streams. Snapshot-only cameras refresh
+every 15 seconds while the player is open; upstream capture cadence varies. When
+video fails, the player shows an explicitly labeled snapshot fallback. Street View
+and synthetic fallback frames are labeled as reference imagery, never live footage.
+Local custom-camera editing remains available on localhost only.
 
 ## Verification
 
@@ -118,6 +154,7 @@ npm run build
 # With the development server running:
 node scripts/operations-smoke.mjs
 node scripts/operations-world-smoke.mjs
+node scripts/camera-player-smoke.mjs # ffmpeg required; synthetic MP4/HLS fixtures
 # Full upstream suite (canonical TMPDIR avoids a macOS symlink assertion):
 TMPDIR=/private/tmp npm test
 ```

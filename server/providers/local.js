@@ -1,3 +1,4 @@
+import { officialCameraVideo, resolveCameraMedia, rewriteCameraPlaylist } from './camera-media.js';
 import { terrainHeightsProxy } from './terrain.js';
 import { loadCameraPack, fetchPublicCameraImage } from './camera-packs.js';
 import { tomtomProxy } from './traffic.js';
@@ -1289,7 +1290,7 @@ export async function fetchOverpassPayload(body, maxResponseBytes = OVERPASS_MAX
  *
  * @returns {import('vite').Plugin}
  */
-function overpassProxy() {
+export function overpassProxy() {
   return {
     name: 'overpass-proxy',
     configureServer(server) {
@@ -2037,6 +2038,7 @@ async function loadCaltransSourcesFromOpenData() {
         })(),
         feedType: 'image',
         url: imageUrl,
+        ...officialCameraVideo(cctv.imageData?.streamingVideoURL, 'caltrans'),
         snapshotUrl: imageUrl,
         sourceKind: 'caltrans-open-data',
         license: 'Public Caltrans highway camera frame',
@@ -2108,8 +2110,9 @@ async function loadTflSourcesFromOpenData() {
         rangeM: 145,
         mountHeightM: 8,
         groundElevationM: 15, // Thames-basin prior; one-shot snap corrects.
-        feedType: 'image', // stills-first (owner decision); props.videoUrl deliberately unused
+        feedType: 'image',
         url: imageUrl,
+        ...officialCameraVideo(props.videoUrl, 'tfl'),
         snapshotUrl: imageUrl,
         sourceKind: 'tfl-open-data',
         license: 'Powered by TfL Open Data',
@@ -2150,6 +2153,7 @@ function normalizeSourceItem(item) {
     mountHeightM: toFiniteNumber(item.mountHeightM),
     groundElevationM: toFiniteNumber(item.groundElevationM),
     feedType: normalizeFeedType(item.feedType || item.type || ''),
+    playbackKind: item.playbackKind || (item.feedType === 'hls' ? 'live' : 'clip'),
     url: typeof item.url === 'string' ? item.url : '',
     snapshotUrl: typeof item.snapshotUrl === 'string' ? item.snapshotUrl : '',
     license: String(item.license || item.licenseNote || ''),
@@ -2442,7 +2446,7 @@ export async function fetchCctvImageFromUpstream(url, {
  *
  * @returns {import('vite').Plugin}
  */
-function cctvProxy() {
+export function cctvProxy() {
   /** @type {Map<string,{id:string,status:string,sourceKind:string,label:string,message:string,updatedAt:number}>} */
   const health = new Map();
   /** Cap on health map entries to prevent unbounded growth. Sized to cover the
@@ -2477,6 +2481,8 @@ function cctvProxy() {
     return {
       id: cameraId,
       feedType,
+      playbackKind: isVideoFeedType(feedType) ? (source?.playbackKind || (feedType === 'hls' ? 'live' : 'clip')) : 'snapshot',
+      license: source?.license || '',
       mediaUrl: isVideoFeedType(feedType)
         ? `/api/cctv/media/${encodeURIComponent(cameraId)}`
         : null,
@@ -2551,6 +2557,7 @@ function cctvProxy() {
                 mountHeightM: source.mountHeightM,
                 groundElevationM: source.groundElevationM,
                 feedType: normalizeFeedType(source.feedType),
+                playbackKind: source.playbackKind,
                 sourceKind: source.sourceKind || (source.url ? 'configured' : 'fallback'),
                 poseSource: source.poseSource,
                 license: source.license,
@@ -2570,6 +2577,7 @@ function cctvProxy() {
           if (url.pathname.startsWith('/stream/')) {
             const cameraId = decodeURIComponent(url.pathname.replace('/stream/', '').trim()) || 'camera';
             const source = sourceById.get(cameraId);
+            if (!source) { res.writeHead(404); res.end(); return; }
             const payload = buildStreamPayload(source, cameraId);
             res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
             res.end(JSON.stringify(payload));
@@ -2579,7 +2587,11 @@ function cctvProxy() {
           if (url.pathname.startsWith('/media/')) {
             const cameraId = decodeURIComponent(url.pathname.replace('/media/', '').trim()) || 'camera';
             const source = sourceById.get(cameraId);
-            const mediaUrl = source?.url || '';
+            let mediaUrl;
+            try {
+              if (!source?.url) throw new Error('No source');
+              mediaUrl = resolveCameraMedia(source.url, url.searchParams.get('asset')).href;
+            } catch { res.writeHead(404); res.end(); return; }
             const feedType = normalizeFeedType(source?.feedType || 'image');
 
             if (!mediaUrl || !/^https?:\/\//i.test(mediaUrl)) {
@@ -2600,6 +2612,8 @@ function cctvProxy() {
               if (requestRange) upstreamHeaders.Range = requestRange;
               const upstream = source?.sourceKind === 'local-camera-pack' ? await fetchPublicCameraImage(mediaUrl) : await fetch(mediaUrl, {
                 headers: upstreamHeaders,
+                redirect: 'error',
+                signal: AbortSignal.timeout(20000),
               });
               const contentType = upstream.headers.get('content-type') || '';
               if (!upstream.ok) {
@@ -2626,10 +2640,18 @@ function cctvProxy() {
                   status: 'ok',
                   sourceKind: isVideoFeedType(feedType) ? 'live' : 'snapshot',
                   label: source?.provider || 'Configured source',
-                  message: isVideoFeedType(feedType) ? 'Live stream connected' : 'Snapshot feed connected',
+                  message: isVideoFeedType(feedType) ? (source.playbackKind === 'clip' ? 'Recent video clip connected' : 'Live stream connected') : 'Snapshot feed connected',
                 });
               }
 
+              if (contentType.includes('mpegurl') || new URL(mediaUrl).pathname.endsWith('.m3u8')) {
+                const playlist = await readCappedResponseText(upstream, 512 * 1024);
+                if (playlist.tooLarge) throw new Error('Camera playlist too large');
+                const body = rewriteCameraPlaylist(playlist.text, mediaUrl, source.url, cameraId);
+                res.writeHead(200, { 'Content-Type': 'application/vnd.apple.mpegurl', 'Cache-Control': 'no-store' });
+                res.end(body);
+                return;
+              }
               await proxyMediaResponse(res, upstream, {
                 sourceHeader: isVideoFeedType(feedType) ? 'live-media' : 'upstream-image',
               });

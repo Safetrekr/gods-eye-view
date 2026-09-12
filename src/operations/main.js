@@ -194,6 +194,10 @@ async function lockView(message = '') {
 
 async function signOut() {
   demo = false;
+  if (!import.meta.env.DEV)
+    fetch('/api/safetrekr/logout', { method: 'POST', keepalive: true }).catch(
+      () => {},
+    );
   await lockView();
   session = null;
   if (auth) await auth.auth.signOut({ scope: 'local' });
