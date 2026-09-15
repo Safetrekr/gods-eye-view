@@ -99,6 +99,11 @@ const FOCUS_EVIDENCE_DEV = import.meta.env?.DEV === true;
 
 /** Amber tint for known-military aircraft rendered by this layer (matches the military layer's icon color). */
 const MIL_TINT = Cesium.Color.fromCssColorString('#FFB800');
+// The host supplies public ICAO24 addresses only. Private trip identity stays
+// in its own memory and never enters explorer serialization or provider calls.
+const HOST_HIGHLIGHT_TINT = Cesium.Color.fromCssColorString('#71cc9a');
+let _hostHighlightedIds = new Set();
+let _hostOnlyHighlighted = false;
 
 // --- Ground traffic (owner reversal 2026-07-03: "absolutely we should see planes
 // taxiing and landing") -----------------------------------------------------------
@@ -123,6 +128,7 @@ const GROUND_SCALE = 0.8;
 /** Fleet (untracked) billboard tint: amber for known-military, white otherwise.
  *  Ground traffic gets NO special tint (owner verdict 2026-07-03 field test). */
 function _fleetBillboardColor(icao24) {
+  if (_hostHighlightedIds.has(icao24)) return HOST_HIGHLIGHT_TINT;
   return isMilitaryIcao(icao24) ? MIL_TINT : Cesium.Color.WHITE;
 }
 
@@ -2710,6 +2716,13 @@ function _fleetTick() {
   for (const [icao24, bb] of _billboards) {
     if (icao24 === _trackedIcao) continue; // tracked entity owns its own motion
 
+    if (_hostOnlyHighlighted && !_hostHighlightedIds.has(icao24)) {
+      bb.show = false;
+      const model = _models.get(icao24);
+      if (model) model.show = false;
+      continue;
+    }
+
     const info = _flightData.get(icao24);
 
     const dr = _deadReckon(icao24, _scratchFleetPos);
@@ -3883,6 +3896,26 @@ const flightsLayer = {
   name: 'Live Flights',
   icon: '✈️',
   source: 'OpenSky Network',
+  /** Exact identity lookup; no prefix or substring matching. */
+  getContactById(icao24) {
+    const id = String(icao24 || '').trim().toLowerCase();
+    return /^[a-f0-9]{6}$/.test(id) ? _describeFlight(id) : null;
+  },
+  /** Reversible host filter. The host owns linkage and expiration. */
+  setContactPresentation({ highlightedIds = [], onlyHighlighted = false } = {}) {
+    _hostHighlightedIds = new Set(highlightedIds.map(id => String(id).toLowerCase()).filter(id => /^[a-f0-9]{6}$/.test(id)));
+    _hostOnlyHighlighted = onlyHighlighted === true;
+    if (_hostOnlyHighlighted && _trackedIcao && !_hostHighlightedIds.has(_trackedIcao)) _clearTracking(false);
+    for (const [id, bb] of _billboards) {
+      _applyFleetBillboardPresentation(id, bb);
+      if (_hostOnlyHighlighted && !_hostHighlightedIds.has(id)) {
+        bb.show = false;
+        const model = _models.get(id);
+        if (model) model.show = false;
+      }
+    }
+    _viewer?.scene.requestRender();
+  },
   // Browser-harness seam: isolates synthetic display-floor scenarios without
   // changing any production lifecycle or cache policy.
   _clearDisplayFloorStateForTest,
@@ -4501,7 +4534,7 @@ const flightsLayer = {
             // close (_groundDepthDistance).
             disableDepthTestDistance: _groundDepthDistance(),
             id: icao24,
-            show: !isTracked, // hidden if currently tracked (entity replaces it)
+            show: !isTracked && (!_hostOnlyHighlighted || _hostHighlightedIds.has(icao24)),
           });
           _billboards.set(icao24, bb);
           _applyFleetBillboardPresentation(icao24, bb);

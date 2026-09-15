@@ -69,5 +69,8 @@
   "src/data/tomtomTiles.test.mjs",
   "src/data/firmsCsv.js",
   "src/data/firmsCsv.test.mjs",
-  "src/tooling/environmentProviders.test.mjs"
+  "src/tooling/environmentProviders.test.mjs",
+  "src/operations/boundaries.js",
+  "src/operations/boundaries.test.mjs",
+  "src/operations/participantPins.js"
 ]

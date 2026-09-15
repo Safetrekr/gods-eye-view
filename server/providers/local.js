@@ -1,4 +1,6 @@
+import { officialCameraVideo, resolveCameraMedia, rewriteCameraPlaylist } from './camera-media.js';
 import { terrainHeightsProxy } from './terrain.js';
+import { loadCameraPack, fetchPublicCameraImage } from './camera-packs.js';
 import { tomtomProxy } from './traffic.js';
 import { firmsProxy } from './firms.js';
 import { gbfsProxy } from './gbfs.js';
@@ -1288,7 +1290,7 @@ export async function fetchOverpassPayload(body, maxResponseBytes = OVERPASS_MAX
  *
  * @returns {import('vite').Plugin}
  */
-function overpassProxy() {
+export function overpassProxy() {
   return {
     name: 'overpass-proxy',
     configureServer(server) {
@@ -1532,6 +1534,11 @@ let _cctvSourceCacheAt = 0;
 /** @type {Promise<Array<object>>|null} In-flight refresh, shared by concurrent
  * callers so a post-TTL burst launches ONE refetch, not one per request. */
 let _cctvSourceInflight = null;
+
+export async function invalidateCctvSources() {
+  if (_cctvSourceInflight) await _cctvSourceInflight;
+  _cctvSourceCacheAt = 0;
+}
 
 /**
  * Coerce a value to a finite number, returning fallback if NaN/Infinity.
@@ -2031,6 +2038,7 @@ async function loadCaltransSourcesFromOpenData() {
         })(),
         feedType: 'image',
         url: imageUrl,
+        ...officialCameraVideo(cctv.imageData?.streamingVideoURL, 'caltrans'),
         snapshotUrl: imageUrl,
         sourceKind: 'caltrans-open-data',
         license: 'Public Caltrans highway camera frame',
@@ -2102,8 +2110,9 @@ async function loadTflSourcesFromOpenData() {
         rangeM: 145,
         mountHeightM: 8,
         groundElevationM: 15, // Thames-basin prior; one-shot snap corrects.
-        feedType: 'image', // stills-first (owner decision); props.videoUrl deliberately unused
+        feedType: 'image',
         url: imageUrl,
+        ...officialCameraVideo(props.videoUrl, 'tfl'),
         snapshotUrl: imageUrl,
         sourceKind: 'tfl-open-data',
         license: 'Powered by TfL Open Data',
@@ -2144,6 +2153,7 @@ function normalizeSourceItem(item) {
     mountHeightM: toFiniteNumber(item.mountHeightM),
     groundElevationM: toFiniteNumber(item.groundElevationM),
     feedType: normalizeFeedType(item.feedType || item.type || ''),
+    playbackKind: item.playbackKind || (item.feedType === 'hls' ? 'live' : 'clip'),
     url: typeof item.url === 'string' ? item.url : '',
     snapshotUrl: typeof item.snapshotUrl === 'string' ? item.snapshotUrl : '',
     license: String(item.license || item.licenseNote || ''),
@@ -2189,6 +2199,8 @@ async function getCctvSources() {
 async function refreshCctvSources() {
   const fromFile = loadSourcesFromFile();
   const fromEnv = loadSourcesFromEnv();
+  let fromOperations = [];
+  try { fromOperations = loadCameraPack(); } catch { console.warn('[CCTV] Local camera pack unavailable'); }
 
   const forceAustin = String(process.env.CCTV_FORCE_AUSTIN || '').trim() === '1';
   const preferAustin = String(process.env.CCTV_PREFER_AUSTIN || '1').trim() !== '0';
@@ -2212,7 +2224,7 @@ async function refreshCctvSources() {
     fromTfl = tflResult.status === 'fulfilled' ? tflResult.value : [];
   }
   // Live sources first so file/env overrides win on duplicate IDs (Map last-write).
-  const merged = [...fromAustin, ...fromCaltrans, ...fromTfl, ...fromFile, ...fromEnv];
+  const merged = [...fromOperations, ...fromAustin, ...fromCaltrans, ...fromTfl, ...fromFile, ...fromEnv];
 
   // Deduplicate by camera ID (last-write wins because of Map.set)
   const byId = new Map();
@@ -2224,7 +2236,7 @@ async function refreshCctvSources() {
   }
 
   const mergedSources = Array.from(byId.values());
-  const maxRaw = Number(process.env.CCTV_MAX_SOURCES || DEFAULT_CCTV_MAX_SOURCES);
+  const maxRaw = Number(process.env.CCTV_MAX_SOURCES || (DEFAULT_CCTV_MAX_SOURCES + fromOperations.length));
   const maxCount = Number.isFinite(maxRaw) ? Math.max(8, Math.min(1200, Math.floor(maxRaw))) : DEFAULT_CCTV_MAX_SOURCES;
   if (mergedSources.length > maxCount) {
     console.warn(`[CCTV] source catalog ${mergedSources.length} exceeds cap ${maxCount}; keeping the first ${maxCount} (raise CCTV_MAX_SOURCES or lower a per-pack cap to change which).`);
@@ -2434,7 +2446,7 @@ export async function fetchCctvImageFromUpstream(url, {
  *
  * @returns {import('vite').Plugin}
  */
-function cctvProxy() {
+export function cctvProxy() {
   /** @type {Map<string,{id:string,status:string,sourceKind:string,label:string,message:string,updatedAt:number}>} */
   const health = new Map();
   /** Cap on health map entries to prevent unbounded growth. Sized to cover the
@@ -2469,6 +2481,8 @@ function cctvProxy() {
     return {
       id: cameraId,
       feedType,
+      playbackKind: isVideoFeedType(feedType) ? (source?.playbackKind || (feedType === 'hls' ? 'live' : 'clip')) : 'snapshot',
+      license: source?.license || '',
       mediaUrl: isVideoFeedType(feedType)
         ? `/api/cctv/media/${encodeURIComponent(cameraId)}`
         : null,
@@ -2543,6 +2557,7 @@ function cctvProxy() {
                 mountHeightM: source.mountHeightM,
                 groundElevationM: source.groundElevationM,
                 feedType: normalizeFeedType(source.feedType),
+                playbackKind: source.playbackKind,
                 sourceKind: source.sourceKind || (source.url ? 'configured' : 'fallback'),
                 poseSource: source.poseSource,
                 license: source.license,
@@ -2562,6 +2577,7 @@ function cctvProxy() {
           if (url.pathname.startsWith('/stream/')) {
             const cameraId = decodeURIComponent(url.pathname.replace('/stream/', '').trim()) || 'camera';
             const source = sourceById.get(cameraId);
+            if (!source) { res.writeHead(404); res.end(); return; }
             const payload = buildStreamPayload(source, cameraId);
             res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
             res.end(JSON.stringify(payload));
@@ -2571,7 +2587,11 @@ function cctvProxy() {
           if (url.pathname.startsWith('/media/')) {
             const cameraId = decodeURIComponent(url.pathname.replace('/media/', '').trim()) || 'camera';
             const source = sourceById.get(cameraId);
-            const mediaUrl = source?.url || '';
+            let mediaUrl;
+            try {
+              if (!source?.url) throw new Error('No source');
+              mediaUrl = resolveCameraMedia(source.url, url.searchParams.get('asset')).href;
+            } catch { res.writeHead(404); res.end(); return; }
             const feedType = normalizeFeedType(source?.feedType || 'image');
 
             if (!mediaUrl || !/^https?:\/\//i.test(mediaUrl)) {
@@ -2590,8 +2610,10 @@ function cctvProxy() {
               const upstreamHeaders = { 'User-Agent': 'gods-eye-view-cctv-proxy/1.0' };
               const requestRange = req.headers?.range;
               if (requestRange) upstreamHeaders.Range = requestRange;
-              const upstream = await fetch(mediaUrl, {
+              const upstream = source?.sourceKind === 'local-camera-pack' ? await fetchPublicCameraImage(mediaUrl) : await fetch(mediaUrl, {
                 headers: upstreamHeaders,
+                redirect: 'error',
+                signal: AbortSignal.timeout(20000),
               });
               const contentType = upstream.headers.get('content-type') || '';
               if (!upstream.ok) {
@@ -2618,10 +2640,18 @@ function cctvProxy() {
                   status: 'ok',
                   sourceKind: isVideoFeedType(feedType) ? 'live' : 'snapshot',
                   label: source?.provider || 'Configured source',
-                  message: isVideoFeedType(feedType) ? 'Live stream connected' : 'Snapshot feed connected',
+                  message: isVideoFeedType(feedType) ? (source.playbackKind === 'clip' ? 'Recent video clip connected' : 'Live stream connected') : 'Snapshot feed connected',
                 });
               }
 
+              if (contentType.includes('mpegurl') || new URL(mediaUrl).pathname.endsWith('.m3u8')) {
+                const playlist = await readCappedResponseText(upstream, 512 * 1024);
+                if (playlist.tooLarge) throw new Error('Camera playlist too large');
+                const body = rewriteCameraPlaylist(playlist.text, mediaUrl, source.url, cameraId);
+                res.writeHead(200, { 'Content-Type': 'application/vnd.apple.mpegurl', 'Cache-Control': 'no-store' });
+                res.end(body);
+                return;
+              }
               await proxyMediaResponse(res, upstream, {
                 sourceHeader: isVideoFeedType(feedType) ? 'live-media' : 'upstream-image',
               });
@@ -2661,7 +2691,8 @@ function cctvProxy() {
             source?.snapshotUrl
             || (!isVideoFeedType(normalizeFeedType(source?.feedType)) ? source?.url : '');
 
-          const upstreamImage = await fetchCctvImageFromUpstream(upstreamCandidate);
+          const upstreamImage = await fetchCctvImageFromUpstream(upstreamCandidate,
+            source?.sourceKind === 'local-camera-pack' ? { fetchImpl: fetchPublicCameraImage } : {});
           if (upstreamImage?.ok) {
             setHealth(cameraId, {
               status: 'ok',

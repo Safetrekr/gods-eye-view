@@ -1,4 +1,5 @@
 import * as Cesium from 'cesium';
+import { fireAlertAreas } from './fireAlertAreas.js';
 import { governorRequestRender } from '../renderGovernor.js';
 import {
   registerSpriteCollection,
@@ -147,6 +148,7 @@ export function createFirmsHeatmapLayer({
   let _error = null;
   let _fires = [];
   let _firesByFrp = [];
+  let _alertAreas = null;
   let _count = 0;
   let _cellCount = 0;
   let _lastUpdate = null;
@@ -271,6 +273,7 @@ export function createFirmsHeatmapLayer({
       clearSelectedEntityContextForLayer(id);
       _fires = [];
       _firesByFrp = [];
+      _alertAreas = null;
       _cellCacheByGrid.clear();
       _count = 0;
       _cellCount = 0;
@@ -378,6 +381,11 @@ export function createFirmsHeatmapLayer({
      * @param {number} [maxCount=2000] - Maximum records to return (truncation).
      * @returns {Array<Object>} See mapAnalystRecord for the record shape.
      */
+    getAlertAreas() {
+      if (!_enabled) return [];
+      return _alertAreas ??= fireAlertAreas(_fires);
+    },
+
     getAnalystRecords(maxCount = 2000) {
       if (!_enabled || !_firesByFrp.length) return [];
       const limit = Number.isFinite(maxCount) ? Math.max(1, Math.floor(maxCount)) : 2000;
@@ -433,6 +441,12 @@ export function createFirmsHeatmapLayer({
           _stale = false;
           return;
         }
+        if (payload?.error === 'invalid_key') {
+          _keyRequired = false;
+          _error = 'NASA rejected FIRMS_MAP_KEY. Check the key value and activation.';
+          _stale = _count > 0;
+          return;
+        }
         throw new Error(`FIRMS HTTP ${response.status}`);
       }
 
@@ -443,6 +457,7 @@ export function createFirmsHeatmapLayer({
       const previousSelection = _selectedFire;
       _selectedFire = null;
       _fires = adaptFirmsRecords(payload?.fires);
+      _alertAreas = null;
       _cellCacheByGrid.clear(); // aggregation is per-dataset — new fires, new cells
       _firesByFrp = [..._fires].sort((a, b) => b.frp - a.frp);
       _count = _fires.length;

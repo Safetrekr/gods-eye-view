@@ -1676,7 +1676,7 @@ function createProjectionRuntime(record) {
   const ctx = canvas.getContext('2d', { alpha: true });
 
   const feedType = normalizeFeedType(record.camera.feedType);
-  const mode = isVideoFeedType(feedType) ? 'video' : 'image';
+  const mode = isVideoFeedType(feedType) && !_cameraOpenHandler ? 'video' : 'image';
   const runtime = {
     mode,
     canvas,
@@ -3679,6 +3679,16 @@ export function bindCctvWorldClickGesture(handler, onClick, options = {}) {
  * @param {string} cameraId - ID of the camera to activate.
  * @returns {'activated'|'unchanged'|'not-found'} Discriminated activation result.
  */
+let _cameraOpenHandler = null;
+function openSelectedCamera(cameraId) {
+  if (_cameraOpenHandler && _recordById.has(cameraId)) _cameraOpenHandler(getPublicCameraState(_recordById.get(cameraId)));
+}
+function activateAndOpenCamera(cameraId) {
+  const result = setActiveCamera(cameraId);
+  openSelectedCamera(cameraId);
+  return result;
+}
+
 export function setActiveCamera(cameraId) {
   if (!cameraId || !_recordById.has(cameraId)) return CCTV_ACTIVATION_RESULT.NOT_FOUND;
   const record = _recordById.get(cameraId);
@@ -4353,7 +4363,7 @@ const cctvLayer = {
       const picked = _viewer.scene.pick(click.position);
       const cameraId = extractPickedCameraId(picked);
       if (cameraId) {
-        activateCctvCameraFromWorldClick(cameraId, setActiveCamera);
+        activateCctvCameraFromWorldClick(cameraId, activateAndOpenCamera);
         return;
       }
       // Any identified scene object owns this click even if its layer does not
@@ -4373,7 +4383,7 @@ const cctvLayer = {
         { sourceId: CCTV_OVERLAY_SOURCE_ID },
       )?.entryId;
       if (cardId && _recordById.has(cardId)) {
-        activateCctvCameraFromWorldClick(cardId, setActiveCamera);
+        activateCctvCameraFromWorldClick(cardId, activateAndOpenCamera);
         return;
       }
       if (cctvEmptyClickDeselects(picked, {
@@ -4761,9 +4771,14 @@ const cctvLayer = {
    * @param {number} [options.durationSec] - Fly-to duration in seconds.
    * @returns {boolean} True if the camera was found and selected.
    */
+  setCameraOpenHandler(handler) {
+    _cameraOpenHandler = typeof handler === 'function' ? handler : null;
+  },
+
   selectCamera(cameraId, options = {}) {
     const result = setActiveCamera(cameraId);
     if (result === CCTV_ACTIVATION_RESULT.NOT_FOUND) return false;
+    openSelectedCamera(cameraId);
     if (options.focus) {
       focusCamera(cameraId, options.durationSec || 1.8);
     }
