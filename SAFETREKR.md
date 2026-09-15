@@ -92,6 +92,37 @@ The development-only **Explore a sample trip** button (or `?demo=1`) loads
 fictional Austin travelers with a conspicuous simulated-data label. It makes no
 Core data requests. Production builds provide no sample-mode entry point.
 
+## Alerts and activity
+
+The header **Alerts** button opens the activity rail (open by default on desktop).
+**Near trips** is the default; **Worldwide** shows public events globally without
+expanding organization access. Category filters cover trip activity, geofences,
+group directions, earthquakes, and fires. Cards expand for details and links to
+the trip or recorded map location. Higher-priority items appear first; at most
+100 matching cards render at once, with the full matching count shown.
+
+Nearby earthquakes use a 250 km radius and fire areas about 25 km around fresh
+participant fixes and loaded lodging, venues, or itinerary stops. Planned sites
+are labeled as references, not proof that the group is there. This is a proximity
+filter, not an impact forecast. NASA observations are grouped in 0.1° map cells
+across the complete dataset, including weaker detections outside renderer caps.
+They are not inferred wildfire incidents. Old active trip alerts remain visible;
+world observations and recorded geofence transitions cover the last 24 hours.
+
+The rail refreshes every 15 seconds while the page is visible, using existing
+layer data. Disabled, delayed, or failed sources and missing trip references are
+explicit. Turning a public layer off stops its activity coverage. Review badges
+are memory-only and cleared on account/scope changes; **Mark shown reviewed**
+does not acknowledge alerts for travelers or alter Core records.
+
+The pending Core companion update supplies `geofence_events` from recorded
+transitions and typed `operations_event` metadata for new group directions.
+Without it, the live rail still shows existing trip alerts and public hazards,
+and explicitly states that recorded geofence activity needs the Core update.
+It never infers an exit from a single GPS point or identifies a direction by
+matching free-form alert headlines. A later recorded re-entry downgrades the
+earlier exit in the rail without declaring the participant safe.
+
 ## Trip actions
 
 **Send alert** targets all participants, travelers, or chaperones on one authorized

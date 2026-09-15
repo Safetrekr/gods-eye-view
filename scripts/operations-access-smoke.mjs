@@ -3,6 +3,7 @@ import puppeteer from 'puppeteer';
 import { mkdir } from 'node:fs/promises';
 import { demoSnapshot } from '../src/operations/demo.js';
 import { TRIP_COLLECTIONS } from '../src/operations/access.js';
+const collections = [...TRIP_COLLECTIONS, 'geofence_events'];
 
 // Real login UI and Supabase SDK; synthetic Auth/Core responses and a small
 // globe adapter. No credentials, private production data, or paid feeds used.
@@ -41,7 +42,7 @@ try {
         ? { kind: 'platform', org_id: null }
         : { kind: 'organization', org_id: scope };
     result.trips = [];
-    for (const key of TRIP_COLLECTIONS) result[key] = [];
+    for (const key of collections) result[key] = [];
     for (const organization of scope === 'platform'
       ? ['org-a', 'org-b']
       : scope === 'empty-org'
@@ -56,13 +57,24 @@ try {
         org_id: organization,
         title: `Trip ${organization}`,
       });
-      for (const key of TRIP_COLLECTIONS)
+      for (const key of collections)
         result[key].push(
           ...fixture[key].map((record) => ({
             ...record,
             trip_id: tripId,
             ...(record.id ? { id: `${organization}-${record.id}` } : {}),
             ...(record.name ? { name: `${organization}: ${record.name}` } : {}),
+            ...(record.participant_id
+              ? { participant_id: `${organization}-${record.participant_id}` }
+              : {}),
+            ...(record.operations_event
+              ? {
+                  operations_event: {
+                    ...record.operations_event,
+                    destination_id: `${organization}-${record.operations_event.destination_id}`,
+                  },
+                }
+              : {}),
             ...(record.participant_ids
               ? {
                   participant_ids: record.participant_ids.map(
@@ -173,7 +185,15 @@ try {
         return {
           mapMode: 'Synthetic globe',
           setSnapshot(data) { window.testGlobe.snapshot = data; },
-          frameTrip() {}, focus() {}, setRole() {}, follow() {}, resetView() {},
+          frameTrip() {}, focus(point) { window.testGlobe.focus = point; }, setRole() {}, follow() {}, resetView() {},
+          getAlertContext() { return {
+            earthquakes: [
+              { id: 'near-quake', lat: 30.3, lon: -97.7, magnitude: 4.2, timeMs: Date.now() - 60000, place: 'Synthetic nearby earthquake' },
+              { id: 'far-quake', lat: 0, lon: 100, magnitude: 6.1, timeMs: Date.now() - 60000, place: 'Synthetic distant earthquake' },
+            ],
+            fires: [{ id: 'near-fire', coordinates: { lat: 30.26, lng: -97.74 }, count: 12, timeMs: Date.now() - 120000, radiusKm: 1 }],
+            feeds: { earthquakes: { enabled: true, stats: {} }, fires: { enabled: true, stats: {} } },
+          }; },
           stopFollowing() { window.testGlobe.stopCount++; },
           flights: { setContactPresentation() {}, getContactById() { return null; } },
           cameras: { getCameras() { return []; } },
@@ -220,6 +240,7 @@ try {
     );
     assert.equal(await text('#ops-list'), '');
     assert.equal(await text('#ops-detail'), '');
+    assert.equal(await text('#ops-alerts-panel'), '');
     assert.equal(await page.evaluate(() => window.testGlobe.snapshot), null);
   };
 
@@ -232,6 +253,37 @@ try {
   assert.equal(await text('#ops-access-scope'), 'ORGANIZATION VIEW');
   assert.match(await text('#ops-list'), /Trip org-a/);
   assert.doesNotMatch(await text('#ops-console'), /org-b/);
+  await page.waitForSelector('#ops-alerts-panel:not([hidden])');
+  assert.match(
+    await text('#ops-alert-list'),
+    /org-a: Alex Rivera left the geofence/,
+  );
+  assert.match(await text('#ops-alert-list'), /M4.2 earthquake/);
+  assert.doesNotMatch(await text('#ops-alert-list'), /M6.1 earthquake/);
+  assert.match(await text('#ops-alert-list'), /Group direction/);
+  await page.click(
+    '[data-event-id="geofence:trip-org-a:org-a-exit-1"] [data-action="expand"]',
+  );
+  await page.click(
+    '[data-event-id="geofence:trip-org-a:org-a-exit-1"] [data-action="map"]',
+  );
+  assert.equal((await page.evaluate(() => window.testGlobe.focus)).lat, 30.273);
+  await page.click('[data-alert-scope="worldwide"]');
+  assert.match(await text('#ops-alert-list'), /M6.1 earthquake/);
+  await page.click('[data-alert-scope="nearby"]');
+  await page.select('#ops-alert-category', 'fire');
+  await page.click('[data-kind="fire"] [data-action="expand"]');
+  assert.match(await text('#ops-alert-list'), /12 observations/);
+  await page.click('#ops-alert-review-all');
+  assert.match(await text('#ops-alert-list'), /Reviewed here/);
+  assert.equal(
+    sent.length,
+    0,
+    'Reviewing feed items must not send or acknowledge messages',
+  );
+  await page.select('#ops-alert-category', 'all');
+  await page.screenshot({ path: 'output/operations/alerts-panel-desktop.png' });
+  await page.click('#ops-alerts-panel .ops-world-close');
   await page.click('[data-action="broadcast"]');
   await page.type('#ops-action-form [name=title]', 'Meeting update');
   await page.type(
@@ -319,6 +371,15 @@ try {
   await mkdir('output/operations', { recursive: true });
   await page.screenshot({ path: 'output/operations/organization-access.png' });
   await page.setViewport({ width: 390, height: 844 });
+  await page.click('#ops-alerts-button');
+  await page.waitForSelector('#ops-alerts-panel:not([hidden])');
+  await page.screenshot({ path: 'output/operations/alerts-panel-mobile.png' });
+  const bounds = await page.$eval('#ops-alerts-panel', (el) => {
+    const r = el.getBoundingClientRect();
+    return { left: r.left, right: r.right, bottom: r.bottom };
+  });
+  assert.ok(bounds.left >= 0 && bounds.right <= 390 && bounds.bottom <= 844);
+  await page.click('#ops-alerts-panel .ops-world-close');
   assert.equal(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,

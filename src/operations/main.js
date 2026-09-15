@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { fetchOperations, SnapshotPoller } from './api.js';
 import { scopeLabels } from './access.js';
 import { mountTripActions } from './actions.js';
+import { mountAlertsPanel } from './alertsPanel.js';
 import {
   currentFreshness,
   nearbyCameras,
@@ -37,7 +38,7 @@ root.innerHTML = `
   <div id="ops-console" hidden>
     <div id="cesiumContainer" aria-label="Interactive 3D operations globe"></div>
     <header class="ops-header"><img src="/safetrekr-logo.svg" alt="SafeTrekr" width="152" /><span class="ops-divider"></span><span>World View</span>
-      <span id="ops-environment" class="ops-environment">PRODUCTION · READ ONLY</span><span class="ops-header-spacer"></span><span id="ops-sync" role="status">Connecting…</span><button id="ops-roster-button" aria-pressed="true">Trips</button><button id="ops-layers-button" aria-expanded="false" aria-controls="ops-layers">World controls</button><button id="ops-signout">Sign out</button></header>
+      <span id="ops-environment" class="ops-environment">PRODUCTION</span><span class="ops-header-spacer"></span><span id="ops-sync" role="status">Connecting…</span><button id="ops-roster-button" aria-pressed="true">Trips</button><button id="ops-alerts-button" aria-expanded="false" aria-controls="ops-alerts-panel">Alerts</button><button id="ops-layers-button" aria-expanded="false" aria-controls="ops-layers">World controls</button><button id="ops-signout">Sign out</button></header>
     <aside class="ops-sidebar" aria-label="Trips and participants">
       <div class="ops-sidebar-heading"><p id="ops-access-scope" class="ops-eyebrow">OPERATIONS</p><h2 id="ops-scope-title">Your world, at a glance</h2><p id="ops-scope-description" class="ops-small"></p><p id="ops-totals"></p></div>
       <div class="ops-filters"><label for="ops-window">Trip window</label><select id="ops-window"><option value="current">Traveling today</option><option value="upcoming">Upcoming trips</option><option value="all">All trips</option></select>
@@ -50,6 +51,7 @@ root.innerHTML = `
     <aside id="ops-detail" class="ops-detail" aria-label="Selection details"></aside>
     <div class="ops-map-controls"><button id="ops-frame">Fit trip view</button><button id="ops-stop-follow">Stop following</button><button id="ops-world-reset">World view</button><div id="ops-world-shortcuts" class="ops-world-shortcuts"></div></div><div id="ops-visual-badge" class="ops-visual-badge" hidden></div>
     <section id="ops-layers" class="ops-world-panel" aria-label="World controls" hidden></section>
+    <section id="ops-alerts-panel" class="ops-world-panel ops-alerts-panel" aria-label="Alerts and activity" hidden></section>
     <div class="ops-legend"><span><i style="background:#71cc9a"></i>Traveler</span><span><i style="background:#75b9f2"></i>Chaperone</span><span><i style="background:#e6bb66"></i>Aging</span><span><i style="background:#d98585"></i>Last known</span></div>
     <div id="ops-loading" class="ops-loading" role="status"><span class="ops-spinner"></span><p id="ops-loader-status">Connecting to SafeTrekr…</p></div>
   </div>`;
@@ -118,6 +120,7 @@ const tabs = [
   ['status', 'Status'],
 ];
 let worldControls = null;
+let alertsPanel = null;
 let mfaFactor = null;
 let pendingCleanup = Promise.resolve();
 const visibleRoles = { traveler: true, chaperone: true };
@@ -189,6 +192,8 @@ const tripActions = mountTripActions({
 
 async function lockView(message = '') {
   tripActions.close();
+  alertsPanel?.dispose();
+  alertsPanel = null;
   lifecycle += 1;
   starting = false;
   poller.stop();
@@ -302,11 +307,13 @@ async function openSession(nextSession, sample = false) {
     }
     globe = created;
     buildLayers(mountWorldControls);
+    buildAlerts();
     acceptSnapshot(data);
     globe.frameTrip(filters.tripId);
     show('ops-loading', false);
     poller.start();
     void globe.startWorldLayers?.();
+    if (matchMedia('(min-width: 1101px)').matches) alertsPanel.open(false);
   } catch (error) {
     if (epoch === lifecycle && error.name !== 'AbortError')
       await lockView(error.message || 'Could not open World View.');
@@ -338,6 +345,7 @@ function acceptSnapshot(data) {
   );
   receivedAt = performance.now() - (data.transportAgeSeconds || 0) * 1000;
   connectionError = '';
+  alertsPanel?.update();
   globe?.setSnapshot(data);
   if (selected) {
     const key = {
@@ -389,6 +397,7 @@ function changeFilters(next) {
   selected = null;
   snapshot = null;
   tripActions.update();
+  alertsPanel?.update();
   links.clear();
   if (globe) {
     globe.stopFollowing();
@@ -642,6 +651,7 @@ function renderList() {
 }
 
 function selectRecord(value) {
+  alertsPanel?.close(false);
   selected = value;
   renderDetail();
   if (validPoint(value.record.coordinates))
@@ -769,10 +779,10 @@ function renderDetail() {
         `${human(record.category)} · ${human(record.approval_status)}`,
         'ops-small',
       );
-    if (record.instructions || record.tl_dr)
+    if (record.instructions || record.full_summary || record.tl_dr)
       paragraph(
         parent,
-        record.instructions || record.tl_dr,
+        record.instructions || record.full_summary || record.tl_dr,
         'ops-instructions',
       );
     if (record.contact?.phone || record.phone)
@@ -995,8 +1005,46 @@ function buildLayers(mountWorldControls) {
     trigger: $('ops-layers-button'),
     shortcuts: $('ops-world-shortcuts'),
     badge: $('ops-visual-badge'),
-    onPanelChange: (open) =>
-      $('ops-console').classList.toggle('ops-world-open', open),
+    onPanelChange: (open) => {
+      $('ops-console').classList.toggle('ops-world-open', open);
+      if (open) alertsPanel?.close(false);
+    },
+  });
+}
+
+function buildAlerts() {
+  alertsPanel?.dispose();
+  alertsPanel = mountAlertsPanel({
+    panel: $('ops-alerts-panel'),
+    trigger: $('ops-alerts-button'),
+    getContext: () => ({
+      snapshot,
+      accountId: session?.user?.id,
+      demo,
+      connectionError,
+      elapsedSeconds: snapshot ? (performance.now() - receivedAt) / 1000 : 0,
+      world: globe?.getAlertContext?.() || {},
+    }),
+    onPanelChange: (open) => {
+      $('ops-console').classList.toggle('ops-alerts-open', open);
+      if (open) worldControls?.close?.(false);
+    },
+    onMap: (item) =>
+      globe?.focus(
+        item.coordinates,
+        item.kind === 'earthquake'
+          ? 220000
+          : item.kind === 'fire'
+            ? 20000
+            : 1800,
+      ),
+    onTrip: (tripId) => {
+      alertsPanel.close(false);
+      tab = 'status';
+      changeFilters({ tripId, offset: 0 });
+    },
+    onAlert: (record) => selectRecord({ kind: 'alert', record }),
+    onWorldControls: () => worldControls?.openTab('layers'),
   });
 }
 

@@ -1000,6 +1000,217 @@ body.operations {
   visibility: hidden;
   pointer-events: none;
 }
+
+/* The activity rail shares the right-side slot with world controls. */
+.ops-alerts-open .ops-detail {
+  visibility: hidden;
+  pointer-events: none;
+}
+.ops-alerts-panel {
+  width: 395px;
+  bottom: 125px;
+}
+.operations .ops-alert-unread {
+  border-color: #83b89b;
+  color: #b7ebc9;
+}
+.ops-alert-filters {
+  padding: 12px 18px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  border-bottom: 1px solid #2a3d40;
+}
+.ops-alert-scope {
+  display: flex;
+  gap: 4px;
+  width: 100%;
+}
+.ops-alert-scope button {
+  flex: 1;
+}
+.ops-alert-scope [aria-pressed='true'] {
+  background: #28473c;
+  border-color: #70b995;
+  color: #d9f4e3;
+}
+.ops-alert-filters label {
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ops-alert-filters select {
+  width: auto;
+  min-width: 150px;
+  background: #0c1a20;
+  color: #d8e5e5;
+  border: 1px solid #40564f;
+  border-radius: 4px;
+  padding: 7px;
+  font: inherit;
+}
+.ops-alert-filters button {
+  padding: 7px 10px;
+  font-size: 11px;
+}
+.ops-alert-new-filter input {
+  width: 13px;
+  height: 13px;
+  accent-color: #83cba1;
+}
+.ops-alert-coverage,
+.ops-alert-foot {
+  padding: 10px 18px;
+  color: #9fb3b5;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.ops-alert-notices {
+  margin: 0 18px;
+  padding: 9px 12px;
+  border-left: 2px solid #d4aa61;
+  background: #372f203b;
+  max-height: 105px;
+  overflow: auto;
+  flex-shrink: 0;
+}
+.ops-alert-notices p {
+  color: #dec396;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.ops-alert-notices button {
+  margin-top: 5px;
+  padding: 6px;
+  font-size: 10px;
+}
+.ops-alert-summary {
+  font-size: 10px;
+  color: #a6b9ba;
+  padding: 10px 18px;
+}
+.ops-alert-list {
+  flex: 1;
+  min-height: 90px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 12px 10px;
+}
+.ops-alert-card {
+  border: 1px solid #344c4d;
+  border-left: 3px solid #83b89b;
+  background: #10242a;
+  border-radius: 5px;
+  margin-bottom: 8px;
+  padding: 12px;
+}
+.ops-alert-card[data-priority='3'] {
+  border-left-color: #e39999;
+}
+.ops-alert-card[data-priority='2'] {
+  border-left-color: #e3bd76;
+}
+.ops-alert-card.is-reviewed {
+  border-left-color: #4c6465;
+}
+.ops-alert-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #9cb7b6;
+  margin-bottom: 7px;
+}
+.ops-alert-review-state {
+  color: #b0ddbf;
+}
+.operations .ops-alert-title {
+  text-align: left;
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 600;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  width: 100%;
+  color: #e0eceb;
+}
+.ops-alert-origin {
+  font-size: 10px;
+  color: #98abad;
+  margin-top: 6px;
+  line-height: 1.4;
+}
+.ops-alert-match {
+  font-size: 11px;
+  color: #acd5ba;
+  margin-top: 7px;
+  line-height: 1.4;
+}
+.ops-alert-body {
+  padding-top: 10px;
+}
+.ops-alert-body > p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.6;
+  margin-bottom: 10px;
+}
+.ops-alert-body > .ops-small {
+  font-size: 10px;
+  color: #a4b8ba;
+}
+.ops-alert-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ops-alert-card-actions button {
+  font-size: 10px;
+  padding: 7px 8px;
+}
+.ops-alert-foot {
+  border-top: 1px solid #2a3d40;
+  flex-shrink: 0;
+}
+@media (max-width: 600px) {
+  .ops-alerts-open .ops-sidebar {
+    visibility: hidden;
+    pointer-events: none;
+  }
+  .ops-alerts-panel {
+    bottom: 80px;
+  }
+  .ops-alerts-panel .ops-world-heading {
+    padding: 10px 15px;
+  }
+  .ops-alert-filters {
+    padding: 8px 12px;
+    gap: 7px;
+  }
+  .ops-alert-coverage,
+  .ops-alert-foot {
+    padding: 7px 12px;
+  }
+  .ops-header > img {
+    max-width: 64px;
+  }
+  .ops-header button {
+    padding: 6px;
+    font-size: 10px;
+    white-space: nowrap;
+  }
+  .ops-header {
+    gap: 5px;
+    padding: 0 8px;
+  }
+}
 .ops-roster-hidden .ops-sidebar {
   display: none;
 }

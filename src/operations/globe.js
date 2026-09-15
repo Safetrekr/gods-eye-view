@@ -309,6 +309,18 @@ export async function createOperationsGlobe({
       cameras,
       visualModes,
       mapStack: scene.mapStackController,
+      getAlertContext() {
+        const states = manager.getAll();
+        const state = (id) => states.find((layer) => layer.id === id);
+        return {
+          earthquakes: earthquakes.getAnalystRecords(5000),
+          fires: fires.getAlertAreas(),
+          feeds: {
+            earthquakes: state('earthquakes'),
+            fires: state('local-firms'),
+          },
+        };
+      },
       startWorldLayers() {
         return enableDefaultWorldLayers(manager, signal);
       },

@@ -23,6 +23,12 @@ export function snapshotHasValidScope(snapshot) {
   } else if (scope.kind !== 'platform' || scope.org_id !== null) return false;
   const tripIds = new Set(snapshot.trips.map((trip) => trip?.id));
   if (tripIds.has(undefined) || tripIds.has(null)) return false;
+  if (
+    snapshot.geofence_events !== undefined &&
+    (!Array.isArray(snapshot.geofence_events) ||
+      snapshot.geofence_events.some((record) => !tripIds.has(record?.trip_id)))
+  )
+    return false;
   return TRIP_COLLECTIONS.every(
     (key) =>
       Array.isArray(snapshot[key]) &&

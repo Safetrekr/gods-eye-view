@@ -91,6 +91,28 @@ export function demoSnapshot() {
       },
     ],
     geofences: [],
+    geofence_events: [
+      {
+        id: 'exit-1',
+        trip_id: id,
+        participant_id: 'p2',
+        geofence_id: 'sample-zone',
+        geofence_name: 'Sample group safety zone',
+        direction: 'exit',
+        timestamp: iso(-1200000),
+        coordinates: { lat: 30.273, lng: -97.744 },
+      },
+      {
+        id: 'entry-1',
+        trip_id: id,
+        participant_id: 'p2',
+        geofence_id: 'sample-zone',
+        geofence_name: 'Sample group safety zone',
+        direction: 'enter',
+        timestamp: iso(-900000),
+        coordinates: { lat: 30.268, lng: -97.743 },
+      },
+    ],
     group_zones: [
       {
         trip_id: id,
@@ -112,6 +134,23 @@ export function demoSnapshot() {
     ],
     morning_musters: [],
     alerts: [
+      {
+        id: 'direction-1',
+        trip_id: id,
+        headline: 'Go to Sample rally point',
+        full_summary:
+          'Please proceed to the sample rally point. Use the main entrance.',
+        priority: 'high',
+        status: 'active',
+        acknowledged_count: 2,
+        created_at: iso(-300000),
+        arrive_by: iso(600000),
+        operations_event: {
+          kind: 'group_direction',
+          destination_id: 'rally',
+          destination_source: 'rally_point',
+        },
+      },
       {
         id: 'a1',
         trip_id: id,

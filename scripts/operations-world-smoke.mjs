@@ -257,6 +257,19 @@ try {
     ),
     /Simulated traffic/,
   );
+  await page.click('#ops-alerts-button');
+  await page.waitForSelector('#ops-alerts-panel:not([hidden])');
+  assert.equal(await page.$eval('#ops-layers', (el) => el.hidden), true);
+  await page.waitForSelector('#ops-alert-list [data-kind="fire"]');
+  await page.waitForSelector('#ops-alert-list [data-kind="earthquake"]');
+  await page.click('#ops-alert-list [data-kind="fire"] [data-action="expand"]');
+  assert.match(
+    await page.$eval('#ops-alert-list', (el) => el.textContent),
+    /not confirmed fire incidents/,
+  );
+  await page.screenshot({ path: 'output/operations/alerts-world-globe.png' });
+  await page.click('#ops-layers-button');
+  assert.equal(await page.$eval('#ops-alerts-panel', (el) => el.hidden), true);
   assert.ok(await page.$('#world-overlay-canvas'));
   const tracking = await page.evaluate(
     async (urls) => {

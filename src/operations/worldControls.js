@@ -123,12 +123,14 @@ export function mountWorldControls({
     content.append(panels[id]);
   }
 
-  function setOpen(open) {
+  function setOpen(open, focus = true) {
     panel.hidden = !open;
     trigger.setAttribute('aria-expanded', String(open));
     onPanelChange(open);
-    if (open) close.focus();
-    else returnFocus?.focus();
+    if (focus) {
+      if (open) close.focus();
+      else returnFocus?.focus();
+    }
   }
   function selectTab(id) {
     activeTab = id;
@@ -675,6 +677,7 @@ export function mountWorldControls({
   updateStatus();
   return {
     openTab,
+    close: (focus = true) => setOpen(false, focus),
     dispose() {
       alive = false;
       controller.abort();
