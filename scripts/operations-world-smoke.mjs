@@ -1,9 +1,19 @@
 import assert from 'node:assert/strict';
 import puppeteer from 'puppeteer';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 
-// Synthetic providers exercise the real Cesium layers without keys or Core writes.
+// Synthetic operational/provider records exercise the real Cesium layers.
+// The map uses local Google/Cesium configuration; no Core writes are made.
 const origin = process.env.OPERATIONS_TEST_URL || 'http://127.0.0.1:4173';
+const localEnv = await readFile('.env.local', 'utf8');
+const photoOrigin = localEnv
+  .match(/^VITE_SUPABASE_URL=(.+)$/m)?.[1]
+  ?.trim()
+  .replace(/^[\"']|[\"']$/g, '');
+assert.ok(
+  photoOrigin,
+  'A public Supabase URL is needed for the synthetic avatar fixture',
+);
 const browser = await puppeteer.launch({
   headless: true,
   args: [
@@ -20,7 +30,10 @@ try {
   let cameraModuleUrl = null;
   const moduleUrls = new Map();
   let configured = true;
-  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('pageerror', (error) => {
+    errors.push(error.message);
+    console.error('Browser error:', error.message);
+  });
   page.on('console', (message) => {
     if (
       message.type() === 'error' &&
@@ -29,7 +42,7 @@ try {
       errors.push(message.text());
   });
   await page.setRequestInterception(true);
-  page.on('request', (request) => {
+  page.on('request', async (request) => {
     const url = new URL(request.url());
     const reply = (data) =>
       request.respond({
@@ -39,6 +52,53 @@ try {
         body: JSON.stringify(data),
       });
     const path = url.pathname;
+    // Test-only handles, inserted into the served module, never into the app.
+    if (path === '/src/operations/globe.js') {
+      const source = await (await fetch(request.url())).text();
+      let instrumented = source.replace(
+        'const { viewer } = scene;',
+        'const { viewer } = scene; window.testOperationsViewer = viewer; window.testCesium = Cesium;',
+      );
+      assert.notEqual(instrumented, source);
+      if (process.env.PIN_ONLY)
+        instrumented = instrumented.replace(
+          'return enableDefaultWorldLayers(manager, signal);',
+          'return Promise.resolve();',
+        );
+      return void request.respond({
+        status: 200,
+        contentType: 'application/javascript',
+        body: instrumented,
+      });
+    }
+    if (path === '/src/operations/demo.js') {
+      const source = await (await fetch(request.url())).text();
+      return void request.respond({
+        status: 200,
+        contentType: 'application/javascript',
+        body: source.replace(
+          'user_id: pid,',
+          `user_id: pid, avatar_url: pid === 'p1' || pid === 'p2' ? ${JSON.stringify(photoOrigin)} + '/storage/v1/object/public/avatars/test-' + pid + '.png' : null,`,
+        ),
+      });
+    }
+    if (path === '/storage/v1/object/public/avatars/test-p1.png') {
+      return void request.respond({
+        status: 200,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        contentType: 'image/png',
+        body: Buffer.from(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jq8kAAAAASUVORK5CYII=',
+          'base64',
+        ),
+      });
+    }
+    if (path === '/storage/v1/object/public/avatars/test-p2.png') {
+      return void request.respond({
+        status: 404,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+      });
+    }
     if (path.startsWith('/src/data/') && !moduleUrls.has(path))
       moduleUrls.set(path, request.url());
     if (url.hostname === 'earthquake.usgs.gov' && !configured)
@@ -205,7 +265,100 @@ try {
     '#ops-console:not([hidden]) #ops-loading[hidden]',
     { timeout: 60000 },
   );
+  await page.waitForFunction(() => {
+    const ds = window.testOperationsViewer?.dataSources.getByName(
+      'SafeTrekr participants',
+    )[0];
+    return ds?.entities.getById('person:demo-austin:p1')?.billboard;
+  });
+  await pause(3000);
+  const boundary = await page.evaluate(() => {
+    const viewer = window.testOperationsViewer;
+    const time = viewer.clock.currentTime;
+    const ds = viewer.dataSources.getByName('SafeTrekr trip context')[0];
+    const edge = ds.entities.getById('group:demo-austin:0:edge:0');
+    return {
+      width: edge.polyline.width.getValue(time),
+      clamped: edge.polyline.clampToGround.getValue(time),
+      positions: edge.polyline.positions.getValue(time).length,
+    };
+  });
+  assert.deepEqual(boundary, { width: 4, clamped: true, positions: 97 });
+  // A real canvas click must reveal details even with World controls open.
   await page.click('#ops-layers-button');
+  const pin = await page.evaluate(() => {
+    const viewer = window.testOperationsViewer;
+    const ds = viewer.dataSources.getByName('SafeTrekr participants')[0];
+    const primitive = ds._visualizers
+      .map((v) => v._items?.get('person:demo-austin:p1')?.billboard)
+      .find(Boolean);
+    const point = primitive.computeScreenSpacePosition(viewer.scene);
+    const rect = viewer.scene.canvas.getBoundingClientRect();
+    return { x: point.x + rect.left, y: point.y + rect.top - 26 };
+  });
+  await page.mouse.click(pin.x, pin.y);
+  await page.waitForFunction(
+    () =>
+      document.querySelector('#ops-detail h2')?.textContent === 'Jordan Lee',
+  );
+  assert.equal(await page.$eval('#ops-layers', (el) => el.hidden), true);
+  assert.equal(await page.$eval('#ops-alerts-panel', (el) => el.hidden), true);
+  await page.waitForFunction(
+    () =>
+      document.querySelector('#ops-detail .ops-portrait img')?.naturalWidth > 0,
+  );
+  assert.match(
+    await page.$eval('#ops-detail', (el) => el.textContent),
+    /Chaperone/i,
+  );
+  await pause(2000);
+  await page.screenshot({
+    path: 'output/operations/traveler-pin-boundary.png',
+  });
+  await page.click('#ops-frame');
+  await pause(1800);
+  await page.screenshot({
+    path: 'output/operations/trip-boundary-overview.png',
+  });
+  await page.$$eval('#ops-tabs button', (buttons) =>
+    buttons.find((b) => b.textContent === 'People').click(),
+  );
+  await page.click('[data-person-id="p2"]');
+  await page.waitForFunction(
+    () =>
+      document.querySelector('#ops-detail h2')?.textContent === 'Alex Rivera',
+  );
+  await page.waitForFunction(
+    () => !document.querySelector('#ops-detail .ops-portrait img'),
+  );
+  assert.equal(
+    await page.$eval('#ops-detail .ops-portrait', (el) => el.textContent),
+    'AR',
+  );
+  await page.setViewport({ width: 390, height: 844 });
+  const detailBounds = await page.$eval('#ops-detail', (el) => {
+    const r = el.getBoundingClientRect();
+    return { left: r.left, right: r.right, bottom: r.bottom };
+  });
+  assert.ok(
+    detailBounds.left >= 0 &&
+      detailBounds.right <= 390 &&
+      detailBounds.bottom <= 844,
+  );
+  await page.screenshot({
+    path: 'output/operations/traveler-details-mobile.png',
+  });
+  await page.setViewport({ width: 1440, height: 1000 });
+  await page.click('#ops-detail .ops-close');
+  await page.click('#ops-frame');
+  console.log(
+    'Real canvas photo pin selection, boundary geometry and detail panel handoff passed.',
+  );
+  await page.click('#ops-layers-button');
+  if (process.env.PIN_ONLY) {
+    await browser.close();
+    process.exit(0);
+  }
   assert.equal(
     await page.$$eval('[data-layer] input', (rows) => rows.length),
     8,

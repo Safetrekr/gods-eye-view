@@ -22,6 +22,8 @@ import {
 } from '../data/trackedReadout.js';
 import { currentFreshness, PEOPLE_COLORS, validPoint } from './model.js';
 import { enableDefaultWorldLayers } from './defaultLayers.js';
+import { tripBoundaries, boundaryIsDelayed } from './boundaries.js';
+import { createParticipantPinCache } from './participantPins.js';
 
 export async function createOperationsGlobe({
   loaderStatus,
@@ -104,8 +106,11 @@ export async function createOperationsGlobe({
     });
     const click = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
     click.setInputAction((event) => {
-      const entity = viewer.scene.pick(event.position)?.id;
-      if (entity?.opsRecord) onSelect(entity.opsRecord);
+      const picks = viewer.scene.drillPick(event.position, 16, 7, 7);
+      const records = picks.map((pick) => pick.id?.opsRecord).filter(Boolean);
+      const record =
+        records.find((record) => record.kind === 'person') || records[0];
+      if (record) onSelect(record);
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
     cleanups.push(() => click.destroy());
     const visibility = () => {
@@ -122,6 +127,9 @@ export async function createOperationsGlobe({
 
     let snapshot = null;
     let receivedAt = 0;
+    let boundaries = [];
+    const pinCache = createParticipantPinCache();
+    cleanups.push(() => pinCache.dispose());
     const layerVisibility = {
       people: true,
       places: true,
@@ -170,8 +178,54 @@ export async function createOperationsGlobe({
         let entity = people.entities.getById(id);
         if (!entity) entity = people.entities.add({ id });
         entity.position = position(person.coordinates);
-        entity.point = pointStyle(css, person.role === 'chaperone' ? 14 : 10);
-        entity.label = label(person.name);
+        const near =
+          Cesium.Cartesian3.distance(
+            viewer.camera.positionWC,
+            position(person.coordinates),
+          ) < 60000;
+        const pinKey = JSON.stringify([
+          person.name,
+          person.role,
+          person.avatar_url,
+          css,
+          near,
+        ]);
+        if (entity.pinKey !== pinKey) {
+          entity.pinKey = pinKey;
+          // Clamped PointGraphics also borrow a billboard internally. Use one
+          // billboard owner at every zoom level so picking retains the entity.
+          if (near) {
+            const image = pinCache.get(person, css, (image) => {
+              if (
+                disposed ||
+                people.entities.getById(id) !== entity ||
+                entity.pinKey !== pinKey
+              )
+                return;
+              entity.billboard.image = image;
+              viewer.scene.requestRender();
+            });
+            entity.billboard = {
+              image,
+              width: 42,
+              height: 51,
+              verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+              heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+              disableDepthTestDistance: Number.POSITIVE_INFINITY,
+            };
+          } else
+            entity.billboard = {
+              image: pinCache.dot(css),
+              width: person.role === 'chaperone' ? 14 : 11,
+              height: person.role === 'chaperone' ? 14 : 11,
+              heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+              disableDepthTestDistance: Number.POSITIVE_INFINITY,
+            };
+        }
+        entity.label = {
+          ...label(person.name),
+          pixelOffset: new Cesium.Cartesian2(0, near ? -61 : -21),
+        };
         entity.show =
           layerVisibility.people && roleVisibility[person.role] !== false;
         entity.opsRecord = { kind: 'person', record: person };
@@ -192,26 +246,90 @@ export async function createOperationsGlobe({
       });
       entity.opsRecord = { kind, record };
     }
-    function circle(id, center, radius, css, text) {
-      if (
-        !validPoint(center) ||
-        !Number.isFinite(radius) ||
-        radius <= 0 ||
-        radius > 100000
-      )
-        return;
-      context.entities.add({
-        id,
-        position: position(center),
-        ellipse: {
-          semiMajorAxis: radius,
-          semiMinorAxis: radius,
-          material: color(css).withAlpha(0.11),
-          outline: true,
-          outlineColor: color(css).withAlpha(0.55),
+    function renderBoundary(boundary) {
+      const css = boundary.moving
+        ? boundary.degraded
+          ? '#e6bb66'
+          : '#75b9f2'
+        : '#80c3c9';
+      const rings = boundary.rings.map((ring) => ring.map(position));
+      const record = { kind: 'boundary', record: boundary };
+      const fill = context.entities.add({
+        id: boundary.id,
+        name: boundary.name,
+        polygon: {
+          hierarchy: new Cesium.PolygonHierarchy(
+            rings[0],
+            rings.slice(1).map((ring) => new Cesium.PolygonHierarchy(ring)),
+          ),
+          material: color(css).withAlpha(0.16),
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+          classificationType: Cesium.ClassificationType.BOTH,
         },
-        name: text,
       });
+      fill.opsRecord = record;
+      rings.forEach((ring, index) => {
+        const edge = context.entities.add({
+          id: `${boundary.id}:edge:${index}`,
+          polyline: {
+            positions: ring,
+            width: 4,
+            clampToGround: true,
+            classificationType: Cesium.ClassificationType.BOTH,
+            material: color(css),
+          },
+        });
+        edge.opsRecord = record;
+      });
+      const caption = context.entities.add({
+        id: `${boundary.id}:caption`,
+        position: position(boundary.rings[0][0]),
+        label: {
+          ...label(''),
+          font: '600 12px sans-serif',
+          showBackground: true,
+          backgroundColor: color('#0b1519').withAlpha(0.85),
+          backgroundPadding: new Cesium.Cartesian2(8, 5),
+          pixelOffset: new Cesium.Cartesian2(0, -12),
+        },
+      });
+      caption.opsRecord = record;
+    }
+    function ageBoundaries() {
+      const elapsed = (performance.now() - receivedAt) / 1000;
+      for (const boundary of boundaries) {
+        const fill = context.entities.getById(boundary.id);
+        if (!fill) continue;
+        const delayed = boundaryIsDelayed(boundary, elapsed);
+        const css = boundary.moving
+          ? delayed || boundary.degraded
+            ? '#e6bb66'
+            : '#75b9f2'
+          : '#80c3c9';
+        fill.polygon.material = color(css).withAlpha(delayed ? 0.06 : 0.16);
+        boundary.rings.forEach((_, index) => {
+          context.entities.getById(
+            `${boundary.id}:edge:${index}`,
+          ).polyline.material = delayed
+            ? new Cesium.PolylineDashMaterialProperty({
+                color: color(css),
+                dashLength: 16,
+              })
+            : color(css);
+        });
+        const trip = snapshot.trips.find(
+          (trip) => trip.id === boundary.trip_id,
+        );
+        context.entities.getById(`${boundary.id}:caption`).label.text = [
+          snapshot.trips.length > 1 ? trip?.title : '',
+          boundary.name || 'Trip boundary',
+          boundary.radius ? `${Math.round(boundary.radius)} m` : '',
+          delayed ? 'Update overdue' : boundary.degraded ? 'Approximate' : '',
+        ]
+          .filter(Boolean)
+          .join(' · ');
+      }
+      viewer.scene.requestRender();
     }
     function renderContext() {
       context.entities.removeAll();
@@ -227,53 +345,10 @@ export async function createOperationsGlobe({
             p,
             p.approval_status === 'active' ? '#72d5c5' : '#8d959b',
           );
-      if (layerVisibility.boundaries) {
-        for (const fence of snapshot.geofences) {
-          if (fence.type === 'circle')
-            circle(
-              `fence:${fence.id}`,
-              { lat: fence.center_lat, lng: fence.center_lng },
-              fence.radius,
-              '#80c3c9',
-              fence.name,
-            );
-          else {
-            const raw = fence.polygon;
-            const points = Array.isArray(raw)
-              ? raw.map((p) =>
-                  Array.isArray(p) ? { lat: p[1], lng: p[0] } : p,
-                )
-              : raw?.type === 'Polygon'
-                ? raw.coordinates?.[0]?.map((p) => ({ lat: p[1], lng: p[0] }))
-                : [];
-            if (
-              points?.length >= 3 &&
-              points.length <= 2000 &&
-              points.every(validPoint)
-            )
-              context.entities.add({
-                id: `fence:${fence.id}`,
-                name: fence.name,
-                polygon: {
-                  hierarchy: points.map(position),
-                  material: color('#80c3c9').withAlpha(0.1),
-                  outline: true,
-                  outlineColor: color('#80c3c9'),
-                },
-              });
-          }
-        }
-        for (const zone of snapshot.group_zones)
-          zone.centers.forEach((center, index) =>
-            circle(
-              `group:${zone.trip_id}:${index}`,
-              center,
-              zone.radius_m,
-              zone.degraded ? '#e6bb66' : '#75b9f2',
-              'Chaperone group boundary',
-            ),
-          );
-      }
+      boundaries = tripBoundaries(snapshot);
+      if (layerVisibility.boundaries)
+        for (const boundary of boundaries) renderBoundary(boundary);
+      ageBoundaries();
       cullFarSide();
       viewer.scene.requestRender();
     }
@@ -293,14 +368,17 @@ export async function createOperationsGlobe({
           );
       }
       for (const entity of context.entities.values) {
-        if (entity.point && entity.position)
+        if ((entity.point || entity.label) && entity.position)
           entity.show = occluder.isPointVisible(
             entity.position.getValue(viewer.clock.currentTime),
           );
       }
     }
-    cleanups.push(viewer.camera.moveEnd.addEventListener(cullFarSide));
-    const agingTimer = setInterval(renderPeople, 5000);
+    cleanups.push(viewer.camera.moveEnd.addEventListener(renderPeople));
+    const agingTimer = setInterval(() => {
+      renderPeople();
+      ageBoundaries();
+    }, 5000);
     cleanups.push(() => clearInterval(agingTimer));
     return {
       viewer,
@@ -336,6 +414,12 @@ export async function createOperationsGlobe({
       dispose,
       mapMode: scene.tileset ? 'Google photorealistic 3D' : 'Satellite globe',
       setSnapshot(value) {
+        if (
+          !value.participants.length ||
+          (snapshot &&
+            JSON.stringify(snapshot.scope) !== JSON.stringify(value.scope))
+        )
+          pinCache.clear();
         snapshot = value;
         receivedAt =
           performance.now() - (value.transportAgeSeconds || 0) * 1000;
@@ -384,11 +468,16 @@ export async function createOperationsGlobe({
         const entities = people.entities.values.filter(
           (e) => !tripId || e.opsRecord.record.trip_id === tripId,
         );
-        if (entities.length) {
+        const positions = entities.map((entity) =>
+          entity.position.getValue(viewer.clock.currentTime),
+        );
+        if (layerVisibility.boundaries)
+          for (const boundary of boundaries) {
+            if (!tripId || boundary.trip_id === tripId)
+              positions.push(...boundary.rings[0].map(position));
+          }
+        if (positions.length) {
           stopTracking();
-          const positions = entities.map((entity) =>
-            entity.position.getValue(viewer.clock.currentTime),
-          );
           const bounds = Cesium.BoundingSphere.fromPoints(positions);
           viewer.camera.flyToBoundingSphere(bounds, {
             duration: matchMedia('(prefers-reduced-motion: reduce)').matches

@@ -206,7 +206,7 @@ try {
       return request.respond({
         status: 200,
         contentType: 'application/javascript',
-        body: 'export function mountWorldControls() { return { dispose() {} }; }',
+        body: 'export function mountWorldControls() { return { close() {}, dispose() {} }; }',
       });
     if (url.origin !== origin) return request.abort();
     if (url.pathname.startsWith('/api/')) return json(request, {});

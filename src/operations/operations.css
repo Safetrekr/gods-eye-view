@@ -533,6 +533,51 @@ body.operations {
   font-size: 22px;
   padding-right: 15px;
 }
+.ops-portrait {
+  display: inline-flex;
+  position: relative;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 2px solid #80bfa8;
+  background: #1c383c;
+  color: #eff7f3;
+  font-size: 22px;
+  font-weight: 600;
+}
+.ops-portrait img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.ops-person-row {
+  position: relative;
+  padding-left: 69px !important;
+  min-height: 78px;
+}
+.ops-person-row .ops-portrait {
+  position: absolute;
+  left: 18px;
+  top: 20px;
+  width: 35px;
+  height: 35px;
+  font-size: 13px;
+}
+.ops-person-row[data-freshness='aging'] .ops-portrait {
+  border-color: #e6bb66;
+}
+.ops-person-row[data-freshness='stale'] .ops-portrait {
+  border-color: #d98585;
+}
+.ops-person-row[data-freshness='unknown'] .ops-portrait {
+  border-color: #9aa8ac;
+}
 .ops-detail p {
   margin-bottom: 15px;
 }

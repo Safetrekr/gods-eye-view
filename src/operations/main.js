@@ -4,6 +4,12 @@ import { scopeLabels } from './access.js';
 import { mountTripActions } from './actions.js';
 import { mountAlertsPanel } from './alertsPanel.js';
 import {
+  tripBoundaries,
+  boundaryIsDelayed,
+  groupBoundaryLabel,
+} from './boundaries.js';
+import { participantPortrait } from './participantPins.js';
+import {
   currentFreshness,
   nearbyCameras,
   validPoint,
@@ -40,7 +46,7 @@ root.innerHTML = `
     <header class="ops-header"><img src="/safetrekr-logo.svg" alt="SafeTrekr" width="152" /><span class="ops-divider"></span><span>World View</span>
       <span id="ops-environment" class="ops-environment">PRODUCTION</span><span class="ops-header-spacer"></span><span id="ops-sync" role="status">Connecting…</span><button id="ops-roster-button" aria-pressed="true">Trips</button><button id="ops-alerts-button" aria-expanded="false" aria-controls="ops-alerts-panel">Alerts</button><button id="ops-layers-button" aria-expanded="false" aria-controls="ops-layers">World controls</button><button id="ops-signout">Sign out</button></header>
     <aside class="ops-sidebar" aria-label="Trips and participants">
-      <div class="ops-sidebar-heading"><p id="ops-access-scope" class="ops-eyebrow">OPERATIONS</p><h2 id="ops-scope-title">Your world, at a glance</h2><p id="ops-scope-description" class="ops-small"></p><p id="ops-totals"></p></div>
+      <div class="ops-sidebar-heading"><p id="ops-access-scope" class="ops-eyebrow">OPERATIONS</p><h2 id="ops-scope-title">Your world, at a glance</h2><p id="ops-scope-description" class="ops-small"></p><p id="ops-totals"></p><p id="ops-boundary-status" class="ops-small"></p></div>
       <div class="ops-filters"><label for="ops-window">Trip window</label><select id="ops-window"><option value="current">Traveling today</option><option value="upcoming">Upcoming trips</option><option value="all">All trips</option></select>
       <button id="ops-all-trips" hidden>← All trips</button></div>
       <div id="ops-actions" class="ops-actions" hidden></div>
@@ -120,6 +126,7 @@ const tabs = [
   ['status', 'Status'],
 ];
 let worldControls = null;
+let frameOnSnapshot = false;
 let alertsPanel = null;
 let mfaFactor = null;
 let pendingCleanup = Promise.resolve();
@@ -205,6 +212,7 @@ async function lockView(message = '') {
   $('ops-detail').replaceChildren();
   $('ops-pagination').replaceChildren();
   put('ops-totals', '');
+  put('ops-boundary-status', '');
   put('ops-source-issues', '');
   put('ops-scope-title', 'Your world, at a glance');
   put('ops-access-scope', 'OPERATIONS');
@@ -347,6 +355,10 @@ function acceptSnapshot(data) {
   connectionError = '';
   alertsPanel?.update();
   globe?.setSnapshot(data);
+  if (frameOnSnapshot) {
+    globe?.frameTrip(filters.tripId);
+    frameOnSnapshot = false;
+  }
   if (selected) {
     const key = {
       person: 'participants',
@@ -356,7 +368,9 @@ function acceptSnapshot(data) {
       safety: 'safety_points',
       alert: 'alerts',
     }[selected.kind];
-    const replacement = data[key]?.find(
+    const replacement = (
+      selected.kind === 'boundary' ? tripBoundaries(data) : data[key]
+    )?.find(
       (record) =>
         record.id === selected.record.id &&
         record.trip_id === selected.record.trip_id,
@@ -367,7 +381,36 @@ function acceptSnapshot(data) {
   renderList();
   renderDetail();
   updateSync();
+  updateBoundaryStatus();
   updateAircraftLinks();
+}
+
+function updateBoundaryStatus() {
+  if (!snapshot) {
+    put('ops-boundary-status', '');
+    return;
+  }
+  const boundaries = tripBoundaries(snapshot);
+  const movingTrips = new Set(
+    boundaries.filter((b) => b.moving).map((b) => b.trip_id),
+  ).size;
+  const fixed = boundaries.filter((b) => !b.moving).length;
+  const counts = [
+    movingTrips
+      ? `${movingTrips} trip${movingTrips === 1 ? '' : 's'} with a group boundary`
+      : '',
+    fixed ? `${fixed} fixed boundar${fixed === 1 ? 'y' : 'ies'}` : '',
+  ].filter(Boolean);
+  const elapsed = (performance.now() - receivedAt) / 1000;
+  const delayed = boundaries.some((b) => boundaryIsDelayed(b, elapsed));
+  put(
+    'ops-boundary-status',
+    counts.length
+      ? `${counts.join(' · ')}${delayed ? ' · Boundary update overdue' : ''}`
+      : !filters.tripId && !snapshot.map_features?.group_zones_overview
+        ? 'Open a trip to load its group boundary.'
+        : 'No boundary supplied. A group zone needs eligible chaperone locations.',
+  );
 }
 
 function updateSync() {
@@ -392,6 +435,7 @@ function updateSync() {
 }
 
 function changeFilters(next) {
+  frameOnSnapshot = true;
   tripActions.close();
   filters = { ...filters, ...next };
   selected = null;
@@ -417,6 +461,7 @@ function changeFilters(next) {
   $('ops-detail').replaceChildren();
   $('ops-pagination').replaceChildren();
   put('ops-totals', '');
+  put('ops-boundary-status', '');
   put('ops-scope-title', 'Loading authorized trips…');
   renderDetail();
   poller.start();
@@ -523,6 +568,8 @@ function renderList() {
       );
       row.dataset.freshness = freshness.state;
       row.dataset.personId = person.id;
+      row.classList.add('ops-person-row');
+      row.prepend(participantPortrait(person));
     }
   }
   if (tab === 'flights') {
@@ -652,10 +699,16 @@ function renderList() {
 
 function selectRecord(value) {
   alertsPanel?.close(false);
+  worldControls?.close(false);
   selected = value;
   renderDetail();
   if (validPoint(value.record.coordinates))
-    globe.focus(value.record.coordinates);
+    globe.focus(
+      value.record.coordinates,
+      value.kind === 'boundary'
+        ? Math.max(1800, (value.record.radius || 600) * 5)
+        : 1400,
+    );
 }
 
 function renderDetail() {
@@ -705,6 +758,7 @@ function renderDetail() {
   );
   paragraph(parent, tripName(record.trip_id));
   if (kind === 'person') {
+    parent.querySelector('h2').before(participantPortrait(record));
     const f = currentFreshness(record, (performance.now() - receivedAt) / 1000);
     const stats = node('dl', undefined, 'ops-facts');
     const entries = [
@@ -725,9 +779,11 @@ function renderDetail() {
       ],
       [
         'Group boundary',
-        record.group_zone_state
-          ? `${human(f.state === 'fresh' ? record.group_zone_state : 'unknown')}${record.group_zone_ambiguous ? ' · uncertain fix' : ''}`
-          : 'Open the trip for boundary status',
+        groupBoundaryLabel(
+          record,
+          snapshot,
+          (performance.now() - receivedAt) / 1000,
+        ),
       ],
     ];
     for (const [key, value] of entries) {
@@ -736,6 +792,13 @@ function renderDetail() {
       stats.append(node('dt', key), cell);
     }
     parent.append(stats);
+    parent.append(
+      button('View trip and boundary', () => {
+        selected = null;
+        tab = 'people';
+        changeFilters({ tripId: record.trip_id, offset: 0 });
+      }),
+    );
     if (validPoint(record.coordinates)) {
       parent.append(
         button(
@@ -750,6 +813,41 @@ function renderDetail() {
         'ops-small',
       );
     }
+  }
+  if (kind === 'boundary') {
+    paragraph(
+      parent,
+      record.moving
+        ? record.model === 'nearest_chaperone'
+          ? 'The group zone follows eligible chaperones. A traveler can be inside any of their circles.'
+          : 'The group zone follows the center calculated by SafeTrekr.'
+        : 'An active fixed boundary configured for this trip.',
+    );
+    if (record.radius)
+      paragraph(parent, `Radius: ${Math.round(record.radius)} meters`);
+    if (record.degraded)
+      paragraph(
+        parent,
+        'Approximate boundary: the chaperone locations have reduced accuracy.',
+        'ops-small',
+      );
+    if (boundaryIsDelayed(record, (performance.now() - receivedAt) / 1000))
+      paragraph(
+        parent,
+        'Boundary update overdue. The dashed outline shows its last reported position.',
+        'ops-small',
+      );
+    parent.append(
+      button(
+        'View trip participants',
+        () => {
+          selected = null;
+          tab = 'people';
+          changeFilters({ tripId: record.trip_id, offset: 0 });
+        },
+        'ops-primary',
+      ),
+    );
   }
   if (kind === 'flight') renderFlight(parent, record);
   if (kind === 'safety' && snapshot?.capabilities?.direct_group)
@@ -1149,6 +1247,7 @@ setInterval(() => {
   updateSync();
   updateAircraftLinks();
   updateVisibleAges();
+  updateBoundaryStatus();
 }, 5000);
 
 function updateVisibleAges() {
@@ -1168,8 +1267,8 @@ function updateVisibleAges() {
     const cell = $('ops-detail').querySelector('[data-field="Location"]');
     if (cell) cell.textContent = age.label;
     const zone = $('ops-detail').querySelector('[data-field="Group boundary"]');
-    if (zone && age.state !== 'fresh' && selected.record.group_zone_state)
-      zone.textContent = 'unknown';
+    if (zone)
+      zone.textContent = groupBoundaryLabel(selected.record, snapshot, elapsed);
   }
 }
 document.addEventListener('visibilitychange', () => {

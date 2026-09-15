@@ -246,3 +246,29 @@ The world-controls smoke uses synthetic provider responses to render the added
 layers and all nine shaders, exercise the camera directory/form, check mobile
 and keyboard access, and verify missing-key states and full scene cleanup.
 Paid-provider authentication still requires real credentials for live testing.
+
+
+### Traveler pins and trip boundaries
+
+Near a trip, travelers and chaperones use large clickable pins with the same
+profile photo as the mobile app when Core supplies it. Missing or inaccessible
+photos use initials. A T/C badge preserves role while the colored ring shows
+location freshness. At world scale, compact markers replace photo requests.
+Selecting a pin opens the person's details and closes competing side panels.
+The roster also supports keyboard selection and shows profile photos.
+
+Active fixed circles/polygons and the shared chaperone group zone have a
+translucent fill and a four-pixel outline clamped over terrain and Google 3D
+buildings. Polygon holes are preserved. Click a boundary for its trip and
+radius/model details. Opening a trip and “Fit trip view” include boundary
+extents and participant positions. Locations are never moved to make someone
+appear inside a fence, and only Core determines containment.
+
+Moving boundaries become amber/dashed when the snapshot is over 45 seconds old
+or an anchor expires sooner. Traveler containment then reads unknown. Missing
+boundaries are disclosed, never synthesized from an arbitrary traveler pin.
+
+The Core companion release adds roster-scoped `avatar_url` and computes group
+zones for every current trip on the authorized page. Until that release, the
+frontend displays initials and loads group zones on trip drill-in using the
+existing production API. No new key or schema migration is needed.
