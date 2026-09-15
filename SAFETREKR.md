@@ -1,6 +1,6 @@
 # SafeTrekr World View
 
-This fork adds a staff operations console to God's Eye View. The default page
+This fork adds an organization and staff operations console to God's Eye View. The default page
 uses Supabase sign-in and the Core `GET /v1/staff/operations` endpoint. It is a
 read-only first release; the original explorer modules remain available for
 future upstream merges, but its voice, sharing, annotations, capture, and debug
@@ -64,6 +64,21 @@ Platform staff roles are `hq_admin`, `hq_supervisor`, `hq_security`, `hq_ops`, o
 can see only their own organization. Billing, participant, and unknown roles are
 denied. The console has no writes; this does not remove permissions that the
 account might have in other SafeTrekr applications.
+
+Organization administrators use their existing SafeTrekr credentials on the same
+login screen. The console labels their access **Organization view**; all trip
+windows, pages, people, flights, itinerary, safety resources, and status records
+come from that organization. Authorized platform staff see **All organizations**.
+Scope comes from Core's trusted user profile, never a browser role or organization
+selector. Public world layers remain available to both groups. No extra API key,
+database migration, or separate login is required for existing linked accounts.
+An organization profile without a linked Supabase Auth account must complete the
+normal SafeTrekr account setup before it can sign in.
+
+The browser rejects inconsistent snapshot scopes and clears private data when
+access expires, a selected trip becomes inaccessible, or the account changes.
+Run `node scripts/operations-access-smoke.mjs` against the development server to
+exercise organization/platform sign-in and cleanup with synthetic accounts.
 
 The development-only **Explore a sample trip** button (or `?demo=1`) loads
 fictional Austin travelers with a conspicuous simulated-data label. It makes no

@@ -1,3 +1,5 @@
+import { snapshotHasValidScope } from './access.js';
+
 export class OperationsError extends Error {
   constructor(status, message) {
     super(message);
@@ -21,7 +23,7 @@ export async function fetchOperations(token, filters, signal) {
   if (!response.ok) {
     const messages = {
       401: 'Your session has expired. Sign in again.',
-      403: 'This account does not have staff operations access.',
+      403: 'World View requires an active organization administrator, security officer, or SafeTrekr staff account. Organization accounts must be assigned to an organization.',
       404: filters.tripId
         ? 'This trip is no longer accessible.'
         : 'The staff operations route is not installed on this Core server yet.',
@@ -37,13 +39,25 @@ export async function fetchOperations(token, filters, signal) {
   }
   const snapshot = await response.json();
   if (
-    snapshot.schema_version !== 1 ||
+    snapshot?.schema_version !== 1 ||
     !Array.isArray(snapshot.trips) ||
     !Array.isArray(snapshot.participants)
   ) {
-    throw new OperationsError(
-      502,
-      'The Core response is not a supported operations snapshot.',
+    throw Object.assign(
+      new OperationsError(
+        502,
+        'The Core response is not a supported operations snapshot.',
+      ),
+      { fatal: true },
+    );
+  }
+  if (!snapshotHasValidScope(snapshot)) {
+    throw Object.assign(
+      new OperationsError(
+        502,
+        'The response could not be verified for your access scope. Sign in again.',
+      ),
+      { fatal: true },
     );
   }
   // Count request transit/processing time without assuming synchronized clocks.

@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { fetchOperations, SnapshotPoller } from './api.js';
+import { scopeLabels } from './access.js';
 import {
   currentFreshness,
   nearbyCameras,
@@ -21,15 +22,15 @@ root.innerHTML = `
       <div class="ops-orbit" aria-hidden="true"><span></span><span></span><span></span><i></i></div>
       <p class="ops-intro-foot">SafeTrekr operations · Built on God’s Eye View</p>
     </section>
-    <section class="ops-signin"><div class="ops-signin-content"><p class="ops-eyebrow">STAFF ACCESS</p><h2>Sign in to World View</h2>
-      <p>Use your SafeTrekr staff account.</p>
+    <section class="ops-signin"><div class="ops-signin-content"><p class="ops-eyebrow">ORGANIZATION & STAFF ACCESS</p><h2>Sign in to World View</h2>
+      <p>Use your SafeTrekr organization administrator, security officer, or staff account.</p>
       <form id="ops-login-form"><label>Email address<input name="email" type="email" autocomplete="username" required /></label>
         <label>Password<input name="password" type="password" autocomplete="current-password" required /></label>
         <button class="ops-primary" type="submit">Sign in</button></form>
       <form id="ops-mfa-form" hidden><label>Authenticator code<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required /></label><button class="ops-primary" type="submit">Verify code</button></form>
       <p id="ops-auth-error" class="ops-error" role="alert"></p><button id="ops-switch-account" hidden>Use another account</button>
       <button id="ops-demo" class="ops-demo" hidden>Explore a sample trip</button>
-      <p class="ops-small">Access follows your staff permissions. Traveler data stays within your authorized trips.</p>
+      <p class="ops-small">Organization administrators see only their organization’s trips and people. SafeTrekr staff access follows their assigned permissions.</p>
     </div></section>
   </main>
   <div id="ops-console" hidden>
@@ -37,7 +38,7 @@ root.innerHTML = `
     <header class="ops-header"><img src="/safetrekr-logo.svg" alt="SafeTrekr" width="152" /><span class="ops-divider"></span><span>World View</span>
       <span id="ops-environment" class="ops-environment">PRODUCTION · READ ONLY</span><span class="ops-header-spacer"></span><span id="ops-sync" role="status">Connecting…</span><button id="ops-roster-button" aria-pressed="true">Trips</button><button id="ops-layers-button" aria-expanded="false" aria-controls="ops-layers">World controls</button><button id="ops-signout">Sign out</button></header>
     <aside class="ops-sidebar" aria-label="Trips and participants">
-      <div class="ops-sidebar-heading"><p class="ops-eyebrow">OPERATIONS</p><h2 id="ops-scope-title">Your world, at a glance</h2><p id="ops-totals"></p></div>
+      <div class="ops-sidebar-heading"><p id="ops-access-scope" class="ops-eyebrow">OPERATIONS</p><h2 id="ops-scope-title">Your world, at a glance</h2><p id="ops-scope-description" class="ops-small"></p><p id="ops-totals"></p></div>
       <div class="ops-filters"><label for="ops-window">Trip window</label><select id="ops-window"><option value="current">Traveling today</option><option value="upcoming">Upcoming trips</option><option value="all">All trips</option></select>
       <button id="ops-all-trips" hidden>← All trips</button></div>
       <nav id="ops-tabs" class="ops-tabs" aria-label="Operations views"></nav>
@@ -142,8 +143,13 @@ const poller = new SnapshotPoller({
   },
   onData: acceptSnapshot,
   onError: (error) => {
-    if ([401, 403].includes(error.status)) {
+    if (error.fatal || [401, 403].includes(error.status)) {
       void lockView(error.message);
+      return;
+    }
+    if (error.status === 404 && filters.tripId) {
+      // A removed trip or changed organization must not leave its old data visible.
+      changeFilters({ tripId: null, offset: 0 });
       return;
     }
     connectionError = error.message;
@@ -171,6 +177,8 @@ async function lockView(message = '') {
   put('ops-totals', '');
   put('ops-source-issues', '');
   put('ops-scope-title', 'Your world, at a glance');
+  put('ops-access-scope', 'OPERATIONS');
+  put('ops-scope-description', '');
   snapshot = null;
   selected = null;
   links.clear();
@@ -281,6 +289,16 @@ async function openSession(nextSession, sample = false) {
 }
 
 function acceptSnapshot(data) {
+  if (
+    snapshot &&
+    (snapshot.scope.kind !== data.scope.kind ||
+      snapshot.scope.org_id !== data.scope.org_id)
+  ) {
+    selected = null;
+    links.clear();
+    globe?.stopFollowing();
+    $('ops-detail').replaceChildren();
+  }
   snapshot = data;
   receivedAt = performance.now() - (data.transportAgeSeconds || 0) * 1000;
   connectionError = '';
@@ -300,6 +318,7 @@ function acceptSnapshot(data) {
         record.trip_id === selected.record.trip_id,
     );
     selected = replacement ? { ...selected, record: replacement } : null;
+    if (!selected) $('ops-detail').replaceChildren();
   }
   renderList();
   renderDetail();
@@ -348,6 +367,10 @@ function changeFilters(next) {
   $('ops-list').replaceChildren(
     node('p', 'Loading authorized trips…', 'ops-empty'),
   );
+  $('ops-detail').replaceChildren();
+  $('ops-pagination').replaceChildren();
+  put('ops-totals', '');
+  put('ops-scope-title', 'Loading authorized trips…');
   renderDetail();
   poller.start();
 }
@@ -368,6 +391,12 @@ function addRow(parent, title, detail, action, badge) {
 
 function renderList() {
   if (!snapshot) return;
+  const access = scopeLabels(snapshot.scope);
+  put('ops-access-scope', demo ? 'SAMPLE ORGANIZATIONS' : access.label);
+  put('ops-scope-description', access.description);
+  put('ops-all-trips', `← ${access.allTrips}`);
+  $('ops-window').querySelector('option[value="all"]').textContent =
+    access.allTrips;
   const list = $('ops-list');
   list.replaceChildren();
   $('ops-tabs').replaceChildren(
@@ -386,7 +415,7 @@ function renderList() {
   );
   put(
     'ops-scope-title',
-    filters.tripId ? tripName(filters.tripId) : 'Your world, at a glance',
+    filters.tripId ? tripName(filters.tripId) : access.title,
   );
   const located = snapshot.participants.filter((p) =>
     validPoint(p.coordinates),
