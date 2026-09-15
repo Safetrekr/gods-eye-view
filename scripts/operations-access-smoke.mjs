@@ -10,6 +10,7 @@ const origin = process.env.OPERATIONS_TEST_URL || 'http://127.0.0.1:4174';
 const browser = await puppeteer.launch({ headless: true });
 try {
   const page = await browser.newPage();
+  await mkdir('output/operations', { recursive: true });
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.setViewport({ width: 1440, height: 1000 });
@@ -19,6 +20,8 @@ try {
   let corrupt = false;
   let holdReload = false;
   let heldRequest;
+  const sent = [];
+  let failSend = false;
   const accounts = new Map();
   const json = (request, value, status = 200) =>
     request.respond({
@@ -124,6 +127,27 @@ try {
         );
       return json(request, {});
     }
+    if (url.pathname.startsWith('/api/safetrekr/operations/trips/')) {
+      assert.ok(
+        accounts.has(request.headers().authorization?.replace('Bearer ', '')),
+      );
+      assert.equal(request.method(), 'POST');
+      sent.push({ path: url.pathname, body: JSON.parse(request.postData()) });
+      return json(
+        request,
+        failSend
+          ? {}
+          : {
+              alert_id: 'synthetic-alert',
+              push_delivery: {
+                provider_accepted: 2,
+                attempted: 3,
+                unreached_recipients: 1,
+              },
+            },
+        failSend ? 502 : 201,
+      );
+    }
     if (url.pathname === '/api/safetrekr/operations') {
       assert.ok(
         accounts.has(request.headers().authorization?.replace('Bearer ', '')),
@@ -208,6 +232,82 @@ try {
   assert.equal(await text('#ops-access-scope'), 'ORGANIZATION VIEW');
   assert.match(await text('#ops-list'), /Trip org-a/);
   assert.doesNotMatch(await text('#ops-console'), /org-b/);
+  await page.click('[data-action="broadcast"]');
+  await page.type('#ops-action-form [name=title]', 'Meeting update');
+  await page.type(
+    '#ops-action-form [name=message]',
+    'Meet in the lobby at 3 PM.',
+  );
+  await page.select('#ops-action-form [name=audience]', 'travelers');
+  await page.click('#ops-action-form button[type=submit]');
+  assert.equal(sent.length, 0, 'Review must not send');
+  assert.match(await text('.ops-action-review'), /Meeting update/);
+  await page.evaluate(() => {
+    const f = document.getElementById('ops-action-form');
+    f.requestSubmit();
+    f.requestSubmit();
+  });
+  await page.waitForFunction(() =>
+    document
+      .querySelector('.ops-action-review')
+      .textContent.includes('Alert created'),
+  );
+  assert.equal(sent.length, 1, 'Double submission must send once');
+  assert.equal(sent[0].body.recipient_group, 'travelers');
+  assert.match(
+    await text('.ops-action-review'),
+    /accepted 2 device notifications/,
+  );
+  await page.click('.ops-action-close');
+  await page.click('[data-action="direct-group"]');
+  const destination = await page.$eval(
+    '#ops-action-form [name=destination]',
+    (el) => el.options[1].value,
+  );
+  await page.select('#ops-action-form [name=destination]', destination);
+  await page.$eval('#ops-action-form [name=minutes]', (el) => {
+    el.value = '10';
+  });
+  await page.type('#ops-action-form [name=note]', 'Use the main entrance.');
+  await page.click('#ops-action-form button[type=submit]');
+  assert.equal(sent.length, 1);
+  assert.match(await text('.ops-action-review'), /Arrive within 10 minutes/);
+  await page.screenshot({ path: 'output/operations/direct-group-review.png' });
+  await page.click('#ops-action-form button[type=submit]');
+  await page.waitForFunction(() =>
+    document
+      .querySelector('.ops-action-review')
+      .textContent.includes('Alert created'),
+  );
+  assert.equal(sent.length, 2);
+  assert.equal(sent[1].body.arrival_minutes, 10);
+  assert.equal(sent[1].body.destination_source, 'rally_point');
+  assert.equal(sent[1].body.note, 'Use the main entrance.');
+  assert.equal(
+    sent[1].body.address,
+    undefined,
+    'Server resolves destination details',
+  );
+  await page.click('.ops-action-close');
+  failSend = true;
+  await page.click('[data-action="broadcast"]');
+  await page.type('#ops-action-form [name=title]', 'Uncertain test');
+  await page.type('#ops-action-form [name=message]', 'Synthetic send only.');
+  await page.click('#ops-action-form button[type=submit]');
+  await page.click('#ops-action-form button[type=submit]');
+  await page.waitForFunction(() =>
+    document
+      .querySelector('#ops-action-form .ops-error')
+      .textContent.includes('may already exist'),
+  );
+  assert.equal(
+    await page.$eval('#ops-action-form button[type=submit]', (el) => el.hidden),
+    true,
+  );
+  assert.equal(sent.length, 3, 'Uncertain sends must not retry automatically');
+  failSend = false;
+  await page.click('.ops-action-close');
+  await openTab('Trips');
   await page.select('#ops-window', 'all');
   await page.waitForFunction(() =>
     document.querySelector('#ops-list').textContent.includes('Trip org-a'),
@@ -306,7 +406,7 @@ try {
   assert.equal(await page.$('#ops-console:not([hidden])'), null);
   assert.deepEqual(errors, []);
   console.log(
-    'Access browser smoke passed: organization/platform login, server scope, filters, empty organization, denied access, narrow layout, inaccessible trip, permission change, inconsistent response, and account cleanup.',
+    'Access/action browser smoke passed: organization/platform login, scope isolation, alert and direction review/send, single submission, delivery receipt, uncertain-send handling, filters, empty organization, denied access, narrow layout, permission changes, and account cleanup.',
   );
 } finally {
   await browser.close();

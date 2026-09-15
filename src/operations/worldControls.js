@@ -63,7 +63,7 @@ const PRIVATE_LAYERS = [
   ['people', 'Travelers & chaperones', true],
   ['places', 'Lodging & venues', true],
   ['safety', 'Safety resources', true],
-  ['itinerary', 'Itinerary stops', false],
+  ['itinerary', 'Itinerary stops', true],
   ['boundaries', 'Trip boundaries', true],
 ];
 const e = (tag, text, cls) => {

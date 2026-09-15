@@ -21,6 +21,7 @@ import {
   destroyTrackedReadout,
 } from '../data/trackedReadout.js';
 import { currentFreshness, PEOPLE_COLORS, validPoint } from './model.js';
+import { enableDefaultWorldLayers } from './defaultLayers.js';
 
 export async function createOperationsGlobe({
   loaderStatus,
@@ -125,7 +126,7 @@ export async function createOperationsGlobe({
       people: true,
       places: true,
       safety: true,
-      itinerary: false,
+      itinerary: true,
       boundaries: true,
     };
     const roleVisibility = { traveler: true, chaperone: true };
@@ -308,6 +309,9 @@ export async function createOperationsGlobe({
       cameras,
       visualModes,
       mapStack: scene.mapStackController,
+      startWorldLayers() {
+        return enableDefaultWorldLayers(manager, signal);
+      },
       resetView() {
         stopTracking();
         viewer.camera.flyTo({

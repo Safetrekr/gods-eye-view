@@ -5,11 +5,20 @@ import handler from '../../api/gateway.js';
 
 test('deployed gateway grants public feeds only after Core authorizes staff, and never substitutes its cookie for private auth', async () => {
   let authorized = true;
+  let actionCalls = 0;
+  const actionPath =
+    'safetrekr/operations/trips/11111111-1111-4111-8111-111111111111/broadcast';
   process.env.CRON_SECRET = 'synthetic-collector-secret';
   const core = createServer((req, res) => {
-    assert.equal(req.url, '/v1/staff/operations');
+    const isAction =
+      req.url ===
+      `/v1/staff/operations/trips/11111111-1111-4111-8111-111111111111/broadcast`;
+    if (isAction) {
+      assert.equal(req.method, 'POST');
+      actionCalls++;
+    } else assert.equal(req.url, '/v1/staff/operations');
     assert.equal(req.headers.authorization, 'Bearer synthetic-test-session');
-    res.writeHead(authorized ? 200 : 403, {
+    res.writeHead(authorized ? (isAction ? 201 : 200) : 403, {
       'Content-Type': 'application/json',
     });
     res.end(
@@ -53,6 +62,40 @@ test('deployed gateway grants public feeds only after Core authorizes staff, and
     assert.equal(response.status, 200);
     assert.match(response.headers.get('cache-control'), /no-store/);
     const cookie = response.headers.get('set-cookie').split(';')[0];
+    assert.equal(
+      (
+        await request(actionPath, {
+          method: 'POST',
+          headers: { cookie, 'Content-Type': 'application/json' },
+          body: '{}',
+        })
+      ).status,
+      401,
+    );
+    assert.equal(actionCalls, 0);
+    assert.equal(
+      (
+        await request(actionPath, {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer synthetic-test-session',
+            'Content-Type': 'application/json',
+          },
+          body: '{}',
+        })
+      ).status,
+      201,
+    );
+    assert.equal(actionCalls, 1);
+    assert.equal(
+      (
+        await request(actionPath, {
+          method: 'GET',
+          headers: { Authorization: 'Bearer synthetic-test-session' },
+        })
+      ).status,
+      405,
+    );
     const providers = await request('safetrekr/providers', {
       headers: { cookie },
     });

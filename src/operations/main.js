@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { fetchOperations, SnapshotPoller } from './api.js';
 import { scopeLabels } from './access.js';
+import { mountTripActions } from './actions.js';
 import {
   currentFreshness,
   nearbyCameras,
@@ -41,6 +42,7 @@ root.innerHTML = `
       <div class="ops-sidebar-heading"><p id="ops-access-scope" class="ops-eyebrow">OPERATIONS</p><h2 id="ops-scope-title">Your world, at a glance</h2><p id="ops-scope-description" class="ops-small"></p><p id="ops-totals"></p></div>
       <div class="ops-filters"><label for="ops-window">Trip window</label><select id="ops-window"><option value="current">Traveling today</option><option value="upcoming">Upcoming trips</option><option value="all">All trips</option></select>
       <button id="ops-all-trips" hidden>← All trips</button></div>
+      <div id="ops-actions" class="ops-actions" hidden></div>
       <nav id="ops-tabs" class="ops-tabs" aria-label="Operations views"></nav>
       <div id="ops-source-issues" class="ops-source-issues" role="status" hidden></div>
       <div id="ops-list" class="ops-list"></div><div id="ops-pagination" class="ops-pagination"></div>
@@ -163,7 +165,30 @@ const poller = new SnapshotPoller({
   },
 });
 
+const tripActions = mountTripActions({
+  container: $('ops-actions'),
+  getContext: () => ({
+    snapshot,
+    tripId: filters.tripId,
+    token: session?.access_token,
+    accountId: session?.user?.id,
+    demo,
+  }),
+  onSent: (_result, sample) => {
+    if (!sample) {
+      tab = 'status';
+      poller.start();
+    }
+  },
+  onAuthError: () => {
+    void lockView(
+      'Your session or messaging permissions changed. Sign in again.',
+    );
+  },
+});
+
 async function lockView(message = '') {
+  tripActions.close();
   lifecycle += 1;
   starting = false;
   poller.stop();
@@ -180,6 +205,7 @@ async function lockView(message = '') {
   put('ops-access-scope', 'OPERATIONS');
   put('ops-scope-description', '');
   snapshot = null;
+  tripActions.update();
   selected = null;
   links.clear();
   onlyFlights = false;
@@ -280,6 +306,7 @@ async function openSession(nextSession, sample = false) {
     globe.frameTrip(filters.tripId);
     show('ops-loading', false);
     poller.start();
+    void globe.startWorldLayers?.();
   } catch (error) {
     if (epoch === lifecycle && error.name !== 'AbortError')
       await lockView(error.message || 'Could not open World View.');
@@ -300,6 +327,15 @@ function acceptSnapshot(data) {
     $('ops-detail').replaceChildren();
   }
   snapshot = data;
+  tripActions.update();
+  put(
+    'ops-environment',
+    demo
+      ? 'SIMULATED DATA · SAMPLE TRIP'
+      : data.capabilities?.send_alert
+        ? 'PRODUCTION · OPERATIONS'
+        : 'PRODUCTION · VIEW ONLY',
+  );
   receivedAt = performance.now() - (data.transportAgeSeconds || 0) * 1000;
   connectionError = '';
   globe?.setSnapshot(data);
@@ -348,9 +384,11 @@ function updateSync() {
 }
 
 function changeFilters(next) {
+  tripActions.close();
   filters = { ...filters, ...next };
   selected = null;
   snapshot = null;
+  tripActions.update();
   links.clear();
   if (globe) {
     globe.stopFollowing();
@@ -704,6 +742,19 @@ function renderDetail() {
     }
   }
   if (kind === 'flight') renderFlight(parent, record);
+  if (kind === 'safety' && snapshot?.capabilities?.direct_group)
+    parent.append(
+      button(
+        'Direct group here',
+        () =>
+          tripActions.open('direct-group', {
+            tripId: record.trip_id,
+            destinationId: record.id,
+            destinationSource: record.source,
+          }),
+        'ops-primary',
+      ),
+    );
   else {
     if (record.address || record.location_address)
       paragraph(parent, record.address || record.location_address);

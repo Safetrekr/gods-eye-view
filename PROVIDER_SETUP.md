@@ -8,16 +8,16 @@ credentials are already configured separately in Core's ignored
 
 ## What to obtain
 
-| Credential | Purpose | Where to obtain it |
-| --- | --- | --- |
-| `GOOGLE_MAPS_API_KEY` | Photorealistic 3D buildings and terrain; the main visual upgrade | Google Cloud project with billing and **Map Tiles API** enabled; create an API key in APIs & Services → Credentials |
-| `OPENSKY_CLIENT_ID` + `OPENSKY_CLIENT_SECRET` | Authenticated live aircraft positions | OpenSky account → create an API client; set `OPENSKY_AUTH_MODE=oauth` |
-| `GOOGLE_MAPS_SERVER_API_KEY` (optional) | Street View imagery when an existing camera feed fails; this imagery is not live | Separate Google key with **Street View Static API** enabled; add Places API only if enabling upstream place-search features |
-| `CESIUM_ION_TOKEN` (optional) | Alternative route to Google 3D through Cesium ion | Cesium ion → Access Tokens; use `assets:read`, the needed assets, and allowed URLs |
-| `TFL_APP_KEY` (optional) | Registered access for London's camera catalog | TfL API developer portal; the current catalog also works without a key |
-| `TOMTOM_API_KEY` | Live road-flow speeds for Traffic | TomTom Developer Portal → create an application/API key with Traffic API access |
-| `FIRMS_MAP_KEY` | Satellite heat detections for Active fires | NASA FIRMS → request a free MAP_KEY by email |
-| `AISSTREAM_API_KEY` | Vessel positions for Global ships | AISStream account → create an API key |
+| Credential                                    | Purpose                                                                          | Where to obtain it                                                                                                          |
+| --------------------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `GOOGLE_MAPS_API_KEY`                         | Photorealistic 3D buildings and terrain; the main visual upgrade                 | Google Cloud project with billing and **Map Tiles API** enabled; create an API key in APIs & Services → Credentials         |
+| `OPENSKY_CLIENT_ID` + `OPENSKY_CLIENT_SECRET` | Authenticated live aircraft positions                                            | OpenSky account → create an API client; set `OPENSKY_AUTH_MODE=oauth`                                                       |
+| `GOOGLE_MAPS_SERVER_API_KEY` (optional)       | Street View imagery when an existing camera feed fails; this imagery is not live | Separate Google key with **Street View Static API** enabled; add Places API only if enabling upstream place-search features |
+| `CESIUM_ION_TOKEN` (optional)                 | Alternative route to Google 3D through Cesium ion                                | Cesium ion → Access Tokens; use `assets:read`, the needed assets, and allowed URLs                                          |
+| `TFL_APP_KEY` (optional)                      | Registered access for London's camera catalog                                    | TfL API developer portal; the current catalog also works without a key                                                      |
+| `TOMTOM_API_KEY`                              | Live road-flow speeds for Traffic                                                | TomTom Developer Portal → create an application/API key with Traffic API access                                             |
+| `FIRMS_MAP_KEY`                               | Satellite heat detections for Active fires                                       | NASA FIRMS → request a free MAP_KEY by email                                                                                |
+| `AISSTREAM_API_KEY`                           | Vessel positions for Global ships                                                | AISStream account → create an API key                                                                                       |
 
 The direct Google key is sufficient for this fork's default 3D scene; a Cesium
 token is not also required. SafeTrekr authentication and source data are already
@@ -77,7 +77,8 @@ credentials: this version uses staff-confirmed aircraft links.
 Open **World controls** in the header, or use **Layers**, **Natural**, and
 **Camera cities** in the footer. **Trips** collapses the staff roster when you
 want more map space. **World view**, **Fit trip view**, and **Stop following**
-control navigation.
+control navigation. All eight public layers start enabled after an authorized
+sign-in. Disable individual layers here whenever you want a quieter view.
 
 - **Layers:** individual public-layer switches and source status, plus SafeTrekr
   overlays. Zoom into a city for traffic and camera detail. Click a satellite,
@@ -93,6 +94,13 @@ control navigation.
   configured feeds also show outages and degraded status.
 - **Active fires:** recent satellite heat detections, not verified incident
   boundaries. **Global ships:** observed AIS contacts, not every ship worldwide.
+
+For Active fires, use `FIRMS_MAP_KEY=your_key` with exactly one `=` separating
+the variable name and value. A missing-key message means the server did not load
+the variable; a NASA-rejected-key message means NASA rejected its actual value.
+Restart local Vite after changes and update the Vercel environment before a new
+production deployment. The worldwide VIIRS response is streamed and compressed
+because full-day datasets can exceed Vercel's buffered response limit.
 
 These providers run through the local Vite server. A production deployment must
 run the provider middleware/gateway as well as serve the built browser assets;

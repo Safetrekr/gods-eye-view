@@ -3,10 +3,16 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { staffCoreProxy } from '../../server/standalone/staffCoreProxy.js';
 
-test('Core proxy is GET-only, fixed-target, and forwards only the staff session', async () => {
+test('Core proxy fixes the upstream and permits only snapshots and explicit trip actions', async () => {
   const requests = [];
-  const upstream = http.createServer((req, res) => {
-    requests.push({ url: req.url, auth: req.headers.authorization });
+  const upstream = http.createServer(async (req, res) => {
+    let body = '';
+    for await (const chunk of req) body += chunk;
+    requests.push({
+      url: req.url,
+      auth: req.headers.authorization,
+      ...(body ? { body: JSON.parse(body) } : {}),
+    });
     res.setHeader('Content-Type', 'application/json');
     res.end('{"schema_version":1}');
   });
@@ -47,6 +53,77 @@ test('Core proxy is GET-only, fixed-target, and forwards only the staff session'
         auth: 'Bearer synthetic',
       },
     ]);
+    const action = '/trips/00000000-0000-4000-8000-000000000001/broadcast';
+    const headers = {
+      Authorization: 'Bearer synthetic',
+      'Content-Type': 'application/json',
+    };
+    assert.equal(
+      (
+        await fetch(`${origin}${action}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        })
+      ).status,
+      401,
+    );
+    assert.equal(
+      (
+        await fetch(`${origin}${action}`, {
+          method: 'POST',
+          headers: { ...headers, Origin: 'https://other.example' },
+          body: '{}',
+        })
+      ).status,
+      403,
+    );
+    assert.equal(
+      (
+        await fetch(`${origin}${action}`, {
+          method: 'POST',
+          headers,
+          body: '{broken',
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await fetch(`${origin}${action}`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ message: 'x'.repeat(17000) }),
+        })
+      ).status,
+      413,
+    );
+    assert.equal(
+      (
+        await fetch(`${origin}${action.replace('broadcast', 'delete')}`, {
+          method: 'POST',
+          headers,
+          body: '{}',
+        })
+      ).status,
+      404,
+    );
+    assert.equal(
+      (
+        await fetch(`${origin}${action}?org_id=other`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ title: 'Fixture', message: 'Test' }),
+        })
+      ).status,
+      200,
+    );
+    assert.equal(requests.length, 2);
+    assert.deepEqual(requests[1], {
+      url: `/v1/staff/operations${action}`,
+      auth: 'Bearer synthetic',
+      body: { title: 'Fixture', message: 'Test' },
+    });
   } finally {
     await new Promise((resolve) => proxy.close(resolve));
     await new Promise((resolve) => upstream.close(resolve));

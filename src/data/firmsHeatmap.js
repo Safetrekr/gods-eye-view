@@ -433,6 +433,12 @@ export function createFirmsHeatmapLayer({
           _stale = false;
           return;
         }
+        if (payload?.error === 'invalid_key') {
+          _keyRequired = false;
+          _error = 'NASA rejected FIRMS_MAP_KEY. Check the key value and activation.';
+          _stale = _count > 0;
+          return;
+        }
         throw new Error(`FIRMS HTTP ${response.status}`);
       }
 

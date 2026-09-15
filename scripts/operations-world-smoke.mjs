@@ -211,6 +211,7 @@ try {
     8,
   );
   for (const id of [
+    'flights',
     'military',
     'satellites',
     'ais-live-vessels',
@@ -219,11 +220,11 @@ try {
     'earthquakes',
     'cctv',
   ]) {
-    await page.$eval(`[data-layer="${id}"] input`, (input) => {
-      if (!input.checked) input.click();
-    });
     await page.waitForFunction(
-      (id) => !document.querySelector(`[data-layer="${id}"] input`).disabled,
+      (id) => {
+        const input = document.querySelector(`[data-layer="${id}"] input`);
+        return input.checked && !input.disabled;
+      },
       { timeout: 45000 },
       id,
     );
@@ -446,7 +447,7 @@ try {
   await page.waitForSelector('#ops-login:not([hidden])');
   assert.deepEqual(errors, []);
   console.log(
-    'World controls smoke passed: seven enabled layers, nine rendered styles, city selection, local camera form, keyboard/mobile controls, missing-key states, logout cleanup and re-entry. Provider data was synthetic.',
+    'World controls smoke passed: all eight layers enabled by default, nine rendered styles, city selection, local camera form, keyboard/mobile controls, missing-key states, logout cleanup and re-entry.',
   );
 } finally {
   await browser.close();

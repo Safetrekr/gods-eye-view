@@ -97,7 +97,11 @@ export default async function handler(req, res) {
     }
     return;
   }
-  const isCore = pathname === '/api/safetrekr/operations';
+  const isAction =
+    /^\/api\/safetrekr\/operations\/trips\/[a-f0-9-]{36}\/(broadcast|direct-group)$/i.test(
+      pathname,
+    );
+  const isCore = pathname === '/api/safetrekr/operations' || isAction;
   const isSharedAis =
     pathname === '/api/ais-live' && isCollector && req.method === 'GET';
   if (
@@ -114,6 +118,7 @@ export default async function handler(req, res) {
   }
   if (
     !['GET', 'HEAD'].includes(req.method) &&
+    !(isAction && req.method === 'POST') &&
     !(
       req.method === 'POST' &&
       ['/api/overpass', '/api/terrain/heights'].includes(pathname)

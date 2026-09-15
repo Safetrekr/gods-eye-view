@@ -39,6 +39,7 @@ export function demoSnapshot() {
     schema_version: 1,
     generated_at: iso(0),
     scope: { kind: 'platform', org_id: null },
+    capabilities: { send_alert: true, direct_group: true },
     page: { offset: 0, limit: 10, total: 1, has_more: false },
     source_issues: [],
     trips: [
@@ -79,6 +80,7 @@ export function demoSnapshot() {
     safety_points: [
       {
         id: 'rally',
+        source: 'rally_point',
         trip_id: id,
         name: 'Sample rally point',
         category: 'rally_primary',

@@ -1,5 +1,8 @@
 import path from 'node:path';
 import { promises as fsp } from 'node:fs';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import { createGzip } from 'node:zlib';
 
 import { filterTrailing24h, parseFirmsCsv } from '../../src/data/firmsCsv.js';
 
@@ -41,6 +44,7 @@ export function firmsProxy() {
   let statusCache = null;
   /** @type {?Promise<?{used: number, limit: number}>} */
   let statusInflight = null;
+  let lastError = null;
 
   const mapKey = () => String(process.env.FIRMS_MAP_KEY || '').trim();
 
@@ -77,9 +81,14 @@ export function firmsProxy() {
    */
   async function fetchSource(key, source) {
     const url = `https://firms.modaps.eosdis.nasa.gov/api/area/csv/${encodeURIComponent(key)}/${source}/world/2`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+    const body = await res.text();
+    if (/invalid\s+map_key/i.test(body.slice(0, 300)))
+      throw Object.assign(new Error('NASA rejected FIRMS_MAP_KEY'), {
+        code: 'invalid_key',
+      });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const records = parseFirmsCsv(await res.text());
+    const records = parseFirmsCsv(body);
     if (records === null) throw new Error('non-CSV upstream response');
     return records;
   }
@@ -103,6 +112,7 @@ export function firmsProxy() {
         for (const record of records) fires.push(record);
         sources.push({ source, count: records.length, ok: true });
       } catch (err) {
+        if (err.code === 'invalid_key') throw err;
         console.warn(
           `[firms-proxy] ${source} fetch failed:`,
           err?.message || err,
@@ -171,13 +181,39 @@ export function firmsProxy() {
     name: 'firms-proxy',
     configureServer(server) {
       server.middlewares.use('/api/firms', async (req, res) => {
-        const sendJson = (status, obj) => {
+        const sendJson = async (status, obj) => {
           if (res.headersSent) return;
-          res.writeHead(status, {
+          const headers = {
             'Content-Type': 'application/json',
             'Cache-Control': 'no-store',
-          });
-          res.end(JSON.stringify(obj));
+          };
+          const body = Buffer.from(JSON.stringify(obj));
+          if (body.length < 1_000_000) {
+            res.writeHead(status, headers);
+            res.end(body);
+            return;
+          }
+          // Worldwide detections exceed Vercel's buffered response limit.
+          // Explicit streaming preserves every detection; gzip saves bandwidth.
+          const gzip = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+          if (gzip) headers['Content-Encoding'] = 'gzip';
+          headers.Vary = 'Accept-Encoding';
+          res.writeHead(status, headers);
+          res.flushHeaders();
+          const chunks = Readable.from(
+            (function* () {
+              for (let at = 0; at < body.length; at += 65536)
+                yield body.subarray(at, at + 65536);
+            })(),
+          );
+          try {
+            await pipeline(
+              ...(gzip ? [chunks, createGzip(), res] : [chunks, res]),
+            );
+          } catch {
+            // A closed browser cancels only its response, not the shared cache.
+            if (!res.destroyed) res.destroy();
+          }
         };
         try {
           const subPath = String(req.url || '').split('?')[0];
@@ -225,10 +261,15 @@ export function firmsProxy() {
             inflight = refreshUpstream(key)
               .then(async (fresh) => {
                 mem = fresh;
+                lastError = null;
                 await writeDisk(fresh);
                 return fresh;
               })
               .catch((err) => {
+                lastError =
+                  err.code === 'invalid_key'
+                    ? 'invalid_key'
+                    : 'upstream_unavailable';
                 console.warn(
                   `[firms-proxy] refresh failed (${err?.message || err}) — serving cache if any`,
                 );
@@ -246,7 +287,7 @@ export function firmsProxy() {
             sendJson(200, buildPayload(entry, true)); // upstream down — stale beats empty
           } else {
             sendJson(502, {
-              error: 'firms fetch failed and no cache available',
+              error: lastError || 'upstream_unavailable',
             });
           }
         } catch (err) {

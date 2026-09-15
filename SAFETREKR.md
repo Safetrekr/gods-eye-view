@@ -1,8 +1,8 @@
 # SafeTrekr World View
 
 This fork adds an organization and staff operations console to God's Eye View. The default page
-uses Supabase sign-in and the Core `GET /v1/staff/operations` endpoint. It is a
-read-only first release; the original explorer modules remain available for
+uses Supabase sign-in, scoped Core snapshots, and explicit trip messaging actions.
+The original explorer modules remain available for
 future upstream merges, but its voice, sharing, annotations, capture, and debug
 bootstrap are not mounted by the operations entry point.
 
@@ -16,6 +16,9 @@ bootstrap are not mounted by the operations entry point.
   boundaries, and the shared chaperone containment model on trip drill-in.
 - Morning muster status, roll-call present/absent/excused/unmarked counts, and
   trip alerts with acknowledgment counts. GPS is never treated as roll call.
+- Send alert and Direct group for organization administrators and authorized
+  platform staff. Choose a trip and audience, review the message, then send it
+  through Core's existing traveler alert feed and push delivery workflow.
 - Nearby-camera searches measured from the selected person/location, explicit
   radius and coverage limits, and the upstream camera viewer.
 - Scheduled passenger flight watchlist. Staff can explicitly link a dated leg
@@ -24,7 +27,8 @@ bootstrap are not mounted by the operations entry point.
   filter hides unrelated aircraft. No AviationStack requests or dependency.
 - Header and footer shortcuts to World controls: civilian/military flights,
   satellites, AIS ships, TomTom traffic, FIRMS fires, earthquakes, and public
-  cameras, with provider status and missing-key guidance.
+  cameras, with provider status and missing-key guidance. All eight public layers
+  start enabled after sign-in; one unavailable provider does not block the others.
 - Nine visual modes including FLIR, night vision, CRT, and natural imagery;
   effect strength and basemap selection. Effects are labeled as visual filters.
 - City camera directory with search, fly-to-city, and camera selection. Local
@@ -48,9 +52,11 @@ npm run dev -- --host 127.0.0.1 --port 4173
 Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` to the target Supabase
 project's public configuration. Set the server-only `SAFETREKR_CORE_URL` to Core's
 base URL (with or without `/v1`; the proxy resolves `/v1/staff/operations`). For the local GET-only Core runner it is
-`http://127.0.0.1:8002`. The Vite middleware forwards only the staff GET request and
-the caller's bearer token to that fixed origin; it cannot proxy arbitrary Core
-routes or writes. `.env.local` is ignored. Never put a service-role key or the
+`http://127.0.0.1:8002`. The Vite middleware forwards the staff snapshot GET and
+the two trip-action POST routes with the caller's bearer token to that fixed
+origin. It cannot proxy arbitrary Core routes. The isolated local runner supports
+reads only; actions require the normal Core application. `.env.local` is ignored.
+Never put a service-role key or the
 MCP personal access token in this checkout's browser configuration.
 
 Core's companion branch contains `scripts/operations_readonly_server.py` and
@@ -62,8 +68,10 @@ A dedicated test account needs a matching active `public.users` profile.
 Platform staff roles are `hq_admin`, `hq_supervisor`, `hq_security`, `hq_ops`, or
 `analyst`, with `org_id IS NULL`. Organization administrators and security officers
 can see only their own organization. Billing, participant, and unknown roles are
-denied. The console has no writes; this does not remove permissions that the
-account might have in other SafeTrekr applications.
+denied. Organization admins and authorized platform staff can send trip messages;
+security officers have view-only access in this console. Core's response supplies
+the action capabilities, and Core checks the current account and trip scope again
+for every send.
 
 Organization administrators use their existing SafeTrekr credentials on the same
 login screen. The console labels their access **Organization view**; all trip
@@ -84,7 +92,25 @@ The development-only **Explore a sample trip** button (or `?demo=1`) loads
 fictional Austin travelers with a conspicuous simulated-data label. It makes no
 Core data requests. Production builds provide no sample-mode entry point.
 
-## First-release limits
+## Trip actions
+
+**Send alert** targets all participants, travelers, or chaperones on one authorized
+trip. **Direct group** sends an urgent alert containing an approved destination,
+its address/map link, an arrival deadline, and optional instructions. It uses
+trip safety resources: rally points, safe houses, relocation points, and POIs
+such as fire stations. Draft and organization-internal destinations are excluded;
+chaperone-only destinations can only target chaperones. Core resolves the
+destination from the authorized trip instead of trusting browser-supplied details.
+
+Both actions require **Review message → Send now**. Existing Core trip-ended
+checks, rate limits, audit, recipient targeting, push delivery ledger, and retries
+apply. Results distinguish saved alerts from provider-accepted device pushes;
+acceptance does not prove a traveler saw the message. The browser never retries
+an uncertain send automatically. Check the trip's alerts before sending again
+after an unknown result. Direct group creates a broadcast and deadline; it does
+not change the itinerary or automatically navigate a participant's phone.
+
+## Current limits
 
 The map displays the currently loaded page of ten trips. Use trip windows,
 pagination, or select a trip to narrow the view; the loaded scope is always
@@ -120,11 +146,17 @@ authentication required (HTTP 401) to an anonymous request. Staff snapshots stil
 require a valid Supabase session and an authorized staff profile.
 
 A successful staff snapshot issues a signed, Secure, HttpOnly, SameSite=Strict
-five-minute cookie for public-provider access. Private snapshots always require
+five-minute cookie for public-provider access. Private snapshots and messaging always require
 Core's full Supabase session and current staff-scope checks. Logout clears the
 provider cookie. Responses bypass shared CDN caches. The deployed gateway mounts
 only the providers used by this console; key editing, local camera mutations,
 OpenAI/voice endpoints and arbitrary upstream proxies are excluded.
+
+The only messaging paths are POST
+`/api/safetrekr/operations/trips/{uuid}/broadcast` and
+`/api/safetrekr/operations/trips/{uuid}/direct-group`. The public-provider cookie
+cannot authorize either action. JSON request bodies are limited to 16 KB, and
+cross-origin browser sends are rejected.
 
 AIS on Vercel collects bounded 12-second samples and caches public vessel reports
 across requests for one minute. It retains at most 3,000 observed vessels, for at

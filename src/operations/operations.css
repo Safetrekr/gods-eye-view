@@ -307,6 +307,108 @@ body.operations {
 .ops-filters {
   padding: 0 21px 15px;
 }
+.ops-actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 20px 14px;
+}
+.ops-actions button {
+  flex: 1;
+  border: 1px solid #42705a;
+  color: #b8eed0;
+  background: #1a352a;
+  padding: 9px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.ops-action-dialog {
+  margin: auto;
+  color: #e3eee9;
+  background: #102127;
+  border: 1px solid #49615b;
+  border-radius: 12px;
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100dvh - 40px);
+  overflow: auto;
+  padding: 26px;
+  box-shadow: 0 20px 80px #0009;
+}
+.ops-action-dialog::backdrop {
+  background: #020d12bc;
+  backdrop-filter: blur(5px);
+}
+.ops-action-dialog h2 {
+  font-size: 24px;
+  margin: 4px 0 24px;
+}
+.ops-action-dialog label {
+  display: block;
+  margin: 15px 0;
+  font-size: 13px;
+  color: #c4d4cd;
+}
+.ops-action-dialog input,
+.ops-action-dialog select,
+.ops-action-dialog textarea {
+  display: block;
+  width: 100%;
+  margin-top: 7px;
+  color: #e3eee9;
+  background: #0a191f;
+  border: 1px solid #49615b;
+  padding: 11px;
+  border-radius: 4px;
+  font: inherit;
+}
+.ops-action-dialog textarea {
+  resize: vertical;
+}
+.ops-action-dialog button {
+  cursor: pointer;
+  border: 1px solid #48625a;
+  color: #d3e4dc;
+  background: #1b342c;
+  padding: 10px 14px;
+  border-radius: 4px;
+  margin: 5px 8px 0 0;
+}
+.ops-action-dialog .ops-primary {
+  background: #77c798;
+  color: #092019;
+  border-color: #77c798;
+}
+.ops-action-dialog .ops-action-close {
+  float: right;
+  margin-top: -4px;
+  font-size: 12px;
+}
+.ops-action-dialog button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+.ops-action-dialog p {
+  line-height: 1.55;
+}
+.ops-action-preview {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #0b1a20;
+  border: 1px solid #3a504a;
+  border-radius: 6px;
+  padding: 16px;
+}
+.ops-action-dialog [hidden],
+.ops-actions[hidden] {
+  display: none !important;
+}
+@media (max-width: 600px) {
+  .ops-action-dialog {
+    padding: 18px;
+  }
+  .ops-actions {
+    padding: 0 14px 10px;
+  }
+}
 .ops-filters > label {
   font-size: 11px;
   color: #95aaa5;
