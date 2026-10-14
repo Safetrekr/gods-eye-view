@@ -10,7 +10,10 @@ export function demoSnapshot() {
     ['p3', 'Sam Taylor', 'traveler', 30.2668, -97.7437, 260, 0.22],
     ['p4', 'Casey Morgan', 'traveler', 30.2662, -97.7401, 1100, 0.08],
     ['p5', 'Riley Park', 'traveler', null, null, null, null],
-  ].map(([pid, name, role, lat, lng, age, battery]) => ({
+    // Stopped phones: old fix, but still answering silent location checks.
+    ['p6', 'Morgan Ellis', 'traveler', 30.2655, -97.7412, 10800, 0.55, 600],
+    ['p7', 'Drew Nguyen', 'traveler', 30.2649, -97.7425, 9000, 0.4, 3000],
+  ].map(([pid, name, role, lat, lng, age, battery, contactAge]) => ({
     id: pid,
     trip_id: id,
     user_id: pid,
@@ -27,13 +30,26 @@ export function demoSnapshot() {
           : age <= 600
             ? 'aging'
             : 'stale',
-    isFresh: age !== null && age <= 120,
+    isFresh:
+      age !== null &&
+      (age <= 120 || (contactAge !== undefined && contactAge < 2400)),
+    ...(contactAge === undefined
+      ? {}
+      : {
+          presence: contactAge < 2400 ? 'stopped' : 'stopped_no_answer',
+          freshness: contactAge < 2400 ? 'fresh' : 'stale',
+          stationarySince: iso(-age * 1000),
+          lastContactAt: iso(-contactAge * 1000),
+        }),
     freshMaxAgeSeconds: 120,
     staleAgeSeconds: 600,
     accuracy_m: 16,
     battery_level: battery,
     battery_state: 'unplugged',
-    group_zone_state: age <= 120 ? 'inside' : 'unknown',
+    group_zone_state:
+      age <= 120 || (contactAge !== undefined && contactAge < 2400)
+        ? 'inside'
+        : 'unknown',
   }));
   return {
     schema_version: 1,
@@ -51,7 +67,7 @@ export function demoSnapshot() {
         start_date: iso(-86400000).slice(0, 10),
         end_date: iso(86400000).slice(0, 10),
         timezone: 'America/Chicago',
-        loaded_participants: 5,
+        loaded_participants: 7,
       },
     ],
     participants: people,

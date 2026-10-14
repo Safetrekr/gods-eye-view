@@ -109,6 +109,37 @@ test('a delayed boundary or participant never establishes current containment', 
   assert.equal(boundaryIsDelayed({ moving: false }, 600), false);
 });
 
+test('stopped travelers pass the location-current gate, no-answer ones do not', () => {
+  const now = Date.parse('2026-10-14T15:00:00.000Z');
+  const ago = (s) => new Date(now - s * 1000).toISOString();
+  const person = {
+    trip_id: 'a',
+    group_zone_state: 'inside',
+    isFresh: false,
+    freshness: 'stale',
+    freshMaxAgeSeconds: 120,
+    locationAgeSeconds: 3 * 3600,
+    capturedAt: ago(3 * 3600),
+    stationarySince: ago(3 * 3600),
+    lastContactAt: ago(300),
+    presence: 'stopped',
+  };
+  const snapshot = { group_zones: [{ trip_id: 'a', valid_for_seconds: 35 }] };
+  assert.equal(groupBoundaryLabel(person, snapshot, 10), 'Inside');
+  assert.match(
+    groupBoundaryLabel({ ...person, lastContactAt: ago(2400) }, snapshot, 10),
+    /Unknown.*location not current/,
+  );
+  assert.match(
+    groupBoundaryLabel(
+      { ...person, stationarySince: null, lastContactAt: null },
+      snapshot,
+      10,
+    ),
+    /Unknown.*location not current/,
+  );
+});
+
 test('photos only use the configured public avatar bucket without credentials', () => {
   const base = 'https://sample.supabase.co';
   const path = '/storage/v1/object/public/avatars/user/thumb.jpg';

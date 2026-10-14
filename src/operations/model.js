@@ -17,9 +17,86 @@ export function validPoint(point) {
   );
 }
 
+// Mirrors Core's derive_presence. A stopped phone sends no GPS, so its fix can
+// be hours old while the phone still answers silent location checks.
+export const STATIONARY_CONTACT_MAX_AGE_SECONDS = 2400;
+const CONTACT_FUTURE_TOLERANCE_SECONDS = 120;
+
+// Returns null when the person is moving (or Core sent no stopped-phone
+// anchors); callers then use the capture-age logic unchanged.
+export function derivePresence(person, elapsedSeconds = 0) {
+  const elapsed = Math.max(0, Number(elapsedSeconds) || 0);
+  const captured = Date.parse(person.capturedAt);
+  if (
+    !Number.isFinite(captured) ||
+    !Number.isFinite(person.locationAgeSeconds)
+  ) {
+    // Anchors unavailable: trust the payload's own presence verdict.
+    if (person.presence === 'stopped')
+      return { presence: 'stopped', contactAge: null, stay: null };
+    if (person.presence === 'stopped_no_answer')
+      return { presence: 'stopped_no_answer', contactAge: null, stay: null };
+    return null;
+  }
+  const serverNow = captured + person.locationAgeSeconds * 1000;
+  const since = Date.parse(person.stationarySince);
+  const contact = Date.parse(person.lastContactAt);
+  if (!Number.isFinite(since) || !Number.isFinite(contact)) return null;
+  const rawContactAge = (serverNow - contact) / 1000;
+  if (rawContactAge < -CONTACT_FUTURE_TOLERANCE_SECONDS) return null;
+  const contactAge = Math.max(0, rawContactAge) + elapsed;
+  const stay = Math.max(0, (serverNow - since) / 1000 + elapsed);
+  return {
+    presence:
+      contactAge >= STATIONARY_CONTACT_MAX_AGE_SECONDS
+        ? 'stopped_no_answer'
+        : 'stopped',
+    contactAge,
+    stay,
+  };
+}
+
+function ageLabel(age) {
+  return age < 60
+    ? `${Math.floor(age)}s ago`
+    : age < 3600
+      ? `${Math.floor(age / 60)}m ago`
+      : `${Math.floor(age / 3600)}h ago`;
+}
+
+function stayLabel(stay) {
+  if (stay === null) return 'At this location';
+  const minutes = Math.floor(stay / 60);
+  const dur =
+    minutes < 60
+      ? `${minutes}m`
+      : minutes % 60 === 0
+        ? `${minutes / 60}h`
+        : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  return `At this location for ${dur}`;
+}
+
 export function currentFreshness(person, elapsedSeconds = 0) {
   if (!validPoint(person.coordinates))
     return { state: 'unknown', age: null, label: 'No location reported' };
+  const derived = derivePresence(person, elapsedSeconds);
+  if (derived?.presence === 'stopped')
+    return {
+      state: 'fresh',
+      age: derived.contactAge,
+      label: stayLabel(derived.stay),
+      presence: 'stopped',
+    };
+  if (derived?.presence === 'stopped_no_answer')
+    return {
+      state: 'stale',
+      age: derived.contactAge,
+      label:
+        derived.contactAge === null
+          ? 'Did not answer a location check'
+          : `Did not answer a location check · Updated ${ageLabel(derived.contactAge)}`,
+      presence: 'stopped_no_answer',
+    };
   if (
     person.freshness === 'unknown' ||
     !Number.isFinite(person.locationAgeSeconds)
@@ -33,12 +110,7 @@ export function currentFreshness(person, elapsedSeconds = 0) {
       : age <= person.staleAgeSeconds
         ? 'aging'
         : 'stale';
-  const label =
-    age < 60
-      ? `${Math.floor(age)}s ago`
-      : age < 3600
-        ? `${Math.floor(age / 60)}m ago`
-        : `${Math.floor(age / 3600)}h ago`;
+  const label = ageLabel(age);
   return {
     state,
     age,
