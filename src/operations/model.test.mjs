@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   validPoint,
   currentFreshness,
+  derivePresence,
+  STATIONARY_CONTACT_MAX_AGE_SECONDS,
   nearbyCameras,
   makeAircraftLink,
   liveAircraftLink,
@@ -133,4 +135,112 @@ test('a late account/filter response cannot repopulate a stopped poller', async 
   resolve({ private: true });
   await new Promise((done) => setImmediate(done));
   assert.deepEqual(published, []);
+});
+
+const SERVER_NOW = Date.parse('2026-10-14T15:00:00.000Z');
+const stoppedPerson = (contactAgeSeconds, extra = {}) => ({
+  coordinates: { lat: 30.26, lng: -97.74 },
+  freshness: 'stale',
+  isFresh: false,
+  locationAgeSeconds: 3 * 3600,
+  freshMaxAgeSeconds: 120,
+  staleAgeSeconds: 600,
+  capturedAt: new Date(SERVER_NOW - 3 * 3600 * 1000).toISOString(),
+  stationarySince: new Date(SERVER_NOW - 3 * 3600 * 1000).toISOString(),
+  lastContactAt: new Date(SERVER_NOW - contactAgeSeconds * 1000).toISOString(),
+  presence: 'stopped',
+  ...extra,
+});
+
+test('a stopped traveler with a stale fix but recent contact reads as current', () => {
+  assert.equal(STATIONARY_CONTACT_MAX_AGE_SECONDS, 2400);
+  const f = currentFreshness(stoppedPerson(600), 0);
+  assert.equal(f.state, 'fresh');
+  assert.equal(f.label, 'At this location for 3h');
+  assert.equal(f.age, 600);
+  assert.equal(f.presence, 'stopped');
+});
+
+test('stay duration formats minutes, hours, and hours with minutes', () => {
+  const at = (stayS) =>
+    currentFreshness(
+      stoppedPerson(60, {
+        stationarySince: new Date(SERVER_NOW - stayS * 1000).toISOString(),
+      }),
+      0,
+    ).label;
+  assert.equal(at(25 * 60), 'At this location for 25m');
+  assert.equal(at(3600 + 15 * 60), 'At this location for 1h 15m');
+  assert.equal(at(2 * 3600), 'At this location for 2h');
+});
+
+test('contact age is capped at 2400 s, including elapsed time', () => {
+  assert.equal(currentFreshness(stoppedPerson(2399), 0).state, 'fresh');
+  const gone = currentFreshness(stoppedPerson(2400), 0);
+  assert.equal(gone.state, 'stale');
+  assert.equal(gone.presence, 'stopped_no_answer');
+  assert.equal(gone.label, 'Did not answer a location check · Updated 40m ago');
+  assert.equal(currentFreshness(stoppedPerson(2390), 20).state, 'stale');
+  assert.equal(currentFreshness(stoppedPerson(2390), 5).state, 'fresh');
+});
+
+test('presence is re-derived and ignores the payload presence field', () => {
+  assert.equal(
+    derivePresence(stoppedPerson(2500, { presence: 'stopped' }), 0).presence,
+    'stopped_no_answer',
+  );
+  assert.equal(
+    derivePresence(stoppedPerson(60, { presence: 'moving' }), 0).presence,
+    'stopped',
+  );
+});
+
+test('contact in the future is unusable beyond 120 s and zero within it', () => {
+  const p = stoppedPerson(-121);
+  assert.equal(derivePresence(p, 0), null);
+  assert.equal(currentFreshness(p, 0).label, 'Last known · 3h ago');
+  const near = currentFreshness(stoppedPerson(-100), 0);
+  assert.equal(near.state, 'fresh');
+  assert.equal(near.age, 0);
+});
+
+test('without stationarySince or lastContactAt the old logic applies', () => {
+  const p = stoppedPerson(60);
+  assert.equal(derivePresence({ ...p, stationarySince: null }, 0), null);
+  assert.equal(derivePresence({ ...p, lastContactAt: 'junk' }, 0), null);
+  assert.equal(
+    currentFreshness({ ...p, stationarySince: null }, 0).label,
+    'Last known · 3h ago',
+  );
+});
+
+test('missing capturedAt falls back to the payload presence', () => {
+  const p = stoppedPerson(60, { capturedAt: null });
+  const stopped = currentFreshness(p, 0);
+  assert.equal(stopped.state, 'fresh');
+  assert.equal(stopped.label, 'At this location');
+  const noAnswer = currentFreshness({ ...p, presence: 'stopped_no_answer' }, 0);
+  assert.equal(noAnswer.state, 'stale');
+  assert.match(noAnswer.label, /^Did not answer a location check/);
+  assert.equal(
+    currentFreshness({ ...p, presence: 'moving' }, 0).label,
+    'Last known · 3h ago',
+  );
+});
+
+test('payloads without the new fields behave exactly as before', () => {
+  const p = {
+    coordinates: { lat: 0, lng: 0 },
+    freshness: 'fresh',
+    locationAgeSeconds: 110,
+    freshMaxAgeSeconds: 120,
+    staleAgeSeconds: 600,
+    capturedAt: new Date(SERVER_NOW).toISOString(),
+  };
+  assert.equal(derivePresence(p, 0), null);
+  assert.deepEqual(currentFreshness(p, 0), {
+    state: 'fresh',
+    age: 110,
+    label: '1m ago',
+  });
 });

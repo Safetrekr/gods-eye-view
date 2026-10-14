@@ -1,4 +1,4 @@
-import { validPoint } from './model.js';
+import { derivePresence, validPoint } from './model.js';
 
 // Map geometry only. Containment is always supplied by Core's alert engine.
 export function circleRing(center, radius) {
@@ -108,11 +108,13 @@ export function groupBoundaryLabel(person, snapshot, elapsed) {
   if (!zone) return 'Unknown · no current group boundary';
   if (boundaryIsDelayed({ ...zone, moving: true }, elapsed))
     return 'Unknown · boundary update overdue';
-  if (
-    !person.isFresh ||
-    elapsed + person.locationAgeSeconds > person.freshMaxAgeSeconds
-  )
-    return 'Unknown · location not current';
+  const presence = derivePresence(person, elapsed)?.presence;
+  const current =
+    presence === 'stopped' ||
+    (presence !== 'stopped_no_answer' &&
+      person.isFresh &&
+      elapsed + person.locationAgeSeconds <= person.freshMaxAgeSeconds);
+  if (!current) return 'Unknown · location not current';
   const state = person.group_zone_state;
   return `${state.charAt(0).toUpperCase()}${state.slice(1)}${person.group_zone_ambiguous || zone.degraded ? ' · uncertain boundary' : ''}`;
 }

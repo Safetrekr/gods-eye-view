@@ -12,6 +12,9 @@ bootstrap are not mounted by the operations entry point.
   server-authoritative staff/organization access.
 - Travelers and chaperones on the globe, including the unlocated roster,
   capture-time freshness, accuracy, battery at capture, and follow mode.
+- Stopped travelers (phones that stop GPS when still) read as current, "At this
+  location for 3h", while their silent location checks are answered; one
+  presence rule mirrored from Core, no-op without Core's new fields.
 - Lodging, venues, itinerary stops, approved/draft safety resources, static
   boundaries, and the shared chaperone containment model on trip drill-in.
 - Morning muster status, roll-call present/absent/excused/unmarked counts, and
