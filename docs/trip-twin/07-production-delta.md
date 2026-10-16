@@ -233,3 +233,12 @@ source_artifacts: [safetrekr-core/src/services/staff_operations.py (develop and 
 | Forecast map | NOAA HRRR via IEM (US, 15 min to +18 h); DWD ICON-EU (Europe, hourly to +78 h) | Same models ingested server-side (GRIB), plus minute-scale nowcasts; model run shown everywhere |
 | Timeline state | Per viewer, not shared; snaps to now when an incident arrives | Same rule; forecast views never sent to responders without "forecast" on every line |
 | Attribution | Credits line lists every source on screen | Same, per frame |
+
+
+## Phase 10 — SOC multi-view (wall screens + remote)
+The prototype uses a dev-server WebSocket relay (`server/tripTwin/syncRelay.js`): plain `ws`, LAN only, no sign-in, 4-digit pairing codes, a QR setup token valid for 10 minutes, and one controlling remote at a time (30 s lease, hand-over). Production needs:
+- TLS (`wss`), device enrolment with per-device keys and revocation, operator SSO, a per-site allow-list.
+- Signed commands and an append-only audit log of every push (who, what, which screens, undo).
+- A session service (not the dev server) holding session and screen state, with presence and alerting when a wall screen drops.
+- Wall rendering budget: six 3D screens on one machine need a GPU per one or two screens or a render server; screens without 3D (incident board, trips) should not load Cesium at all (today they load it and pause the render loop).
+- Multi-trip data from Core for Trips on watch (today: three sample trips from recorded cities).

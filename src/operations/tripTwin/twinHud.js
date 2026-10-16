@@ -15,6 +15,14 @@ import { arriveBy, HAZARD_NEAR_M } from './twinPaths.js';
 import { ringKind } from './twinPins.js';
 import { avoidCrossings } from './twinCustomPaths.js';
 
+// SOC walls (phase 10): names as "Emi S."; visitor mode, initials only.
+// The console keeps full names (identity function).
+let nameStyle = (n) => n;
+export function setNameStyle(fn) {
+  nameStyle = typeof fn === 'function' ? fn : (n) => n;
+}
+const nm = (n) => nameStyle(String(n || ''));
+
 const el = (tag, cls, text) => {
   const n = document.createElement(tag);
   if (cls) n.className = cls;
@@ -227,7 +235,7 @@ export function createHud({
             const b = el('button', i === 0 ? 'on' : '');
             b.type = 'button';
             b.append(
-              el('span', '', r.person.name),
+              el('span', '', nm(r.person.name)),
               el('span', 'tt-dim', r.verdict.bucket),
             );
             b.addEventListener('mousedown', (e) => {
@@ -283,7 +291,7 @@ export function createHud({
       const d = el('div', 'tt-topdetail');
       const first = m.groups?.[0]?.rows?.[0]?.person;
       if (first && detail.startsWith(`first: ${first.name}`)) {
-        const b = el('button', 'tt-namebtn', first.name);
+        const b = el('button', 'tt-namebtn', nm(first.name));
         b.type = 'button';
         b.title = 'Select and frame (A)';
         b.addEventListener('click', () =>
@@ -377,7 +385,7 @@ export function createHud({
           el(
             'div',
             'who',
-            r.person.name + (r.person.role === 'chaperone' ? ' (C)' : ''),
+            nm(r.person.name) + (r.person.role === 'chaperone' ? ' (C)' : ''),
           ),
           el('div', 'why', rowReason(r, g.key, ctx)),
         );
@@ -545,7 +553,7 @@ export function createHud({
       const b = el('button');
       b.type = 'button';
       b.append(
-        el('span', '', r.person.name),
+        el('span', '', nm(r.person.name)),
         el('span', 'band', rowReason(r, 'at_or_above', ctx)),
       );
       b.addEventListener('click', () =>
@@ -837,7 +845,7 @@ export function createCard(card, { onClose }) {
       lines.push(['foot', 'Sample trip · fictional person']);
       frame(
         p.role === 'chaperone' ? 'CHAPERONE' : 'TRAVELER',
-        p.name,
+        nm(p.name),
         lines,
         [],
         back,
@@ -954,7 +962,7 @@ export function createCard(card, { onClose }) {
             el(
               'span',
               '',
-              `${row.person.name}${row.person.role === 'chaperone' ? ' · chaperone' : ''}`,
+              `${nm(row.person.name)}${row.person.role === 'chaperone' ? ' · chaperone' : ''}`,
             ),
             el('span', 'why', note),
           );

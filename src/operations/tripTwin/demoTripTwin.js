@@ -200,14 +200,25 @@ function freshnessFields(age, extra = {}) {
 export function tripTwinDemoSnapshot(
   cityKey = 'austin',
   scenario = 'baseline',
-  { now = Date.now(), pois = [], poisBySite = {}, elapsed = null } = {},
+  {
+    now = Date.now(),
+    pois = [],
+    poisBySite = {},
+    elapsed = null,
+    // SOC multi-view (phase 10): every screen counts scenario time from the
+    // session's epoch, so all screens show the same moment.
+    startMs = null,
+  } = {},
 ) {
   const city = TWIN_CITIES[cityKey] || TWIN_CITIES.austin;
   const sc = SCENARIOS[scenario] ? scenario : 'baseline';
   // Scenario seconds since load; tests pin it with `elapsed` for determinism.
   const t = Number.isFinite(elapsed)
     ? elapsed
-    : Math.max(0, (now - scenarioStart) / 1000);
+    : Math.max(
+        0,
+        (now - (Number.isFinite(startMs) ? startMs : scenarioStart)) / 1000,
+      );
   const iso = (secondsAgo) => new Date(now - secondsAgo * 1000).toISOString();
   const toIso = (scenarioSeconds) =>
     new Date(now - (t - scenarioSeconds) * 1000).toISOString();

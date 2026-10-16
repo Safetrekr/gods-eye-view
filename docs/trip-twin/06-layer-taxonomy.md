@@ -908,3 +908,20 @@ Amends PTH-02: paths rank **Main / Alternate**; "primary / secondary" rank rally
 | `That path was replaced — card closed` / `That path is no longer on the map — card closed` | A card never outlives its line | a card silently updated with new numbers |
 | `Frame path` · `Copy path summary` · `Remove path` | The only labels for these verbs, on cards and the pill | Frame, Copy, Remove |
 | `OSM street path · not checked for closures, crowds, lighting, crime or damage` | PTH-03, in full on the card and in copied text | shortened forms |
+
+
+## 18. Phase 10 vocabulary — SOC multi-view (16 Oct 2026)
+| Term (as shown) | Meaning | Never say |
+|---|---|---|
+| `All in one` · `Multi-view` | The entry choice: today's single screen, or 1–6 wall screens plus a remote | "TV mode", "kiosk" |
+| `S1`…`S6` · `All` | Screen numbers and the remote's target; every control applies to the target | "monitor 1", "display A" |
+| `Site` · `Travelers` · `Incident & attention` · `Weather & alerts` · `The day` · `Trips on watch` | The six screen roles, in order of importance | "dashboard", "map 2" |
+| `S2 · Remote: iPad · 12 s ago` | Wall chip: who controls this screen and when it last changed | — |
+| `Remote offline · 0:45` | No remote in control; the wall keeps its state | "disconnected" alone |
+| `STALE · last update 14:02:31 · 0:42 ago · showing the last state` | The wall lost its link; the last state stays | a blank screen |
+| `LIVE` · `ADVANCE · DAY 2` | Large wall badge: what time the screen shows | — |
+| `Visitor mode` | Walls show initials and counts only | — |
+| `Pinned` | A screen an All push skips | "locked" |
+| `Return all to Live + defaults` | The wall-wide reset | "panic", "kill" |
+| `Pair a screen` · `Identify screens` | Pairing by 4-digit code; flash every screen's number | — |
+| `NWS checked 14:02: no active alerts returned for this point` | Weather & alerts when the official feed is empty | "no alerts", "all clear" |

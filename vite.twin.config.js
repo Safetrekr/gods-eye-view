@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import baseConfig from './server/standalone/vite.config.js';
 import { twinWeatherProxy } from './server/tripTwin/weatherProxy.js';
 import { twinRoutingProxy } from './server/tripTwin/routingProxy.js';
+import { twinSyncRelay } from './server/tripTwin/syncRelay.js';
 
 export default async (env) => {
   const config =
@@ -15,6 +16,9 @@ export default async (env) => {
       ...(config.plugins || []),
       twinWeatherProxy(),
       twinRoutingProxy(),
+      // SOC multi-view (phase 10): screens + remote. LAN devices need
+      // HOST=0.0.0.0 npx vite --config vite.twin.config.js
+      twinSyncRelay(),
     ],
     build: {
       ...(config.build || {}),
@@ -23,6 +27,9 @@ export default async (env) => {
         input: {
           main: fileURLToPath(new URL('./index.html', import.meta.url)),
           twin: fileURLToPath(new URL('./twin.html', import.meta.url)),
+          twinRemote: fileURLToPath(
+            new URL('./twin-remote.html', import.meta.url),
+          ),
         },
       },
     },

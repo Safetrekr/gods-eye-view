@@ -3243,3 +3243,491 @@ button.tt-path-open:focus-visible {
   outline: 1px dotted var(--tt-text-dim);
   outline-offset: 2px;
 }
+
+/* ---------- Phase 10: SOC multi-view (plans/trip-twin/SOC-MULTIVIEW.md) ---------- */
+/* Entry choice: All in one | Multi-view */
+.tt-entry {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: rgba(6, 26, 35, 0.72);
+  backdrop-filter: blur(6px);
+}
+.tt-entry-card {
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 22px 24px;
+  border-radius: 16px;
+}
+.tt-entry-choices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 14px 0;
+}
+.tt-entry-choice {
+  position: relative;
+  text-align: left;
+  min-height: 132px;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--tt-border);
+  background: rgba(6, 11, 16, 0.45);
+  color: var(--tt-text-2);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 6px;
+  transition:
+    border-color 0.3s,
+    transform 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.tt-entry-choice:active {
+  transform: translateY(1px);
+}
+.tt-entry-choice:hover,
+.tt-entry-choice:focus-visible {
+  border-color: var(--tt-edge-ctl);
+}
+.tt-entry-choice .n {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  font: 500 10px var(--tt-mono);
+  color: var(--tt-text-dim);
+}
+.tt-entry-choice .t {
+  font: 600 18px var(--tt-font);
+  color: var(--tt-text);
+}
+.tt-entry-choice .s {
+  font-size: 12px;
+}
+.tt-entry-count {
+  display: flex;
+  gap: 6px;
+  margin: 12px 0;
+}
+.tt-entry-count .tt-tb {
+  min-width: 52px;
+  min-height: 44px;
+  font: 600 16px var(--tt-mono);
+}
+.tt-entry-count .tt-tb.on {
+  border-color: var(--tt-text);
+  color: var(--tt-text);
+  box-shadow: 0 0 9px rgba(239, 247, 243, 0.12);
+}
+.tt-entry-sub,
+.tt-entry-step {
+  margin-top: 14px;
+  font: 600 11px var(--tt-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tt-text-2);
+}
+.tt-entry-roles {
+  margin: 6px 0 14px 18px;
+  font-size: 13px;
+  color: var(--tt-text-2);
+  line-height: 1.6;
+}
+.tt-entry-opens {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+.tt-entry-remote {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin: 8px 0;
+}
+.tt-entry-qr {
+  width: 180px;
+  height: 180px;
+  border-radius: 10px;
+  background: #eff7f3;
+}
+.tt-entry-url {
+  font: 12px var(--tt-mono);
+  color: var(--tt-path-text);
+  word-break: break-all;
+  margin: 6px 0;
+}
+
+/* Wall screens: display only — every setting is on the remote. */
+body[data-view='screen'] {
+  --wall-scale: 2;
+  --bar: calc(76px / var(--wall-scale));
+  --foot: calc(26px / var(--wall-scale));
+  cursor: none;
+}
+body[data-view='screen'] #tt-bar,
+body[data-view='screen'] #tt-toolbar,
+body[data-view='screen'] .tt-pop,
+body[data-view='screen'] #tt-path-pill,
+body[data-view='screen'] #tt-edit-banner,
+body[data-view='screen'] #tt-editor,
+body[data-view='screen'] #tt-status,
+body[data-view='screen'] #tt-toast,
+body[data-view='screen'] .tt-entry,
+body[data-view='screen'] .tt-card .tt-x,
+body[data-view='screen'] .tt-route,
+body[data-view='screen'] .tt-actions,
+body[data-view='screen'] .tt-find,
+body[data-view='screen'] .tt-rail button.tt-link {
+  display: none !important;
+}
+body[data-view='screen'] .tt-rail,
+body[data-view='screen'] .tt-rcol,
+body[data-view='screen'] .tt-wall-panel {
+  zoom: var(--wall-scale);
+}
+body[data-view='screen'] .tt-rail,
+body[data-view='screen'] .tt-rcol {
+  pointer-events: none;
+}
+.tt-wall-head {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 76px;
+  z-index: 20;
+  display: none;
+  align-items: center;
+  gap: 24px;
+  padding: 0 24px;
+  background: linear-gradient(rgba(6, 26, 35, 0.94), rgba(6, 26, 35, 0.7));
+  border-bottom: 1px solid var(--tt-border);
+}
+body[data-view='screen'] .tt-wall-head {
+  display: flex;
+}
+.tt-wall-left {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.tt-wall-kicker {
+  font: 600 24px var(--tt-mono);
+  letter-spacing: 0.1em;
+  color: var(--tt-text);
+}
+.tt-wall-where {
+  font: 500 18px var(--tt-font);
+  color: var(--tt-text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tt-wall-badge {
+  font: 700 30px var(--tt-mono);
+  letter-spacing: 0.12em;
+  padding: 4px 16px;
+  border: 2px solid var(--tt-text);
+  border-radius: 8px;
+  color: var(--tt-text);
+}
+.tt-wall-badge.adv {
+  border-style: dashed;
+  color: var(--tt-text-2);
+}
+.tt-wall-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font: 500 16px var(--tt-mono);
+  color: var(--tt-text-2);
+}
+.tt-wall-chip {
+  font: 500 16px var(--tt-mono);
+  color: var(--tt-text-2);
+  transition: color 0.3s;
+}
+.tt-wall-chip.changed {
+  color: var(--tt-text);
+}
+.tt-wall-chip.warn {
+  color: var(--tt-attention);
+}
+.tt-wall-chip.pinned::after {
+  content: ' · pinned';
+}
+.tt-wall-sample {
+  font: 600 12px var(--tt-mono);
+  letter-spacing: 0.14em;
+  color: var(--tt-text-dim);
+}
+/* Link lost: the last state stays, hatched and labelled. */
+.tt-wall-stale {
+  position: fixed;
+  top: 76px;
+  left: 0;
+  right: 0;
+  z-index: 21;
+  padding: 10px 24px;
+  font: 600 22px var(--tt-mono);
+  color: var(--tt-attention);
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(245, 158, 11, 0.16) 0 12px,
+    rgba(6, 26, 35, 0.86) 12px 24px
+  );
+  border-bottom: 2px solid var(--tt-attention);
+}
+.tt-wall-stale.heavy {
+  font-size: 30px;
+  padding: 18px 24px;
+}
+/* The incident banner: same place on every screen, remote or not. */
+.tt-wall-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  z-index: 22;
+  max-width: 80vw;
+  padding: 14px 28px;
+  border-radius: 10px;
+  font: 700 28px var(--tt-font);
+  color: var(--tt-hazard-text);
+  background: rgba(6, 26, 35, 0.94);
+  border: 2px solid var(--tt-hazard);
+}
+.tt-wall-banner.acked {
+  font-size: 18px;
+  padding: 8px 18px;
+}
+.tt-wall-pair {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 18px;
+  background: var(--tt-field);
+  color: var(--tt-text);
+  text-align: center;
+}
+.tt-wall-pair .k {
+  font: 600 28px var(--tt-mono);
+  letter-spacing: 0.16em;
+  color: var(--tt-text-2);
+}
+.tt-wall-pair .code {
+  font: 700 160px var(--tt-mono);
+  letter-spacing: 0.2em;
+}
+.tt-wall-pair .how {
+  max-width: 900px;
+  font: 400 26px var(--tt-font);
+  color: var(--tt-text-2);
+}
+.tt-wall-pair .url {
+  font: 20px var(--tt-mono);
+  color: var(--tt-text-dim);
+}
+.tt-wall-ident {
+  position: fixed;
+  inset: 0;
+  z-index: 75;
+  display: grid;
+  place-items: center;
+  font: 700 40vh var(--tt-mono);
+  color: var(--tt-text);
+  background: rgba(6, 26, 35, 0.6);
+}
+.tt-wall-panel {
+  position: fixed;
+  z-index: 12;
+  padding: 14px 16px;
+  border-radius: 12px;
+  overflow: auto;
+}
+.tt-wall-line {
+  font-size: 14px;
+  color: var(--tt-text);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--tt-border);
+}
+.tt-wall-line.official {
+  color: var(--tt-attention);
+}
+.tt-wall-line.warn {
+  color: var(--tt-attention);
+}
+.tt-wall-note {
+  font-size: 12px;
+  color: var(--tt-text-dim);
+  margin-top: 8px;
+}
+.tt-wall-panel .tt-kicker {
+  margin-top: 10px;
+}
+
+/* Roles. Lengths inside zoomed panels are divided by the wall scale. */
+body[data-view='screen'] .tt-rail {
+  top: calc(var(--bar) + var(--g));
+}
+body[data-view='screen'][data-role='site']:not([data-merged~='travelers'])
+  .tt-rail,
+body[data-view='screen'][data-role='weather'] .tt-rail,
+body[data-view='screen'][data-role='trips'] .tt-rail,
+body[data-view='screen'][data-role='weather'] .tt-rcol,
+body[data-view='screen'][data-role='day'] .tt-rcol,
+body[data-view='screen'][data-role='trips'] .tt-rcol,
+body[data-view='screen'][data-role='travelers'] #tt-card,
+body[data-view='screen'][data-role='travelers']:not([data-merged~='incident'])
+  .tt-rcol {
+  display: none !important;
+}
+/* Without 3D (incident board, trips): no canvas, no compass. */
+body[data-view='screen'][data-role='incident'] #cesiumContainer,
+body[data-view='screen'][data-role='trips'] #cesiumContainer,
+body[data-view='screen'][data-role='incident'] .tt-compass,
+body[data-view='screen'][data-role='trips'] .tt-compass,
+body[data-view='screen'][data-role='incident'] #tt-chips,
+body[data-view='screen'][data-role='trips'] #tt-chips {
+  visibility: hidden;
+}
+body[data-view='screen'][data-role='incident'],
+body[data-view='screen'][data-role='trips'] {
+  background: var(--tt-field);
+}
+body[data-view='screen'][data-role='incident'] .tt-rail {
+  width: calc(46vw / var(--wall-scale));
+}
+body[data-view='screen'][data-role='incident'] .tt-rcol {
+  width: calc(48vw / var(--wall-scale));
+}
+body[data-view='screen'][data-role='incident'] .tt-wall-panel {
+  top: calc((76px + 12px) / var(--wall-scale));
+  right: calc(12px / var(--wall-scale));
+  width: calc(48vw / var(--wall-scale));
+}
+body[data-view='screen'][data-role='weather'] .tt-wall-panel {
+  top: calc((76px + 12px) / var(--wall-scale));
+  right: calc(12px / var(--wall-scale));
+  bottom: calc(40px / var(--wall-scale));
+  width: calc(32vw / var(--wall-scale));
+}
+body[data-view='screen'][data-role='trips'] .tt-wall-panel {
+  top: calc((76px + 16px) / var(--wall-scale));
+  left: calc(16px / var(--wall-scale));
+  right: calc(16px / var(--wall-scale));
+  bottom: calc(40px / var(--wall-scale));
+}
+body[data-view='screen'][data-role='day'] .tt-rail {
+  width: calc(36vw / var(--wall-scale));
+}
+.tt-trips {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+.tt-trip {
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--tt-border);
+  background: rgba(6, 11, 16, 0.45);
+  display: grid;
+  gap: 4px;
+}
+.tt-trip.focus {
+  border-color: var(--tt-edge-ctl);
+}
+.tt-trip.incident {
+  border: 2px solid var(--tt-hazard);
+}
+.tt-trip.grey {
+  opacity: 0.6;
+}
+.tt-trip .t {
+  font: 600 18px var(--tt-font);
+  color: var(--tt-text);
+}
+.tt-trip .o,
+.tt-trip .d {
+  font-size: 12px;
+  color: var(--tt-text-dim);
+}
+.tt-trip .i {
+  font-weight: 600;
+  color: var(--tt-hazard-text);
+}
+.tt-trip .n,
+.tt-trip .x {
+  font-size: 13px;
+  color: var(--tt-text-2);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tt-wall-chip,
+  .tt-entry-choice {
+    transition: none;
+  }
+}
+/* Wall overlays set their own display; hidden must still hide them. */
+.tt-wall-pair[hidden],
+.tt-wall-ident[hidden],
+.tt-wall-stale[hidden],
+.tt-wall-banner[hidden],
+.tt-wall-panel[hidden] {
+  display: none !important;
+}
+.tt-entry-copy {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+/* Walls stay display only (phase 10 run 1): no controls, no names in the
+   Advance live strip; the timeline shows the time, not its Play button. */
+body[data-view='screen'] .tt-gofloor,
+body[data-view='screen'] .tt-adv-live,
+body[data-view='screen'] .tt-adv-scrub,
+body[data-view='screen'] .tt-wxtl-play,
+body[data-view='screen'] .tt-advance .tt-btn,
+body[data-view='screen'] .tt-advance textarea,
+body[data-view='screen'] .tt-card .tt-btn {
+  display: none !important;
+}
+body[data-view='screen'] .tt-wxtl {
+  pointer-events: none;
+}
+/* Incident board, idle: the note sits above the hotel's floors card. */
+body[data-view='screen'][data-role='incident'] .tt-rcol {
+  top: calc((76px + 150px) / var(--wall-scale));
+}
+body[data-view='screen'][data-role='incident'] .tt-wall-panel {
+  max-height: calc(130px / var(--wall-scale));
+}
+.tt-wall-banner {
+  max-width: 52vw;
+}
+/* Hands-on (Jesse): reach in with the mouse on a wall. The cursor hides
+   when idle; panels and card actions answer while hands-on. */
+body[data-view='screen'] {
+  cursor: default;
+}
+body[data-view='screen'].tt-idle-cursor,
+body[data-view='screen'].tt-idle-cursor * {
+  cursor: none !important;
+}
+body[data-view='screen'].tt-hands-on .tt-rail,
+body[data-view='screen'].tt-hands-on .tt-rcol {
+  pointer-events: auto;
+}
+body[data-view='screen'].tt-hands-on .tt-card .tt-btn {
+  display: inline-flex !important;
+}
+body[data-view='screen'].tt-hands-on .tt-wall-chip {
+  color: var(--tt-text);
+}

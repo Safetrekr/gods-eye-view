@@ -118,6 +118,15 @@ import {
   stepAt,
   timeSources,
 } from './twinWeatherTime.js';
+import { createScreenMode } from './twinScreen.js';
+import { showEntry, showLaunch } from './twinEntry.js';
+import {
+  DEMO_TRIPS,
+  sortTiles,
+  tripById,
+  tripForCity,
+  tripTile,
+} from './demoTrips.js';
 
 const params = new URLSearchParams(location.search);
 // Phase 3: ?site= picks any site (hotel or venue); ?city= the trip's city.
@@ -3894,6 +3903,7 @@ async function main() {
         wx.warnings = json.entries.map((e) => ({ ...e, source: 'MeteoAlarm' }));
       }
       wx.warningsStatus = 'live';
+      wx.warningsAt = Date.now();
     } catch (error) {
       if (abort.signal.aborted) return;
       wx.warningsStatus = 'unavailable';
@@ -4769,7 +4779,34 @@ async function main() {
   // ---- keyboard (no key sends a message or dismisses a report) ----
   let attentionIndex = -1;
   const flatNeeds = () => (lastCtx?.mode.groups || []).flatMap((g) => g.rows);
+  // Walls: only view keys work by hand; every setting is on the remote.
+  const WALL_KEYS = new Set([
+    '1',
+    '2',
+    '3',
+    'ArrowLeft',
+    'ArrowRight',
+    'ArrowUp',
+    'ArrowDown',
+    ',',
+    '.',
+    'n',
+    'N',
+    'f',
+    'F',
+    'z',
+    'Z',
+    'h',
+    'H',
+    'Enter',
+    'Escape',
+    'a',
+    'A',
+    '[',
+    ']',
+  ]);
   window.addEventListener('keydown', (e) => {
+    if (params.get('view') === 'screen' && !WALL_KEYS.has(e.key)) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     // Esc answers an open question with Stay (review/phase5b supervision F4).
     if (
@@ -4941,11 +4978,17 @@ async function main() {
     }),
   );
   const pois = poisBySite[cityKey] || [];
+  // SOC multi-view: screens count scenario time from the session's epoch.
+  let scenarioEpoch = null;
   const feed = () => {
     lastFeed = Date.now();
     twin.setSnapshot(
       applyOperatorNumbering(
-        tripTwinDemoSnapshot(cityKey, scenario, { pois, poisBySite }),
+        tripTwinDemoSnapshot(cityKey, scenario, {
+          pois,
+          poisBySite,
+          startMs: scenarioEpoch,
+        }),
         numberingEntries,
       ),
     );
@@ -4986,7 +5029,249 @@ async function main() {
   }
   $('tt-exit').addEventListener('click', () => exitTwin());
   void lastA;
+
+  // ---- SOC multi-view (phase 10): wall screens and the entry choice ----
+  const VIEW = params.get('view');
+  const focusTrip = tripForCity(cityKey);
+  /** What a wall screen can ask of this page (twinScreen.js). */
+  const screenApi = {
+    cityKey,
+    tripCity: (id) => tripById(id).city,
+    tripScenario: (id) => tripById(id).scenario,
+    setEpoch(ms) {
+      scenarioEpoch = ms;
+      feed();
+    },
+    switchSite(key) {
+      if (key !== siteKey && SITES.some((x) => x.key === key))
+        switchSite(key, { confirmed: true });
+    },
+    setMode(mode, day) {
+      setAppMode(mode === 'advance' ? 'advance' : 'live', { confirmed: true });
+      if (mode === 'advance') {
+        const d = day ?? todayDay();
+        const ev = advEvents().find((e) => e.day === d);
+        if (ev) selectEvent(ev.key);
+      }
+    },
+    report(r) {
+      if (r?.floor != null) twin.reportFloor(r.floor, r.kind || 'other');
+      else twin.reportFloor(null);
+    },
+    spotlight(sp) {
+      if (sp?.kind === 'person') twin.selectPerson(sp.id);
+      else if (sp?.kind === 'place') {
+        const p = (lastCtx?.snapshot?.safety_points || []).find(
+          (x) => x.id === sp.id,
+        );
+        if (p) selectPlace(p);
+      }
+    },
+    setWxTime(ms) {
+      if ((ms ?? null) !== (wx.at ?? null)) setWxTime(ms ?? null);
+    },
+    scale(key) {
+      document.querySelector(`[data-scale="${key}"]`)?.click();
+    },
+    setLayer(key, on) {
+      if (key in wx.layers) {
+        wx.layers[key] = on;
+        if (on && !['clouds', 'fx'].includes(key)) ensureImage(key);
+        drawWeather();
+      } else if (key === 'waysOut') {
+        if (Boolean(waysOut) !== on) toggleWaysOut();
+      } else if (key === 'grid' || key === 'elevation') {
+        ground[key === 'grid' ? 'grid' : 'contours'] = on;
+        applyGround();
+      } else setViewLayer(key, on);
+    },
+    applyRoleDefaults(role) {
+      // The weather screen shows the weather over the area by default.
+      if (role === 'weather')
+        for (const k of ['precip', 'clouds', 'lightning'])
+          screenApi.setLayer(k, true);
+    },
+    frame(subject) {
+      if (subject?.kind === 'floor') focusFloor(subject.label);
+      else if (subject?.kind === 'person')
+        twin.selectPerson(subject.id, { frame: true });
+      else if (subject?.kind === 'scale') screenApi.scale(subject.scale);
+    },
+    // Roles without 3D stop rendering — only once the twin has finished
+    // opening (its entry animation needs the render loop).
+    pauseRender(off) {
+      renderOff = off;
+      if (twin.state !== 'ready' && twin.state !== 'degraded') return;
+      viewer.useDefaultRenderLoop = !off;
+      if (!off) viewer.scene.requestRender();
+    },
+    captureCanvas() {
+      return new Promise((resolve) => {
+        if (!viewer.useDefaultRenderLoop) return resolve(null);
+        let done = false;
+        const off = viewer.scene.postRender.addEventListener(() => {
+          if (done) return;
+          done = true;
+          off();
+          try {
+            resolve(viewer.canvas.toDataURL('image/jpeg', 0.7));
+          } catch {
+            resolve(null);
+          }
+        });
+        viewer.scene.requestRender();
+        setTimeout(() => {
+          if (!done) {
+            done = true;
+            off();
+            resolve(null);
+          }
+        }, 1500);
+      });
+    },
+    siteLabel: () => `${focusTrip.title} · ${city.short || city.label}`,
+    dayLabel: () => `DAY ${currentAdvanceDay() ?? todayDay()}`,
+    todayDay: () => todayDay(),
+    clockText: () =>
+      lastCtx?.snapshot
+        ? `${sampleClock(lastCtx.snapshot)} local · sample`
+        : '',
+    incidentOpen: () => lastCtx?.mode?.mode === 'incident',
+    /** What a hands-on operator picked on this wall (for the remote). */
+    selectionText() {
+      const s = selection;
+      if (!s) return '';
+      if (s.kind === 'person')
+        return `selected ${shortName(s.row.person.name)}`;
+      if (s.kind === 'place') return `selected ${s.place.name || 'a place'}`;
+      if (s.kind === 'building')
+        return s.geom?.isHotel
+          ? 'selected the hotel'
+          : `selected ${s.geom?.building?.name || 'a building'}`;
+      if (s.kind === 'suggested') return 'selected a suggested path';
+      if (s.kind === 'saved') return 'selected a saved path';
+      return '';
+    },
+    incidentText() {
+      const m = lastCtx?.mode;
+      return m?.mode === 'incident'
+        ? `${m.chip} · ${m.topLine.split(' — ')[0]}`
+        : '';
+    },
+    /** Weather & alerts: official first, then sensed, then now (S4). */
+    weatherPanel(node) {
+      const add = (cls, t) => {
+        const n = document.createElement('div');
+        n.className = cls;
+        n.textContent = t;
+        node.append(n);
+      };
+      node.replaceChildren();
+      const src = WX.warnings === 'nws' ? 'NWS' : 'MeteoAlarm';
+      add('tt-kicker', `OFFICIAL · ${src}`);
+      if (wx.warningsStatus === 'unavailable')
+        add('tt-wall-line warn', `${src} unavailable right now — not checked`);
+      else if (!wx.warnings.length)
+        add(
+          'tt-wall-line',
+          `${src} checked ${wx.warningsAt ? hhmm(new Date(wx.warningsAt).toISOString()) : 'at load'}: no active alerts returned for this point`,
+        );
+      else
+        for (const w of wx.warnings)
+          add('tt-wall-line official', warningLine(w, city.timezone));
+      add('tt-kicker', 'SENSED');
+      add('tt-wall-line', firesLine(lastCtx?.fires).line);
+      add(
+        'tt-wall-line',
+        wx.layers.lightning
+          ? `Lightning · ${WX.lightning?.label || 'strike density'} · shown on the map`
+          : 'Lightning · layer off',
+      );
+      add('tt-kicker', 'NOW');
+      const parts = [...$('tt-wx').children]
+        .map((n) => n.textContent.trim())
+        .filter(Boolean);
+      add(
+        'tt-wall-line',
+        parts.length
+          ? parts.join(' · ')
+          : $('tt-wx').textContent || 'Weather · loading',
+      );
+      add(
+        'tt-wall-note',
+        'Sources and ages as shown · never a statement that conditions are fine',
+      );
+    },
+    /** Trips on watch (S6): every sample trip, by need. */
+    tripsPanel(node) {
+      const now = Date.now();
+      const tiles = sortTiles(
+        DEMO_TRIPS.map((t) =>
+          tripTile(
+            t,
+            tripTwinDemoSnapshot(t.city, t.scenario, {
+              now,
+              startMs: scenarioEpoch,
+            }),
+            { now, dataAgeS: (now - lastFeed) / 1000 },
+          ),
+        ),
+      );
+      node.replaceChildren();
+      const k = document.createElement('div');
+      k.className = 'tt-kicker';
+      k.textContent = `TRIPS ON WATCH · ${tiles.length}`;
+      const grid = document.createElement('div');
+      grid.className = 'tt-trips';
+      for (const t of tiles) {
+        const c = document.createElement('div');
+        c.className = `tt-trip${t.incident ? ' incident' : ''}${t.noData || t.stale ? ' grey' : ''}${t.id === focusTrip.id ? ' focus' : ''}`;
+        const line = (cls, txt) => {
+          const n = document.createElement('div');
+          n.className = cls;
+          n.textContent = txt;
+          c.append(n);
+        };
+        line('t', t.title);
+        line('o', `${t.org} · ${t.city} · ${t.localTime || ''} local`);
+        if (t.incident) line('i', t.incident);
+        if (!t.noData)
+          line(
+            'n',
+            `${t.people} people · ${t.notCurrent} not current · ${t.notLocated} not located`,
+          );
+        line('x', t.noData ? t.line : `Next: ${t.next}`);
+        line('d', t.noData ? '' : t.data);
+        grid.append(c);
+      }
+      node.append(k, grid);
+    },
+  };
+  let screen = null;
+  let renderOff = false;
+  if (VIEW === 'screen') {
+    screen = createScreenMode({
+      api: screenApi,
+      slot: params.get('slot'),
+      setup: params.get('setup'),
+    });
+    cleanups.push(() => screen?.dispose());
+  } else if (VIEW === 'launch')
+    showLaunch({ setup: params.get('setup'), cityKey, scenario });
+  else if (!params.has('freeze'))
+    showEntry({
+      cityKey,
+      scenario,
+      tripId: focusTrip.id,
+      siteKey: () => siteKey,
+      pref,
+      save,
+    });
+  // The launch page (another computer's screens) needs no 3D of its own.
+  if (VIEW === 'launch') return;
   await twin.open(siteKey, { osmMode });
+  if (screen && renderOff) screenApi.pauseRender(true);
+  screen?.refresh();
 }
 
 main().catch((error) => {
