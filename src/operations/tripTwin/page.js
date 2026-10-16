@@ -88,6 +88,7 @@ import {
   gatheringInUse,
   lightningException,
   loadWeatherImage,
+  loadWeatherUrl,
   parseNwsAlerts,
   rainPace,
   simulatedRain,
@@ -101,6 +102,17 @@ import {
   heldLightning,
   LIGHTNING_WATCH_KM,
 } from './twinWeather.js';
+import { coverageFromCanvas, createWeatherFx } from './twinWeatherFx.js';
+import { KIND_TEXT, createWeatherTimeline } from './twinWeatherTimeline.js';
+import {
+  intensity,
+  metSteps,
+  precipKind,
+  precipRowText,
+  relText,
+  stepAt,
+  timeSources,
+} from './twinWeatherTime.js';
 
 const params = new URLSearchParams(location.search);
 // Phase 3: ?site= picks any site (hotel or venue); ?city= the trip's city.
@@ -594,6 +606,7 @@ async function main() {
     $('tt-chips').replaceChildren(...list);
   }
 
+  let lastModeKey = null;
   const twin = createTripTwin({
     viewer,
     tileset,
@@ -734,17 +747,43 @@ async function main() {
         siteName,
         rows: a.rows,
       });
+      // An incident arriving while the weather shows another time snaps the
+      // view back to now and says so (phase 6): live data first.
+      if (
+        ['incident', 'incident_elsewhere', 'watch'].includes(mode.mode) &&
+        lastModeKey !== mode.mode &&
+        wx.at != null &&
+        appMode === 'live'
+      ) {
+        timeline?.stop();
+        wx.at = null;
+        queueMicrotask(() => {
+          renderWeather();
+          offerNotice(
+            mode.mode === 'watch'
+              ? 'Lightning watch — weather is back to now'
+              : 'Incident reported — weather is back to now',
+          );
+        });
+      }
+      lastModeKey = mode.mode;
       // Top bar: mode chip, data age, sample clock, trip in the breadcrumb.
       const chip = $('tt-mode');
       chip.textContent =
         mode.chip +
         (mode.degraded ? ' · DATA DELAYED' : '') +
-        (simulationOn() ? ' · SIMULATED DATA' : '');
+        (simulationOn() ? ' · SIMULATED DATA' : '') +
+        (wx.at != null && appMode === 'live'
+          ? ` · WEATHER ${relText(wx.at, Math.floor(Date.now() / 9e5) * 9e5)}`
+          : '');
       chip.className = `tt-mode ${mode.mode}${mode.degraded ? ' degraded' : ''}`;
       $('tt-age').textContent = `data ${formatAge(ageS)}`;
       $('tt-age').title = `Traveler data ${formatAge(ageS)} old`;
       $('tt-age').classList.toggle('warn', mode.degraded);
-      $('tt-clock').textContent = `${clock} local · sample`;
+      // The trip clock is fictional; weather times are real (phase 6 UX P0-1).
+      $('tt-clock').textContent = `${clock} sample clock`;
+      $('tt-clock').title =
+        'Sample trip clock (fictional). Weather times are real local time with their zone.';
       $('tt-crumb-trip').textContent = snap.trips[0].title;
       const reportBtn = $('tt-report-btn');
       reportBtn.textContent = Number.isFinite(info.reportedLabel)
@@ -894,6 +933,8 @@ async function main() {
       queueMicrotask(() => applyGround());
       wxLayer?.dispose();
       wxLayer = createWeatherLayer(viewer, site);
+      fxLayer?.dispose();
+      fxLayer = createWeatherFx(viewer, site);
       renderWeather();
       beacons?.dispose();
       beacons = createSiteBeacons(viewer, site);
@@ -1054,7 +1095,8 @@ async function main() {
     return (
       $('tt-simfire').checked ||
       $('tt-simlightning').checked ||
-      $('tt-simrain').checked
+      $('tt-simrain').checked ||
+      $('tt-simsnow').checked
     );
   }
   /** The Prototype pill says SIM ON while any simulated feed is on. */
@@ -1977,7 +2019,7 @@ async function main() {
             trip: lastCtx.snapshot.trips[0].title,
             day: ev.day,
             asOf: stamp().replace(/^you · /, ''),
-            simulated: wx.sim.rain || wx.sim.lightning,
+            simulated: wx.sim.rain || wx.sim.snow || wx.sim.lightning,
             alertSource: WX.warnings === 'nws' ? 'NWS' : 'MeteoAlarm',
           }),
         );
@@ -2013,6 +2055,20 @@ async function main() {
     adv.eventKey = key;
     renderAdvance(true);
     renderCustom();
+    syncAdvanceWeather();
+  }
+  /** Advance: the 3D weather follows the picked event's time (phase 6). */
+  function syncAdvanceWeather() {
+    const ev = advEvents().find((e) => e.key === adv.eventKey);
+    const last = wx.steps[wx.steps.length - 1];
+    const ok =
+      appMode === 'advance' &&
+      ev?.epoch &&
+      last &&
+      ev.epoch >= Date.now() - 3600e3 &&
+      ev.epoch < last.t + (last.stepH || 1) * 3600e3;
+    wx.at = ok ? ev.epoch : null;
+    renderWeather();
   }
   /** The scrubbed event's forecast, for the weather chip in Advance. */
   function advanceChipParts() {
@@ -2022,9 +2078,19 @@ async function main() {
     if (!met || met === 'error') return null;
     const end = ev.end ? zonedToEpoch(ev.date, ev.end, city.timezone) : null;
     const fc = forecastWindow(met, ev.epoch, end);
-    if (!fc) return null;
+    // Beyond the forecast range: say so, never "loading" (review/phase6 L10).
+    if (!fc)
+      return {
+        live: `Day ${ev.day} ${ev.start}`,
+        temp: '—',
+        condition:
+          ev.epoch < Date.now() - 3600e3
+            ? 'event time has passed'
+            : 'beyond the forecast range',
+        source: 'MET Norway site forecast',
+      };
     return {
-      live: 'FCST',
+      live: `Day ${ev.day} ${ev.start}`,
       temp: useF ? `${fahrenheit(fc.tempC)} °F` : `${Math.round(fc.tempC)} °C`,
       condition: fc.condition,
       source: `Day ${ev.day} ${ev.start} · MET Norway`,
@@ -2079,6 +2145,7 @@ async function main() {
     } else twin.refresh();
     adv.sig = '';
     applyAppMode();
+    syncAdvanceWeather();
     if (isHotelSel()) showBuilding(selection.geom);
     renderSites();
     renderBeacons();
@@ -2149,6 +2216,16 @@ async function main() {
     stay.focus();
     // No answer in 15 s counts as Stay.
     toastTimer = setTimeout(dismissToast, 15000);
+  }
+  /** A one-line notice in the toast slot (no action), 8 s. */
+  function offerNotice(text) {
+    clearTimeout(toastTimer);
+    delete toast.dataset.ask;
+    const t = document.createElement('span');
+    t.textContent = text;
+    toast.replaceChildren(t);
+    toast.hidden = false;
+    toastTimer = setTimeout(() => (toast.hidden = true), 8000);
   }
   function offerUndo(text, undo) {
     clearTimeout(toastTimer);
@@ -2884,7 +2961,15 @@ async function main() {
   let ltgBox = ltgBoxFor(city.center);
   const boxFor = (key) => (key === 'lightning' ? ltgBox : wxBox);
   const wx = {
-    layers: { lightning: false, precip: false, totals: false, clouds: false },
+    layers: {
+      lightning: false,
+      precip: false,
+      totals: false,
+      clouds: false,
+      fx: false,
+    },
+    steps: [], // MET Norway timeseries (phase 6)
+    at: null, // timeline time (ms) or null = now
     open: false,
     summary: null,
     status: 'loading',
@@ -2897,9 +2982,12 @@ async function main() {
     sim: {
       lightning: params.get('lightning') === '1',
       rain: params.get('rain') === '1',
+      snow: params.get('snow') === '1',
     },
   };
   let wxLayer = null;
+  let fxLayer = null;
+  let timeline = null; // created below (phase 6)
   const hhmm = (iso) =>
     iso
       ? new Date(iso).toLocaleTimeString('en-GB', {
@@ -2908,8 +2996,37 @@ async function main() {
           minute: '2-digit',
         })
       : '';
+  /** Real weather time with its zone and, when not today, its day. */
+  const wxTime = (ms) => {
+    if (!Number.isFinite(ms)) return '';
+    const d = new Date(ms);
+    const day = (x) =>
+      x.toLocaleDateString('en-GB', {
+        timeZone: city.timezone,
+        weekday: 'short',
+      });
+    const zone =
+      d
+        .toLocaleTimeString('en-US', {
+          timeZone: city.timezone,
+          timeZoneName: 'short',
+        })
+        .split(' ')
+        .pop() || '';
+    return `${day(d) !== day(new Date()) ? `${day(d)} ` : ''}${hhmm(d.toISOString())} ${zone}`;
+  };
   const wxSummary = () =>
-    wx.sim.rain ? simulatedRain(wx.summary) : wx.summary;
+    wx.sim.snow
+      ? {
+          ...simulatedRain(wx.summary),
+          tempC: -1,
+          apparentC: -4,
+          precipMmH: 0.9,
+          condition: 'snow',
+        }
+      : wx.sim.rain
+        ? simulatedRain(wx.summary)
+        : wx.summary;
   async function loadWeatherNow() {
     try {
       const res = await fetch(
@@ -2919,6 +3036,8 @@ async function main() {
       const json = await res.json();
       if (!json.ok) throw new Error(json.error);
       wx.summary = summarizeMet(json.json);
+      wx.steps = metSteps(json.json);
+      if (appMode === 'advance') syncAdvanceWeather();
       wx.fetchedAt = json.fetchedAt;
       wx.status = 'live';
     } catch (error) {
@@ -2985,65 +3104,234 @@ async function main() {
   let lastWatchCenter = null;
   const wxLabel = (key) => {
     if (key === 'precip' && wx.sim.rain) return 'SIMULATED rain (prototype)';
+    if (key === 'lightning' && wx.at != null)
+      return 'Lightning is drawn for now only · the lightning check stays live in the rail';
     if (key === 'lightning' && wx.sim.lightning)
       return 'SIMULATED lightning (prototype)';
     const src = WX[key];
     if (!src) return '';
     return `${src.label}${wx.imageAt[key] ? ` · fetched ${hhmm(wx.imageAt[key])}` : ''}`;
   };
+  /** The forecast step for the timeline time (or now), simulated or real. */
+  function fxStep() {
+    if (wx.sim.snow)
+      return {
+        precipMmH: 0.9,
+        tempC: -1,
+        symbol: 'snow',
+        cloud: { low: 90, mid: 70, high: 30 },
+        fogPct: 8,
+        windMs: 3,
+        windFromDeg: 300,
+        simulated: 'snow',
+      };
+    if (wx.sim.rain)
+      return {
+        precipMmH: 4.2,
+        tempC: 12,
+        symbol: 'rain',
+        cloud: { low: 85, mid: 70, high: 40 },
+        fogPct: 0,
+        windMs: 5,
+        windFromDeg: 200,
+        simulated: 'rain',
+      };
+    if (wx.at != null && wx.at < Date.now() - 15 * 60e3) return null;
+    return stepAt(wx.steps, wx.at ?? Date.now());
+  }
+  const fxReduced = () =>
+    $('tt-reduce-motion').checked ||
+    matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /** Radar over the site, for where particles fall (null = not in use). */
+  /**
+   * Where precipitation is over the site, from the map frame for the
+   * timeline time (review/phase6 L2): {state: covered | clear | widespread |
+   * loading | missing, fn, sig, label} — or null when the map layer is off.
+   */
+  function radarCover() {
+    if (!wx.layers.precip || wx.sim.rain || wx.sim.snow) return null;
+    const f = wx.at != null ? frameAt(wx.at) : null;
+    const kindLabel =
+      f?.src?.kind === 'model'
+        ? 'the forecast map'
+        : region === 'us'
+          ? 'radar'
+          : `the satellite estimate${wx.at == null && wx.imageAt.precip ? ` (fetched ${hhmm(wx.imageAt.precip)}, about 1 h behind)` : ''}`;
+    const base = {
+      label: kindLabel,
+      sig: wx.at != null ? `f${f?.ft}` : `${wx.imageAt.precip}`,
+    };
+    const img =
+      wx.at != null ? (f?.status === 'ok' ? f.img : null) : wx.images.precip;
+    if (wx.at != null && (!f || f.status === 'missing'))
+      return { ...base, state: 'missing' };
+    if (
+      wx.at != null ? f.status === 'loading' : wx.imageErr.precip === 'loading'
+    )
+      return { ...base, state: 'loading' };
+    if (!img)
+      return {
+        ...base,
+        state: wx.imageErr.precip === 'unavailable' ? 'missing' : 'loading',
+      };
+    if (img.noData) return { ...base, state: 'widespread', fn: () => true };
+    const c = { lat: city.center.lat, lon: city.center.lon ?? city.center.lng };
+    const fn = coverageFromCanvas(img.canvas, wxBox, c);
+    const R = Math.max(350, twin.site?.radius || 500);
+    let any = false;
+    for (let x = -R; x <= R && !any; x += R / 8)
+      for (let y = -R; y <= R && !any; y += R / 8)
+        if (x * x + y * y <= R * R && fn(x, y)) any = true;
+    return { ...base, state: any ? 'covered' : 'clear', fn };
+  }
+  let fxText = '';
+  function drawFx() {
+    if (!fxLayer) return;
+    const step = fxStep();
+    let kind = precipKind(step);
+    const radar = radarCover();
+    const at = step?.t ? wxTime(step.t) : '';
+    const placed = !radar || ['covered', 'widespread'].includes(radar.state);
+    // Radar showing precipitation over the site wins over a dry forecast.
+    const radarOnly = !kind && radar && placed;
+    if (radarOnly) kind = 'rain';
+    fxText = !radar
+      ? precipRowText({
+          step,
+          kind,
+          radar: null,
+          simulated: step?.simulated,
+          at,
+        })
+      : radar.state === 'loading'
+        ? `${radar.label} frame loading — rain and snow not placed yet`
+        : radar.state === 'missing'
+          ? `No ${radar.label} frame for this time — rain and snow not placed`
+          : radarOnly
+            ? `Precipitation on ${radar.label} over the site · type not forecast (shown as rain)`
+            : radar.state === 'widespread'
+              ? `${precipRowText({ step, kind, radar: { covered: true, label: radar.label }, at })} · widespread on the map`
+              : precipRowText({
+                  step,
+                  kind,
+                  radar: {
+                    covered: radar.state === 'covered',
+                    label: radar.label,
+                  },
+                  at,
+                });
+    const falling =
+      wx.layers.fx && kind && placed
+        ? {
+            kind,
+            level: radarOnly ? 0.3 : intensity(step.precipMmH, kind).level,
+            windMs: step?.windMs ?? 0,
+            windFromDeg: step?.windFromDeg ?? 0,
+          }
+        : null;
+    fxLayer.set({
+      precip: falling,
+      covered: radar?.fn || null,
+      coverSig: radar ? `${radar.state}:${radar.sig}` : '',
+      clouds: wx.layers.clouds && step ? step.cloud : null,
+      fogPct: wx.layers.clouds && step ? step.fogPct : null,
+      reduced: fxReduced(),
+    });
+  }
   function drawWeather() {
     if (!wxLayer) return;
+    const frame =
+      wx.at != null && wx.layers.precip && !wx.sim.rain ? frameAt(wx.at) : null;
     const images = {
       precip: wx.sim.rain
         ? simulatedRainCanvas()
-        : wx.images.precip?.canvas || null,
+        : wx.at != null
+          ? frame?.status === 'ok' && !frame.img.noData
+            ? frame.img.canvas
+            : null
+          : wx.images.precip?.canvas || null,
       totals: wx.images.totals?.canvas || null,
       lightning: wx.sim.lightning ? null : wx.images.lightning?.canvas || null,
     };
     for (const k of ['precip', 'totals', 'lightning'])
       if (wx.images[k]?.noData && !(k === 'precip' && wx.sim.rain))
         images[k] = null;
-    wxLayer.set(wx.layers, {
-      bbox: wxBox,
-      ltgBbox: ltgBox,
-      images,
-      strikes: wx.sim.lightning ? strikes() : [],
-      summary: wxSummary(),
-      simulated: wx.sim,
-      watchCenter: lastWatchCenter || city.center,
-      labels: {
-        precip: wxLabel('precip'),
-        totals: wxLabel('totals'),
-        lightning: wxLabel('lightning'),
+    drawFx();
+    // Clouds are drawn in 3D by the effects layer now (phase 6). Lightning
+    // has no forecast; ahead of now it is not drawn (the row says so).
+    // Lightning frames exist for now only: hidden at any other time.
+    const away = wx.at != null;
+    wxLayer.set(
+      { ...wx.layers, clouds: false, lightning: wx.layers.lightning && !away },
+      {
+        bbox: wxBox,
+        ltgBbox: ltgBox,
+        images,
+        strikes: wx.sim.lightning ? strikes() : [],
+        summary: wxSummary(),
+        simulated: wx.sim,
+        watchCenter: lastWatchCenter || city.center,
+        labels: {
+          precip:
+            wx.at != null && !wx.sim.rain
+              ? frames.label(wx.at)
+              : wxLabel('precip'),
+          totals: wxLabel('totals'),
+          lightning: wxLabel('lightning'),
+        },
       },
-    });
+    );
     // Credits for every weather layer that is on (UI P0-1).
     const credits = ['Weather: MET Norway (CC BY 4.0)'];
     for (const k of ['precip', 'totals', 'lightning'])
       if (wx.layers[k] && WX[k] && !(k === 'precip' && wx.sim.rain))
         credits.push(WX[k].credit);
+    const fsrc = wx.at != null && wx.layers.precip ? frameAt(wx.at)?.src : null;
+    if (fsrc && !credits.includes(fsrc.credit)) credits.push(fsrc.credit);
     $('tt-wx-credit').textContent = credits.join(' · ');
+    renderTimeline();
+  }
+  /** The chip's summary at the timeline time (phase 6), else now. */
+  function wxSummaryAt() {
+    if (wx.at == null || wx.sim.rain || wx.sim.snow) return wxSummary();
+    // Past times show map frames only, never a forecast value (L9).
+    if (wx.at < Date.now() - 15 * 60e3) return null;
+    const st = stepAt(wx.steps, wx.at);
+    if (!st) return null;
+    return {
+      validTime: new Date(st.t).toISOString(),
+      tempC: st.tempC,
+      apparentC: st.tempC,
+      cloud: st.cloud,
+      precipMmH: st.precipMmH,
+      windMs: st.windMs,
+      condition: st.condition,
+    };
   }
   function renderWeather() {
-    const sum = wxSummary();
+    const sum = wxSummaryAt();
     const chip = $('tt-wx');
     // Advance: the scrubbed event's forecast, not "now" (review/phase3 G13).
     const parts =
       typeof appMode !== 'undefined' && appMode === 'advance'
         ? advanceChipParts() || {
-            live: 'FCST',
+            live: 'Advance',
             temp: '—',
             condition: 'forecast loading',
             source: 'MET Norway',
           }
-        : wx.status === 'loading' && !wx.sim.rain
+        : wx.status === 'loading' && !wx.sim.rain && !wx.sim.snow
           ? null
           : weatherChipParts(sum, {
               useF,
               clock: hhmm(sum?.validTime),
-              simulated: wx.sim.rain,
+              simulated: wx.sim.rain || wx.sim.snow,
             });
-    if (!parts)
+    if (!parts && wx.at != null && wx.at < Date.now() && appMode !== 'advance')
+      chip.replaceChildren(
+        `${relText(wx.at, Math.floor(Date.now() / 9e5) * 9e5)} · ${wxTime(wx.at)} · map frames only (no forecast for past times)`,
+      );
+    else if (!parts)
       chip.replaceChildren(
         wx.status === 'loading' ? 'Weather · loading' : 'Weather unavailable',
       );
@@ -3054,8 +3342,14 @@ async function main() {
         n.textContent = t;
         return n;
       };
+      if (wx.at != null && appMode !== 'advance')
+        parts.live = relText(wx.at, Math.floor(Date.now() / 9e5) * 9e5);
+      if (wx.sim.snow) parts.source = 'prototype · all values simulated';
       chip.replaceChildren(
-        span(`wx-live${wx.sim.rain ? ' sim' : ''}`, parts.live),
+        span(
+          `wx-live${wx.sim.rain || wx.sim.snow ? ' sim' : ''}${wx.at != null ? ' away' : ''}`,
+          parts.live,
+        ),
         span('wx-t num', parts.temp),
         span('wx-c', parts.condition),
         span('wx-src', parts.source),
@@ -3067,16 +3361,208 @@ async function main() {
     chip.classList.toggle('off', !sum);
     drawWeather();
   }
+  /** The weather chip and T: focus the timeline, else open Layers › Weather. */
+  function focusWeather() {
+    const r = document.querySelector('.tt-wxtl:not([hidden]) .tt-wxtl-range');
+    if (r && !r.disabled) return r.focus();
+    wx.open = true;
+    openPop('tt-layers');
+    renderLayers();
+  }
+  {
+    const chip = $('tt-wx');
+    chip.setAttribute('role', 'button');
+    chip.tabIndex = 0;
+    chip.addEventListener('click', focusWeather);
+    chip.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        focusWeather();
+      }
+    });
+  }
+  // ---- weather timeline (phase 6) ----
+  const H = 3600e3;
+  timeline = createWeatherTimeline({
+    onChange: (t) => setWxTime(t),
+    clock: (ms) => wxTime(ms),
+    tick: (ms) => {
+      const d = new Date(ms);
+      const h = hhmm(d.toISOString());
+      return h === '00:00'
+        ? d.toLocaleDateString('en-GB', {
+            timeZone: city.timezone,
+            weekday: 'short',
+          })
+        : h;
+    },
+  });
+  document.body.append(timeline.el);
+  cleanups.push(() => {
+    timeline.stop();
+    timeline.el.remove();
+  });
+  // Map frames over time (WEATHER-TIMELINE-SOURCES.md): past radar or
+  // satellite frames, then a model forecast map. Loaded lazily, cached.
+  const TS = timeSources(region);
+  const frameMeta = { latestRadar: null, run: null };
+  const frameCache = new Map(); // url → {status, img}
+  async function loadFrameMeta() {
+    try {
+      if (TS.observed.latestUrl) {
+        const r = await fetch(TS.observed.latestUrl, { signal: abort.signal });
+        frameMeta.latestRadar = TS.observed.parseLatest(await r.json());
+      }
+    } catch {
+      /* the observed range then ends 10 min before now */
+    }
+    try {
+      if (TS.model.runUrl) {
+        const r = await fetch(TS.model.runUrl, { signal: abort.signal });
+        frameMeta.run = TS.model.parseRun(await r.json());
+      } else frameMeta.run = TS.model.run(Date.now());
+    } catch {
+      frameMeta.run = null; // no model map; the site forecast still works
+    }
+    renderTimeline();
+  }
+  loadFrameMeta();
+  const frameTimer = setInterval(loadFrameMeta, 10 * 60e3);
+  cleanups.push(() => clearInterval(frameTimer));
+  /** The frame source for time t, or null when no map exists for it. */
+  function frameSourceAt(t) {
+    const now = Date.now();
+    const o = TS.observed;
+    if (t >= o.from(now) && t <= o.until(now, frameMeta)) return o;
+    const m = TS.model;
+    const until = m.until(now, frameMeta);
+    if (frameMeta.run && t > now && until && t <= until) return m;
+    return null;
+  }
+  /** The recoloured frame for t: {status: 'ok'|'loading'|'missing', img}. */
+  function frameAt(t) {
+    const src = frameSourceAt(t);
+    if (!src) return null;
+    const url = src.url(wxBox, t, frameMeta);
+    const hit = frameCache.get(url);
+    if (hit) return { ...hit, src, ft: src.frameTime(t) };
+    frameCache.set(url, { status: 'loading' });
+    loadWeatherUrl(url, { signal: abort.signal })
+      .then((img) => frameCache.set(url, { status: 'ok', img }))
+      .catch(() => frameCache.set(url, { status: 'missing' }))
+      .finally(() => {
+        if (frameCache.size > 120)
+          frameCache.delete(frameCache.keys().next().value);
+        drawWeather();
+        renderLayers();
+      });
+    return { status: 'loading', src, ft: src.frameTime(t) };
+  }
+  const frames = {
+    get pastMs() {
+      return 2 * H;
+    },
+    get modelUntil() {
+      return frameMeta.run ? TS.model.until(Date.now(), frameMeta) : null;
+    },
+    label: (t) => {
+      const f = frameAt(t);
+      if (!f) return 'no map for this time';
+      const when = wxTime(f.ft);
+      return `${f.src.label()} ${when}${f.status === 'loading' ? ' · loading' : f.status === 'missing' ? ' · frame missing (not shown)' : f.img?.noData ? ' · no rain or snow in this frame' : ''}`;
+    },
+  };
+  function timelineModel() {
+    const on = Object.values(wx.layers).some(Boolean);
+    if (!on) return null;
+    if (wx.sim.rain || wx.sim.snow)
+      return {
+        disabled:
+          'Timeline off while simulated weather is on (Prototype ▾) · the 3D weather is simulated',
+      };
+    if (!wx.steps.length) return null;
+    const now = Math.floor(Date.now() / (15 * 60e3)) * 15 * 60e3;
+    const last = wx.steps[wx.steps.length - 1];
+    // 24 h ahead keeps the observed 2 h legible; later days: Advance.
+    const siteUntil = Math.min(last.t + (last.stepH || 1) * H, now + 24 * H);
+    const modelUntil = frames.modelUntil
+      ? Math.min(frames.modelUntil, siteUntil)
+      : null;
+    const start = now - frames.pastMs;
+    const obsUntil = Math.min(now, TS.observed.until(Date.now(), frameMeta));
+    const segments = [
+      { from: start, to: obsUntil, kind: 'observed' },
+      ...(obsUntil < now ? [{ from: obsUntil, to: now, kind: 'none' }] : []),
+      ...(modelUntil ? [{ from: now, to: modelUntil, kind: 'model' }] : []),
+      { from: modelUntil || now, to: siteUntil, kind: 'site' },
+    ];
+    const kindAt = (t) =>
+      t < start
+        ? 'none'
+        : t <= obsUntil
+          ? 'observed'
+          : t <= now
+            ? 'none'
+            : modelUntil && t <= modelUntil
+              ? 'model'
+              : t <= siteUntil
+                ? 'site'
+                : 'none';
+    return {
+      now,
+      start,
+      end: siteUntil,
+      stepMs: 15 * 60e3,
+      t: wx.at,
+      segments,
+      kindAt,
+      sourceAt: (t) => {
+        if (wx.at == null)
+          return `latest ${region === 'us' ? 'radar' : 'satellite estimate'} and the site forecast · MET Norway, updated ${hhmm(wx.summary?.updatedAt)}`;
+        const k = kindAt(t);
+        if (k === 'none' && t <= now)
+          return region === 'us'
+            ? 'newest radar frame not in yet'
+            : 'satellite estimate runs about 1 h behind — no frame yet for this time';
+        if (k === 'observed') return frames.label(t);
+        if (k === 'model')
+          return `${frames.label(t)} · site forecast MET Norway${t - now > 24 * H ? ' · further out, less certain' : ''}`;
+        return `site forecast · MET Norway, updated ${hhmm(wx.summary?.updatedAt)}${t - now > 24 * H ? ' · further out, less certain' : ''}`;
+      },
+    };
+  }
+  function renderTimeline() {
+    if (!timeline) return;
+    if (appMode === 'advance') return timeline.render(null);
+    timeline.render(timelineModel());
+  }
+  function setWxTime(t) {
+    wx.at = t;
+    twin.setPeopleDim?.(t != null && appMode === 'live');
+    renderWeather();
+    renderLayers();
+    twin.refresh?.();
+  }
   function wxRowNote(key) {
-    if (key === 'clouds')
-      return wxSummary()
-        ? `MET Norway · ${hhmm(wxSummary().validTime)} · low ${Math.round(wxSummary().cloud.low ?? 0)}% · mid ${Math.round(wxSummary().cloud.mid ?? 0)}% · high ${Math.round(wxSummary().cloud.high ?? 0)}%`
-        : 'Weather unavailable';
+    if (key === 'precip' && wx.at != null && !wx.sim.rain)
+      return frames.label(wx.at);
+    if (key === 'totals' && WX.totals)
+      return `${WX.totals.label} · last 24 h to now · not on the timeline`;
+    if (key === 'fx') {
+      drawFx();
+      return `${fxText}${fxReduced() ? ' · drawn still (Reduce motion)' : ''}`;
+    }
+    if (key === 'clouds') {
+      const st = fxStep();
+      if (!st) return 'Weather unavailable';
+      const c = st.cloud || {};
+      return `${st.simulated ? 'SIMULATED · ' : `MET Norway forecast ${hhmm(new Date(st.t).toISOString())} · `}low ${Math.round(c.low ?? 0)}% · mid ${Math.round(c.mid ?? 0)}% · high ${Math.round(c.high ?? 0)}%${Number.isFinite(st.fogPct) && st.fogPct >= 3 ? ` · fog ${Math.round(st.fogPct)}%` : ''} · cloud shapes illustrative, kept clear of the site`;
+    }
     if (!WX[key]) return 'Not available here (radar licence not verified)';
     if (key === 'lightning' && wx.sim.lightning)
       return `SIMULATED lightning (prototype) · ${formatRadius(LIGHTNING_WATCH_KM * 1000)} watch ring`;
     if (wx.images[key]?.noData)
-      return `${WX[key].label} · no data in this area right now`;
+      return `${WX[key].label} · no rain or snow in this area right now`;
     if (key === 'precip' && wx.sim.rain) return 'SIMULATED rain (prototype)';
     if (wx.imageErr[key] === 'unavailable')
       return `${WX[key].label} · unavailable`;
@@ -3090,13 +3576,14 @@ async function main() {
     d.addEventListener('toggle', () => (wx.open = d.open));
     const sm = document.createElement('summary');
     const on = Object.values(wx.layers).filter(Boolean).length;
-    sm.textContent = `Weather overlays · ${on} of 4 on`;
+    sm.textContent = `Weather overlays · ${on} of 5 on`;
     d.append(sm);
     for (const [key, label] of [
       ['lightning', 'Lightning'],
-      ['precip', 'Precipitation now'],
-      ['totals', 'Rain & snow totals (24 h)'],
-      ['clouds', 'Cloud cover (forecast)'],
+      ['precip', 'Rain & snow map'],
+      ['fx', 'Rain & snow at the site (3D)'],
+      ['clouds', 'Clouds & haze at the site (3D)'],
+      ['totals', 'Rain & snow totals, last 24 h'],
     ]) {
       const row = document.createElement('label');
       row.className = 'tt-layer-row';
@@ -3106,7 +3593,7 @@ async function main() {
       box.disabled = key === 'totals' && !WX.totals;
       box.addEventListener('change', () => {
         wx.layers[key] = box.checked;
-        if (box.checked && key !== 'clouds') ensureImage(key);
+        if (box.checked && !['clouds', 'fx'].includes(key)) ensureImage(key);
         drawWeather();
         renderLayers();
       });
@@ -3150,14 +3637,14 @@ async function main() {
           wxSummary(),
           a.counts['Outside, nearby'],
           incident.ageMin,
-          { useF, simulated: wx.sim.rain },
+          { useF, simulated: wx.sim.rain || wx.sim.snow },
         )
       : null;
     return {
       lightning,
       lightningDown,
       exposure,
-      pace: rainPace(wxSummary(), { simulated: wx.sim.rain }),
+      pace: rainPace(wxSummary(), { simulated: wx.sim.rain || wx.sim.snow }),
       official:
         wx.warningsStatus === 'unavailable'
           ? ['Official weather alerts unavailable right now']
@@ -3166,6 +3653,20 @@ async function main() {
   }
   $('tt-simlightning').checked = wx.sim.lightning;
   $('tt-simrain').checked = wx.sim.rain;
+  $('tt-simsnow').checked = wx.sim.snow;
+  $('tt-simsnow').addEventListener('change', (e) => {
+    wx.sim.snow = e.target.checked;
+    // Rain or snow, one at a time (review/phase6 L3).
+    if (wx.sim.snow && wx.sim.rain) {
+      wx.sim.rain = false;
+      $('tt-simrain').checked = false;
+    }
+    if (wx.sim.snow) setWxTime(null);
+    renderSimFlag();
+    renderWeather();
+    renderLayers();
+  });
+  $('tt-reduce-motion').addEventListener('change', () => drawFx());
   $('tt-simlightning').addEventListener('change', (e) => {
     wx.sim.lightning = e.target.checked;
     renderSimFlag();
@@ -3174,6 +3675,11 @@ async function main() {
   });
   $('tt-simrain').addEventListener('change', (e) => {
     wx.sim.rain = e.target.checked;
+    if (wx.sim.rain && wx.sim.snow) {
+      wx.sim.snow = false;
+      $('tt-simsnow').checked = false;
+    }
+    if (wx.sim.rain) setWxTime(null);
     renderSimFlag();
     renderWeather();
     twin.refresh?.();
@@ -3469,6 +3975,16 @@ async function main() {
     }
     if (e.target.closest?.('input, select, textarea')) return;
     const k = e.key;
+    if (
+      k === 'Escape' &&
+      wx.at != null &&
+      appMode === 'live' &&
+      !openPopId() &&
+      !pathEditor.active
+    ) {
+      timeline?.stop();
+      return setWxTime(null);
+    }
     if (k === 'Escape') {
       // popover → person opened from a floor card → floor card → selection
       if (closePops()) return;
@@ -3533,6 +4049,8 @@ async function main() {
       return renderLayers();
     }
     if (k === 'd' || k === 'D') return openPop('tt-display');
+    // T: the weather timeline (or the weather layers when none is on).
+    if (k === 't' || k === 'T') return focusWeather();
     if (k === 'v' || k === 'V')
       return setAppMode(appMode === 'advance' ? 'live' : 'advance');
     // People and report keys act on live data only.
@@ -3618,6 +4136,8 @@ async function main() {
         );
       wxLayer?.dispose();
       wxLayer = null;
+      fxLayer?.dispose();
+      fxLayer = null;
       beacons?.dispose();
       beacons = null;
       customLayer?.dispose();

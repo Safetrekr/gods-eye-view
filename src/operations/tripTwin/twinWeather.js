@@ -741,3 +741,8 @@ export function cellsToPoints(cells, bbox) {
     lon: w + u * (e - w),
   }));
 }
+
+/** Fetch + recolour one map frame by URL (phase 6 timeline). */
+export async function loadWeatherUrl(url, { signal, rgb } = {}) {
+  return recolour(await loadImage(url, signal), { rgb });
+}

@@ -2761,3 +2761,271 @@ body.tt-editing .tt-edit-chip {
   background: var(--tt-card);
   border-bottom: 1px solid transparent;
 }
+/* ===== Phase 6: weather timeline ===== */
+:root {
+  --tt-wx-observed: rgba(184, 195, 199, 0.55);
+  --tt-wx-model: rgba(184, 195, 199, 0.32);
+  --tt-wx-site: rgba(128, 149, 155, 0.22);
+}
+.tt-wxtl {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--foot) + var(--g) + 54px);
+  z-index: 12;
+  width: min(760px, calc(100vw - var(--rail) - var(--rcol) - 6 * var(--g)));
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas:
+    'play track now'
+    'cap cap cap'
+    'legend legend legend';
+  align-items: center;
+  gap: 4px 10px;
+  padding: 8px 12px;
+}
+.tt-wxtl[hidden] {
+  display: none;
+}
+.tt-wxtl.away {
+  border-color: var(--tt-attention);
+  box-shadow: inset 3px 0 0 var(--tt-attention);
+}
+.tt-wxtl-play {
+  grid-area: play;
+  min-width: 64px;
+  justify-content: center;
+}
+.tt-wxtl-now {
+  grid-area: now;
+}
+.tt-wxtl-now[hidden] {
+  display: none;
+}
+.tt-wxtl-track {
+  grid-area: track;
+  position: relative;
+  height: 34px;
+}
+.tt-wxtl-track::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--wxtl-bg, var(--tt-wx-site));
+  outline: 1px solid var(--tt-border);
+}
+.tt-wxtl-range {
+  position: absolute;
+  inset: 0 0 auto 0;
+  width: 100%;
+  height: 24px;
+  margin: 0;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+.tt-wxtl-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 4px;
+  height: 22px;
+  border-radius: 2px;
+  background: var(--tt-text);
+  box-shadow: 0 0 0 2px var(--tt-field);
+}
+.tt-wxtl-range::-moz-range-thumb {
+  width: 4px;
+  height: 22px;
+  border-radius: 2px;
+  background: var(--tt-text);
+  border: 0;
+}
+.tt-wxtl.away .tt-wxtl-range::-webkit-slider-thumb {
+  background: var(--tt-attention);
+}
+.tt-wxtl-ticks {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 20px;
+  height: 14px;
+  pointer-events: none;
+}
+.tt-wxtl-ticks .tick {
+  position: absolute;
+  transform: translateX(-50%);
+  font: 500 10px/14px var(--tt-mono);
+  color: var(--tt-text-dim);
+  white-space: nowrap;
+}
+.tt-wxtl-ticks .tick.now {
+  color: var(--tt-text);
+  font-weight: 600;
+}
+.tt-wxtl-cap {
+  grid-area: cap;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--tt-text-2);
+}
+.tt-wxtl.away .tt-wxtl-cap {
+  color: var(--tt-attention);
+}
+.tt-wxtl-legend {
+  grid-area: legend;
+  display: flex;
+  gap: 14px;
+  font-size: 11px;
+  color: var(--tt-text-dim);
+}
+.tt-wxtl-legend .lg i {
+  display: inline-block;
+  width: 14px;
+  height: 6px;
+  margin-right: 6px;
+  vertical-align: 1px;
+  outline: 1px solid var(--tt-border);
+}
+.tt-wxtl-legend .lg.observed i {
+  background: var(--tt-wx-observed);
+}
+.tt-wxtl-legend .lg.model i {
+  background: var(--tt-wx-model);
+}
+.tt-wxtl-legend .lg.site i {
+  background: var(--tt-wx-site);
+}
+.wx-live.away {
+  color: var(--tt-attention);
+  border-color: var(--tt-attention);
+}
+/* Phase 6: the timeline spans the free area left of the compass */
+.tt-wxtl {
+  left: calc(var(--rail) + 2 * var(--g) + 8px);
+  right: calc(var(--rcol) + 2 * var(--g) + 110px);
+  transform: none;
+  width: auto;
+}
+:root {
+  --tt-wx-observed: rgba(220, 228, 231, 0.75);
+  --tt-wx-model: rgba(184, 195, 199, 0.5);
+  --tt-wx-site: rgba(128, 149, 155, 0.35);
+}
+.tt-wxtl-track::before {
+  height: 10px;
+  top: 7px;
+}
+/* Phase 6 review (L13–L16): track segments, thumb, layout, chip */
+.tt-wxtl {
+  right: calc(var(--rcol) + 3 * var(--g) + 150px);
+  grid-template-columns: auto 1fr;
+  grid-template-areas:
+    'play track'
+    'cap now'
+    'legend legend';
+}
+.tt-wxtl-now {
+  justify-self: end;
+}
+.tt-wxtl-track::before {
+  background: var(--tt-muted);
+}
+.tt-wxtl-segs {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 7px;
+  height: 10px;
+  pointer-events: none;
+}
+.tt-wxtl-segs .seg,
+.tt-wxtl-legend .lg i {
+  box-sizing: border-box;
+}
+.tt-wxtl-segs .seg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+.seg.observed,
+.lg.observed i {
+  background: var(--tt-text-2);
+}
+.seg.model,
+.lg.model i {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--tt-text-2) 0 3px,
+    transparent 3px 7px
+  );
+  border: 1px solid var(--tt-text-2);
+}
+.seg.site,
+.lg.site i {
+  background: transparent;
+  border: 1px solid var(--tt-edge-ctl);
+}
+.seg.none,
+.lg.none i {
+  background: transparent;
+  border: 1px dashed var(--tt-edge-ctl);
+}
+.tt-wxtl-nowmark {
+  position: absolute;
+  top: 2px;
+  width: 2px;
+  height: 20px;
+  margin-left: -1px;
+  background: var(--tt-text);
+  pointer-events: none;
+}
+.tt-wxtl-range::-webkit-slider-thumb {
+  width: 6px;
+  height: 24px;
+  border-radius: 2px;
+  background: var(--tt-text);
+  box-shadow:
+    0 0 0 2px var(--tt-field),
+    0 0 0 3px var(--tt-text-2);
+}
+.tt-wxtl-range::-moz-range-thumb {
+  width: 6px;
+  height: 24px;
+  background: var(--tt-text);
+  box-shadow:
+    0 0 0 2px var(--tt-field),
+    0 0 0 3px var(--tt-text-2);
+}
+.tt-wxtl.away .tt-wxtl-range::-moz-range-thumb {
+  background: var(--tt-attention);
+}
+.tt-wxtl.away .tt-wxtl-cap {
+  color: var(--tt-text-2);
+}
+.tt-wxtl-cap .lead {
+  color: var(--tt-attention);
+  font-weight: 600;
+}
+.tt-wxtl-legend .lg i {
+  height: 8px;
+}
+/* The weather chip opens Layers › Weather; compact below 1440 px */
+#tt-wx {
+  cursor: pointer;
+}
+@media (max-width: 1439px) {
+  #tt-wx .wx-src {
+    display: none;
+  }
+}
+.tt-wxtl {
+  grid-template-columns: 72px 1fr auto;
+  grid-template-areas:
+    'play track track'
+    'cap cap now'
+    'legend legend legend';
+}

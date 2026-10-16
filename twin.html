@@ -65,7 +65,7 @@
       <span
         id="tt-wx"
         class="tt-wx"
-        title="Weather now at the hotel · layers in Layers › Hazards › Weather"
+        title="Weather at the site · click or T: weather layers and timeline"
       ></span>
       <button
         id="tt-proto-btn"
@@ -320,6 +320,9 @@
         ><input type="checkbox" id="tt-simrain" /> Simulated rain</label
       >
       <label class="tt-check"
+        ><input type="checkbox" id="tt-simsnow" /> Simulated snow</label
+      >
+      <label class="tt-check"
         ><input type="checkbox" id="tt-osmids" /> Show OpenStreetMap ids</label
       >
       <p class="tt-note" id="tt-proto-note"></p>
@@ -375,6 +378,11 @@
         <dd>
           Close panel, then the path, then step back (place or person › floor
           card › site), then clear the selection (never exits)
+        </dd>
+        <dt>T</dt>
+        <dd>
+          Weather timeline (Live, while a weather layer is on): ← → step, Play,
+          Esc or Back to now returns to now · otherwise opens Layers › Weather
         </dd>
         <dt>`</dt>
         <dd>Prototype controls</dd>

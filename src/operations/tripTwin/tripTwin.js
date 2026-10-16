@@ -190,6 +190,7 @@ export function createTripTwin({
   let safety = null;
   let declutterer = null;
   let selectedPlaceId = null;
+  let peopleDim = false;
   let chips = [];
   let peopleInfo = { beyond: 0 };
   let paths = null; // { paths: [...] } once planned
@@ -843,7 +844,8 @@ export function createTripTwin({
       floorsOn: floorsVisible(),
       reportedLabel: reportedLabel(),
       selectedId: selectedPersonId,
-      focusIds: floorFocusIds,
+      // Viewing another weather time dims everyone: positions are now.
+      focusIds: peopleDim ? new Set() : floorFocusIds,
       numbering:
         place.levels_above_ground != null || place.levels_source === 'operator',
       groundLabel: place.ground_floor_label ?? 1,
@@ -1174,6 +1176,13 @@ export function createTripTwin({
     setFloorFocus,
     frameFloor,
     hazardPoints,
+    /** Phase 6: travelers dimmed while the weather shows another time. */
+    setPeopleDim(on) {
+      if (peopleDim === Boolean(on)) return;
+      peopleDim = Boolean(on);
+      redrawPeople();
+      viewer.scene.requestRender();
+    },
     /** Advance mode (Part B): no traveler positions drawn. */
     setPeopleVisible(on) {
       peopleHidden = !on;
