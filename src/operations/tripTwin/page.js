@@ -5224,7 +5224,11 @@ async function main() {
         for (const w of wx.warnings)
           add('tt-wall-line official', warningLine(w, city.timezone));
       add('tt-kicker', 'SENSED');
-      add('tt-wall-line', firesLine(lastCtx?.fires).line);
+      // lastCtx.fires is already the formatted line (firesLine at assess).
+      add(
+        'tt-wall-line',
+        lastCtx?.fires?.line || 'Satellite heat detections · loading',
+      );
       add(
         'tt-wall-line',
         wx.layers.lightning

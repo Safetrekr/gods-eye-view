@@ -3841,3 +3841,58 @@ body[data-view='screen'].tt-dayplan-live .tt-advance .tt-topline,
 body[data-view='screen'].tt-dayplan-live .tt-advance .tt-subline {
   display: none;
 }
+/* Weather & alerts wall: the panel owns the right third. The 3D view, place
+   chips, timeline and compass stop at its edge, never run under it. */
+body[data-view='screen'][data-role='weather'] #cesiumContainer {
+  right: calc(32vw + 24px);
+}
+body[data-view='screen'][data-role='weather'] .tt-chips {
+  left: calc(24px / var(--wall-scale));
+  right: calc((32vw + 36px) / var(--wall-scale));
+}
+body[data-view='screen'][data-role='weather'] .tt-wxtl {
+  left: 24px;
+  right: calc(32vw + 36px);
+}
+body[data-view='screen'][data-role='weather'] .tt-compass {
+  right: calc(32vw + 36px);
+}
+/* Every wall: the 3D view, place chips and timeline stop at the edge of
+   the side panels (Jesse: content ran under the drawer on S4 and S5). */
+body[data-view='screen'] {
+  --wall-left: 0px;
+  --wall-right: 0px;
+}
+body[data-view='screen'][data-role='travelers'],
+body[data-view='screen'][data-role='site'][data-merged~='travelers'] {
+  --wall-left: calc(var(--rail) * var(--wall-scale) + 24px);
+}
+body[data-view='screen'][data-role='day'] {
+  --wall-left: calc(36vw + 24px);
+}
+body[data-view='screen'][data-role='site'],
+body[data-view='screen'][data-role='travelers'][data-merged~='incident'] {
+  --wall-right: calc(var(--rcol) * var(--wall-scale) + 24px);
+}
+body[data-view='screen'][data-role='weather'] {
+  --wall-right: calc(32vw + 24px);
+}
+body[data-view='screen'] #cesiumContainer {
+  left: var(--wall-left);
+  right: var(--wall-right);
+}
+body[data-view='screen'] .tt-chips {
+  left: calc((var(--wall-left) + 12px) / var(--wall-scale));
+  right: calc((var(--wall-right) + 12px) / var(--wall-scale));
+}
+body[data-view='screen'] .tt-wxtl {
+  left: calc(var(--wall-left) + 12px);
+  right: calc(var(--wall-right) + 120px);
+}
+body[data-view='screen'] .tt-compass {
+  right: calc(var(--wall-right) + 12px);
+}
+/* The compass sits above the weather timeline, not under it. */
+body[data-view='screen'][data-role='weather'] .tt-compass {
+  bottom: calc(var(--foot) + 150px);
+}
