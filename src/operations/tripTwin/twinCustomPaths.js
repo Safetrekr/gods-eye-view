@@ -226,7 +226,13 @@ export function pathChecks(result, ctx) {
           ? `Ends ${formatDistance(gap)} from the destination — the network does not reach it`
           : `Starts ${formatDistance(startGap)} from the start point — the network does not reach it`,
     });
-  if (ctx.profile !== 'car' && ctx.day == null)
+  if (ctx.profile !== 'car' && ctx.leg)
+    flags.push({
+      key: ctx.leg.dark ? 'dark' : 'daylight',
+      warn: ctx.leg.dark,
+      text: ctx.leg.darkText,
+    });
+  else if (ctx.profile !== 'car' && ctx.day == null)
     flags.push({
       key: 'dark_unknown',
       warn: false,
@@ -275,6 +281,8 @@ export function savedPathRecord(edit, result, { stamp, siteKeys = [] } = {}) {
       ? (result.avoidedAreas || []).map((a) => a.id)
       : [],
     notes: edit.notes || '',
+    eventKey: edit.eventKey || null,
+    leg: edit.eventKey ? edit.leg || null : null,
     siteKeys,
     distanceM: result.distanceM,
     durationS: result.durationS ?? null,
@@ -350,7 +358,7 @@ export const flagSignature = (flags) =>
 /** Brief lines for a day's saved paths that touch a site. */
 export function savedPathLines(
   saved,
-  { day, siteKey, areas = [], checks = () => [] },
+  { day, siteKey, areas = [], checks = () => [], leg = () => null },
 ) {
   return saved
     .filter(
@@ -363,9 +371,10 @@ export function savedPathLines(
       const flags = checks(p).filter((f) => !/^avoid/.test(f.key));
       const reviewed = reviewState(p, areas, flags);
       const flagText = flags.map((f) => f.text).join(' · ');
+      const lg = leg(p);
       return {
         id: p.id,
-        text: `${p.name}${p.day ? ` · Day ${p.day}` : ''} · ${p.profile === 'car' ? 'drive' : 'walk'}: ${formatDistance(p.distanceM)} · ${timeText(p, p.profile)}${st.text ? ` · ${st.text}` : ''}${flagText ? ` · ${flagText}` : ''} · ${reviewed.text}`,
+        text: `${p.name}${p.day ? ` · Day ${p.day}` : ''}${lg ? ` · ${lg.text}` : ''} · ${p.profile === 'car' ? 'drive' : 'walk'}: ${formatDistance(p.distanceM)} · ${timeText(p, p.profile)}${st.text ? ` · ${st.text}` : ''}${flagText ? ` · ${flagText}` : ''} · ${reviewed.text}`,
         warn: st.warn || flags.some((f) => f.warn) || !reviewed.ok,
       };
     });
@@ -405,4 +414,87 @@ export const areaLabel = (a) =>
 /** What a review covers: the avoid-area outcome and the flags at that time. */
 export function reviewSignature(p, areas, flags = []) {
   return `${avoidStatus(p, areas).text}|${flagSignature(flags.filter((f) => !/^avoid/.test(f.key)))}`;
+}
+
+/**
+ * Nearest named street to a point from the site's OpenStreetMap roads
+ * (phase 4 deferred: street names for waypoints). roads: [{name, coords}].
+ * Returns {name, d} within maxM, else null.
+ */
+export function nearestStreet(pt, roads = [], maxM = 40) {
+  const k = Math.cos((pt.lat * Math.PI) / 180) * 111320;
+  const xy = (q) => [(q.lon - pt.lon) * k, (q.lat - pt.lat) * 110540];
+  let best = null;
+  for (const r of roads) {
+    if (!r.name || !r.coords?.length) continue;
+    for (let i = 0; i < r.coords.length - 1; i += 1) {
+      const [ax, ay] = xy(r.coords[i]);
+      const [bx, by] = xy(r.coords[i + 1]);
+      const dx = bx - ax;
+      const dy = by - ay;
+      const len = dx * dx + dy * dy;
+      const t = len ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len)) : 0;
+      const d = Math.hypot(ax + t * dx, ay + t * dy);
+      if (d <= maxM && (!best || d < best.d)) best = { name: r.name, d };
+    }
+  }
+  return best;
+}
+
+/** "near Red River Street" or the coordinates when no street is known. */
+export function waypointText(pt, street) {
+  return street
+    ? `${street.d > 15 ? 'near ' : ''}${street.name}`
+    : `${pt.lat.toFixed(5)}, ${pt.lon.toFixed(5)}`;
+}
+
+/**
+ * Out / back legs tied to an event (phase 4 deferred). The out leg arrives
+ * for the event's start; the back leg leaves at its end (start + 2 h when no
+ * end is set). event = {title, startMs, endMs}; returns {fromMs, toMs, dark,
+ * text, darkText} — times are estimates from the router's duration.
+ */
+export function legWindow({ leg, event, durationS, sunsetMs, fmt }) {
+  if (!event || !leg || !Number.isFinite(event.startMs)) return null;
+  const dur = Math.max(60, durationS || 0) * 1000;
+  const endMs = Number.isFinite(event.endMs)
+    ? event.endMs
+    : event.startMs + 2 * 3600000;
+  const fromMs = leg === 'out' ? event.startMs - dur : endMs;
+  const toMs = fromMs + dur;
+  const text =
+    leg === 'out'
+      ? `Out leg · leave about ${fmt(fromMs)} to arrive for ${event.title} at ${fmt(event.startMs)}`
+      : `Back leg · after ${event.title}${Number.isFinite(event.endMs) ? ` ends ${fmt(endMs)}` : ` (no end time set · assumed ${fmt(endMs)})`} · about ${fmt(fromMs)}–${fmt(toMs)}`;
+  const dark = Number.isFinite(sunsetMs) && toMs > sunsetMs;
+  const darkText = !Number.isFinite(sunsetMs)
+    ? 'Sunset unknown — after dark not checked'
+    : dark
+      ? `On the way after sunset (${fmt(sunsetMs)}) — check lighting on this path`
+      : `On the way before sunset (${fmt(sunsetMs)})`;
+  return { fromMs, toMs, dark, text, darkText };
+}
+
+/**
+ * Text a lead pastes to chaperones for a reviewed saved path (phase 4
+ * deferred). Reviewed paths only; never a traveler's name or position.
+ * Returns null when the path is not (or no longer) reviewed.
+ */
+export function chaperoneShareText(
+  p,
+  { review, leg, via, flags = [], areas = [] },
+) {
+  if (!review?.ok) return null;
+  const st = avoidStatus(p, areas);
+  return [
+    `PATH FOR CHAPERONES · ${p.name}`,
+    `${p.day ? `Day ${p.day}` : 'Any day'} · ${p.profile === 'car' ? 'drive' : 'walk'} · ${formatDistance(p.distanceM)} · ${timeText(p, p.profile)}`,
+    ...(leg ? [leg.text] : []),
+    ...(via ? [`Via ${via}`] : []),
+    ...(st.text ? [st.text] : []),
+    ...flags.filter((f) => !/^avoid/.test(f.key)).map((f) => f.text),
+    ...(p.notes ? [`Notes: ${p.notes}`] : []),
+    `Suggested path, ${review.text} · a review is a check, not an approval · follow local instructions on the day`,
+    'Prototype · not sent — copied for a message to chaperones',
+  ].join('\n');
 }

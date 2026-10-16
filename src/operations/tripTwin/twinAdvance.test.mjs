@@ -83,7 +83,7 @@ test('site brief: services, rally status, numbering, light; copy text is safe', 
     timeZone: 'America/Chicago',
   });
   const by = Object.fromEntries(b.items.map((i) => [i.key, i]));
-  assert.match(by.from_hotel.text, /straight line .* route not checked$/);
+  assert.match(by.from_hotel.text, /straight line .* street path not checked$/);
   assert.match(
     by.hospital.text,
     / · \d[\d.]* k?m [NESW]{1,2} straight line · .* · not verified$/,

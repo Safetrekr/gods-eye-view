@@ -225,6 +225,7 @@ export function parseOverpassElements(elements = []) {
       roads.push({
         id: `way/${el.id}`,
         highway: tags.highway,
+        name: tags.name || null,
         coords: el.geometry.map(ll),
       });
       continue;
@@ -864,7 +865,7 @@ const GROUP_LABEL = {
   at_or_above: (f) => `At or above reported floor ${f}`,
   in_building: () => 'May still be in the building',
   not_current: () => 'Not current',
-  alone: () => 'Alone or outside group zone',
+  alone: () => 'Unaccompanied or outside group zone',
   not_located: () => 'Not located',
 };
 

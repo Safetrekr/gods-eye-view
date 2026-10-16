@@ -17,16 +17,29 @@ import {
 import { createSiteBeacons } from './twinSiteBeacons.js';
 import { DEFAULT_GLOW, GLOW_STYLES } from './twinSelect.js';
 import { UNIT, formatLength, groundLine } from './twinUnits.js';
-import { SCENARIOS, tripTwinDemoSnapshot } from './demoTripTwin.js';
+import { SCENARIOS, TRIP_ID, tripTwinDemoSnapshot } from './demoTripTwin.js';
 import {
   createCard,
   createHud,
   renderRouteSection,
   responderText,
 } from './twinHud.js';
-import { groupCentre, planRouteSet, routeCards } from './twinRoutes.js';
+import {
+  MODES,
+  defaultMode,
+  groupCentre,
+  pathSummaryText,
+  planRouteSet,
+  primaryEstimate,
+  routeCards,
+  shortName,
+} from './twinRoutes.js';
 import {
   areaLabel,
+  nearestStreet,
+  chaperoneShareText,
+  legWindow,
+  waypointText,
   avoidStatus,
   loadStore,
   pathChecks,
@@ -127,23 +140,40 @@ const POPS = {
   'tt-help': 'tt-help-btn',
   'tt-sites': 'tt-hotel',
 };
+let popTrigger = null;
 function openPop(id) {
   for (const [pop, btn] of Object.entries(POPS)) {
     const on = pop === id && $(pop).hidden;
     $(pop).hidden = !on;
     $(btn)?.setAttribute('aria-expanded', String(on));
+    if (on) popTrigger = $(btn);
   }
+  setReportPending('');
   if (id === 'tt-report' && !$(id).hidden)
     setTimeout(() => $('tt-report-floor').focus(), 0);
 }
-function closePops() {
+/** Close every popover; restoreFocus (Esc) puts focus back on the trigger. */
+function closePops({ restoreFocus = false } = {}) {
   let closed = false;
   for (const [pop, btn] of Object.entries(POPS)) {
     if (!$(pop).hidden) closed = true;
     $(pop).hidden = true;
     $(btn)?.setAttribute('aria-expanded', 'false');
   }
+  setReportPending('');
+  if (closed && restoreFocus) popTrigger?.focus();
   return closed;
+}
+const openPopId = () => Object.keys(POPS).find((id) => !$(id).hidden);
+/** A typed floor in the report form is unsaved work (review/phase5 J7). */
+const reportDirty = () =>
+  !$('tt-report').hidden && $('tt-report-floor').value.trim() !== '';
+function setReportPending(text) {
+  const n = $('tt-report-pending');
+  if (!n) return;
+  if (!text) delete n.dataset.esc;
+  n.textContent = text;
+  n.hidden = !text;
 }
 
 async function main() {
@@ -294,7 +324,7 @@ async function main() {
   // During an incident the floors sit in the incident panel; one copy only.
   const cutPointer = document.createElement('div');
   cutPointer.className = 'tt-card-line tt-dim tt-cut-pointer';
-  cutPointer.textContent = 'Floors: in the incident panel above · H';
+  cutPointer.textContent = 'Floors and people are in the incident panel above';
   const hotelId = () => twin.site?.hotel.building.id;
   const isHotelSel = () =>
     selection?.kind === 'building' && selection.geom.isHotel;
@@ -318,6 +348,12 @@ async function main() {
         hotelLabel: city.label,
         siteKind: city.kind === 'lodging' ? 'hotel' : 'venue',
         siteWhen: city.day ? `DAY ${city.day} · ${city.start}` : '',
+        // During an incident here the panel carries the floors; the hotel
+        // card folds to its title so the panel keeps the height (J13).
+        compact:
+          geom.isHotel &&
+          Boolean(lastCtx?.dockedCutaway) &&
+          appMode !== 'advance',
       },
       geom.isHotel
         ? [
@@ -522,7 +558,7 @@ async function main() {
       selection = sel;
       if (!sel) {
         if (!placeSelecting) {
-          clearRoute();
+          releaseCard();
           card.hide();
           $('tt-crumb-focus').textContent = '';
         }
@@ -534,6 +570,7 @@ async function main() {
           key: `person:${sel.row.person.id}`,
           kind: 'person',
           label: sel.row.person.name,
+          row: sel.row,
           point: sel.row.person.coordinates
             ? {
                 lat: sel.row.person.coordinates.lat,
@@ -574,7 +611,7 @@ async function main() {
             label: b.name,
             point: c,
           });
-        } else if (!sel.geom.isHotel) clearRoute();
+        } else if (!sel.geom.isHotel) releaseCard();
         showBuilding(sel.geom);
       }
     },
@@ -629,7 +666,10 @@ async function main() {
       });
       // Top bar: mode chip, data age, sample clock, trip in the breadcrumb.
       const chip = $('tt-mode');
-      chip.textContent = mode.chip + (mode.degraded ? ' · DATA DELAYED' : '');
+      chip.textContent =
+        mode.chip +
+        (mode.degraded ? ' · DATA DELAYED' : '') +
+        (simulationOn() ? ' · SIMULATED DATA' : '');
       chip.className = `tt-mode ${mode.mode}${mode.degraded ? ' degraded' : ''}`;
       $('tt-age').textContent = `data ${formatAge(ageS)}`;
       $('tt-age').title = `Traveler data ${formatAge(ageS)} old`;
@@ -818,9 +858,7 @@ async function main() {
   }
   function renderSites() {
     const root = $('tt-sites');
-    const title = document.createElement('div');
-    title.className = 'tt-kicker';
-    title.textContent = 'SITES ON THIS TRIP';
+    const title = popHead('Sites on this trip', 'S');
     const list = document.createElement('ul');
     list.className = 'tt-site-list';
     for (const s of SITES) {
@@ -905,141 +943,236 @@ async function main() {
     for (const k of ['precip', 'totals']) if (wx.layers[k]) ensureImage(k);
   }
 
-  // ---- route from any place (phase 3 Part C) ----
-  // One route set at a time; it belongs to the card it was asked from.
+  /** Any simulated feed on (review/phase5 J9). */
+  function simulationOn() {
+    return (
+      $('tt-simfire').checked ||
+      $('tt-simlightning').checked ||
+      $('tt-simrain').checked
+    );
+  }
+  /** The Prototype pill says SIM ON while any simulated feed is on. */
+  function renderSimFlag() {
+    const on = simulationOn();
+    const b = $('tt-proto-btn');
+    b.classList.toggle('sim', on);
+    b.firstChild.textContent = on ? 'Prototype · SIM ON ' : 'Prototype ';
+    b.title = on
+      ? 'Simulated data is on — Prototype controls (`)'
+      : 'Prototype controls (`)';
+  }
+  // ---- paths from any place or person (phase 3 Part C; review/phase5) ----
+  // The card owns the choice (J1); a drawn path outlives its card (J6) until
+  // it is removed, Esc, or another path is drawn. One path on the map.
   const routeNode = document.createElement('section');
   routeNode.className = 'tt-route';
-  let routeTarget = null; // {key, kind: 'place'|'person', label, point}
+  let routeTarget = null; // {key, kind: 'place'|'person', label, point, row?, place?}
   let routeModel = null;
   let routeAbort = null;
   let lastPersonId = null;
   let placeSelecting = false;
+  let drawn = null; // {targetKey, model, summary, pill}
+  let sessionProfile = null; // the operator's last explicit Walk / Drive
   const sitePoint = () => ({
     lat: (city.anchors?.inside || city.center).lat,
     lon: (city.anchors?.inside || city.center).lon,
   });
+  const llOf = (p) => ({ lat: p.coordinates.lat, lon: p.coordinates.lng });
+  // Times on the sample trip read on the sample clock (the top bar's), so a
+  // position "at 21:31" agrees with "21:32 local · sample".
+  const clock = (ms) => {
+    const snap = lastCtx?.snapshot;
+    if (!snap?.scenario) return '';
+    const [h, m] = sampleClock(snap).split(':').map(Number);
+    const mins =
+      (((h * 60 + m + Math.round((ms - Date.now()) / 60000)) % 1440) + 1440) %
+      1440;
+    return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+  };
+  const firstName = (n) => String(n || '').split(/\s+/)[0];
+  const emergencyLine = () =>
+    city.timezone.startsWith('America')
+      ? 'Medical emergency: call 911. This path is for an escort, not dispatch.'
+      : 'Medical emergency: call 999 or 112. This path is for an escort, not dispatch.';
+  /** Address, phone and emergency-department status for a hospital (J3). */
+  function hospitalLines(h) {
+    if (h?.category !== 'hospital') return [];
+    return [
+      ...(h.address ? [h.address] : []),
+      ...(h.contact ? [h.contact] : []),
+      h.emergency === 'yes'
+        ? 'Emergency department listed in OpenStreetMap · not verified'
+        : 'Emergency department not listed in OpenStreetMap — call ahead',
+      emergencyLine(),
+    ];
+  }
+  /** The person's current fix: point, clock time, age, current or not. */
+  function personFix(row) {
+    const c = row?.person?.coordinates;
+    if (!c) return null;
+    const age = Number.isFinite(row.pos?.age) ? row.pos.age : null;
+    return {
+      lat: c.lat,
+      lon: c.lng,
+      age,
+      atMs: age === null ? null : Date.now() - age * 1000,
+      current: Boolean(row.pos?.current),
+    };
+  }
   function routeEnds() {
-    const rows = lastA?.rows || [];
+    const points = lastCtx?.snapshot?.safety_points || [];
+    const here = twin.activePlace()?.id;
     if (routeTarget.kind === 'person') {
-      // From this person to the site or this site's nearest rally point.
-      const here = twin.activePlace()?.id;
-      const rally = (lastCtx?.snapshot?.safety_points || [])
+      const from = routeTarget.point;
+      const who = firstName(routeTarget.label);
+      // Nearest to the person among every hospital on file (J2).
+      const hospitals = points
+        .filter((p) => p.category === 'hospital' && p.coordinates)
+        .map((p) => ({ p, d: haversineM(from, llOf(p)) }))
+        .sort((x, y) => x.d - y.d);
+      const rallies = points
         .filter(
           (p) =>
             p.location_id === here &&
-            /^rally/.test(p.category) &&
+            /^rally_/.test(p.category) &&
             p.coordinates,
         )
-        .map((p) => ({
-          p,
-          d: haversineM(routeTarget.point, {
-            lat: p.coordinates.lat,
-            lon: p.coordinates.lng,
-          }),
-        }))
-        .sort((a, b) => a.d - b.d)[0]?.p;
-      const hospital = (lastCtx?.snapshot?.safety_points || []).find(
-        (p) =>
-          p.location_id === here && p.category === 'hospital' && p.coordinates,
-      );
+        .sort((x) => (x.category === 'rally_primary' ? -1 : 1));
+      const atSite = haversineM(from, sitePoint()) < 80;
       const hotel = SITES[0];
+      const hosp = hospitals[0];
       return [
+        hosp && {
+          key: 'hospital',
+          label: 'Nearest listed hospital',
+          meta: `${hosp.p.name} · ${formatDistance(hosp.d)}`,
+          title: `Nearest in a straight line of ${hospitals.length} hospital${hospitals.length > 1 ? 's' : ''} on file`,
+          to: llOf(hosp.p),
+          toLabel: hosp.p.name || 'the hospital',
+          place: hosp.p,
+        },
         {
           key: 'site',
-          label: `To ${city.short}`,
+          label: city.short,
+          meta: atSite
+            ? `${who} is here (likely)`
+            : formatDistance(haversineM(from, sitePoint())),
+          disabled: atSite,
+          title: atSite ? `${who} is at ${city.short} (likely)` : '',
           to: sitePoint(),
           toLabel: city.short,
         },
         // At a venue, the hotel is a destination too (review/phase3 G12).
         city.key !== hotel.key && {
           key: 'hotel',
-          label: `To ${hotel.short}`,
+          label: hotel.short,
+          meta: formatDistance(haversineM(from, hotel.anchors.inside)),
           to: { lat: hotel.anchors.inside.lat, lon: hotel.anchors.inside.lon },
           toLabel: hotel.short,
         },
-        hospital && {
-          key: 'hospital',
-          label: 'To nearest hospital',
-          to: { lat: hospital.coordinates.lat, lon: hospital.coordinates.lng },
-          toLabel: hospital.name || 'the hospital',
-        },
-        rally && {
-          key: 'rally',
-          label: `To nearest rally point${rally.approval_status !== 'active' ? ' (draft)' : ''}`,
-          to: { lat: rally.coordinates.lat, lon: rally.coordinates.lng },
-          toLabel: 'the rally point',
-        },
+        ...rallies.map((r) => ({
+          key: `rally:${r.id}`,
+          label:
+            r.category === 'rally_primary'
+              ? 'Rally point (primary)'
+              : 'Rally point (secondary)',
+          tag: r.approval_status !== 'active' ? 'not approved' : '',
+          meta: formatDistance(haversineM(from, llOf(r))),
+          to: llOf(r),
+          toLabel: r.name || 'the rally point',
+        })),
       ].filter(Boolean);
     }
+    const rows = lastA?.rows || [];
     const person = rows.find((r) => r.person.id === lastPersonId);
     const centre = groupCentre(rows, sitePoint());
-    const age = (r) =>
-      Number.isFinite(r?.pos?.age)
-        ? ` (position ${formatAge(r.pos.age)} old)`
-        : '';
     return [
       {
         key: 'site',
-        label: `From ${city.short}`,
+        label: city.short,
+        meta: formatDistance(haversineM(sitePoint(), routeTarget.point)),
         from: sitePoint(),
         fromLabel: city.short,
       },
       {
-        key: 'person',
-        label: person ? `From ${person.person.name}` : 'From selected person',
-        fromLabel: person ? `${person.person.name}${age(person)}` : '',
-        disabled: !person?.person.coordinates,
-        title: person ? '' : 'Select a person first',
-        from: person?.person.coordinates
-          ? {
-              lat: person.person.coordinates.lat,
-              lon: person.person.coordinates.lng,
-            }
-          : null,
-      },
-      {
         key: 'group',
-        label: centre ? `From group centre (${centre.n})` : 'From group centre',
+        label: centre ? `Group center · ${centre.n} people` : 'Group center',
+        meta: centre ? 'median of current positions' : '',
         disabled: !centre,
         title: centre
           ? 'Median of current positions at this site'
           : 'Fewer than 3 current positions here',
         from: centre,
-        fromLabel: centre ? `the group centre (${centre.n} people)` : '',
+        fromLabel: centre ? `the group center (${centre.n} people)` : '',
       },
+      ...(person?.person.coordinates
+        ? [
+            {
+              key: 'person',
+              label: `${person.person.name} · last selected`,
+              meta: person.pos.current ? '' : 'not current',
+              from: llOf(person.person),
+              row: person,
+            },
+          ]
+        : []),
     ];
   }
+  const modeTime = (card) => card?.metric?.split(' · ')[1] || '';
   function drawRouteSection() {
     if (!routeTarget) return;
     const ends = routeEnds();
-    if (!ends.some((e) => e.key === routeModel.originKey && !e.disabled))
-      routeModel.originKey = ends.find((e) => !e.disabled)?.key;
+    if (
+      routeModel.originKey &&
+      !ends.some((e) => e.key === routeModel.originKey && !e.disabled)
+    )
+      routeModel.originKey = null;
+    const person = routeTarget.kind === 'person';
+    const end = ends.find((e) => e.key === routeModel.originKey);
     renderRouteSection(
       routeNode,
       {
         ...routeModel,
-        title:
-          routeTarget.kind === 'person' ? 'PATH FROM THIS PERSON' : 'PATH HERE',
+        title: person
+          ? `PATH FROM ${routeTarget.label}`
+          : `PATH TO ${routeTarget.label}`,
+        stepLabel: person ? 'To' : 'From',
+        idleHint: person
+          ? 'Choose where to — the path appears on the map.'
+          : 'Choose where from — the path appears on the map.',
         origins: ends,
+        extras: hospitalLines(person ? end?.place : routeTarget.place),
       },
       {
         onOrigin: (k) => {
           routeModel.originKey = k;
-          if (routeModel.status !== 'idle') runRoute(routeModel.profile);
+          routeModel.stale = '';
+          runRoute();
+        },
+        onMode: (profile) => {
+          sessionProfile = profile;
+          routeModel = { ...routeModel, profile, chosen: true };
+          if (routeModel.originKey) runRoute({ profile });
           else drawRouteSection();
         },
-        onMode: (profile) => runRoute(profile),
-        onClear: () => clearRoute({ keepTarget: true }),
+        onClear: () => removePath(),
         onFrame: () => twin.frameRoute(),
+        onCopy: () => copyPathSummary(),
+        onReplan: () => runRoute({ profile: routeModel.profile }),
         onEdit: () => {
-          const ep = routeEndpoints();
-          if (!ep) return;
-          clearRoute({ keepTarget: true });
-          const fromPerson = routeTarget.kind === 'person';
+          const ep = routeModel.originKey ? routeEndpoints() : null;
+          const fromPerson = person || routeModel.originKey === 'person';
+          const startAt = ep || {
+            from: person ? routeTarget.point : sitePoint(),
+            to: person ? sitePoint() : routeTarget.point,
+            fromLabel: person ? routeTarget.label : city.short,
+            toLabel: person ? city.short : routeTarget.label,
+          };
+          removePath();
           pathEditor.start({
-            ...ep,
+            ...startAt,
             // A traveler's position is never stored by name (H4).
-            fromLabel: fromPerson ? 'a traveler’s position' : ep.fromLabel,
+            fromLabel: fromPerson ? 'a traveler’s position' : startAt.fromLabel,
             fromPerson,
             profile: routeModel.profile || 'foot',
             day: appMode === 'advance' ? currentAdvanceDay() : todayDay(),
@@ -1048,79 +1181,178 @@ async function main() {
       },
     );
   }
-  function setRouteTarget(t) {
-    if (routeTarget?.key === t.key) return drawRouteSection();
-    clearRoute();
-    routeTarget = t;
-    routeModel = {
+  function freshModel() {
+    return {
       originKey: null,
-      profile: 'foot',
+      profile: sessionProfile || 'foot',
+      chosen: Boolean(sessionProfile),
       status: 'idle',
       cards: [],
+      times: {},
+      reason: '',
+      stale: '',
     };
-    drawRouteSection();
   }
-  /** Clear the drawn route; keepTarget leaves the card's section in place. */
-  function clearRoute({ keepTarget = false } = {}) {
+  function setRouteTarget(t) {
+    if (routeTarget?.key === t.key) {
+      // Same card refreshed: keep the plan, notice when the person moved (J4).
+      routeTarget = { ...routeTarget, ...t };
+      checkStale();
+      return drawRouteSection();
+    }
+    if (routeModel?.status === 'loading') routeAbort?.abort();
+    routeTarget = t;
+    routeModel = drawn?.targetKey === t.key ? { ...drawn.model } : freshModel();
+    drawRouteSection();
+    renderPill();
+  }
+  /** The card went away; a drawn path stays on the map with its pill (J6). */
+  function releaseCard() {
+    if (routeModel?.status === 'loading') routeAbort?.abort();
+    routeTarget = null;
+    routeModel = null;
+    renderPill();
+  }
+  /** Remove the drawn path (Remove, Esc, pill ×). */
+  function removePath() {
     routeAbort?.abort();
     routeAbort = null;
     const had = twin.hasRoute;
     twin.clearRoute();
-    if (keepTarget && routeTarget) {
-      routeModel = { ...routeModel, status: 'idle', cards: [] };
+    drawn = null;
+    if (routeModel) {
+      routeModel = { ...routeModel, status: 'idle', cards: [], stale: '' };
       drawRouteSection();
-    } else {
-      routeTarget = null;
-      routeModel = null;
     }
+    renderPill();
     return had;
   }
-  /** The chosen origin and destination of the card's path section. */
+  /** Everything: the path and the card's plan (site or mode switch). */
+  function clearRoute() {
+    removePath();
+    releaseCard();
+  }
+  function checkStale() {
+    const m = routeModel;
+    if (m?.status !== 'ready' || !m.fix || routeTarget.kind !== 'person')
+      return;
+    const now = personFix(routeTarget.row);
+    if (!now) return;
+    const moved = haversineM(now, m.fix) > 50;
+    const newer =
+      Number.isFinite(now.atMs) &&
+      Number.isFinite(m.fix.atMs) &&
+      now.atMs - m.fix.atMs >= 120000;
+    m.stale = moved
+      ? `${firstName(routeTarget.label)} has moved since this path was planned`
+      : newer
+        ? `${firstName(routeTarget.label)} has a newer position than this path`
+        : '';
+  }
+  /** The chosen start and end of the card's path section. */
   function routeEndpoints() {
     const end = routeEnds().find((e) => e.key === routeModel.originKey);
     if (!end) return null;
-    const from = routeTarget.kind === 'person' ? routeTarget.point : end.from;
-    const to = routeTarget.kind === 'person' ? end.to : routeTarget.point;
-    const toLabel =
-      routeTarget.kind === 'person' ? end.toLabel : routeTarget.label;
-    const personRow = (lastA?.rows || []).find(
-      (r) => `person:${r.person.id}` === routeTarget.key,
-    );
-    const fromLabel =
-      routeTarget.kind === 'person'
-        ? `${routeTarget.label}${Number.isFinite(personRow?.pos?.age) ? ` (position ${formatAge(personRow.pos.age)} old)` : ''}`
-        : end.fromLabel;
-    return { from, to, fromLabel, toLabel };
+    if (routeTarget.kind === 'person') {
+      const fix = personFix(routeTarget.row);
+      const age = fix?.age != null ? formatAge(fix.age) : null;
+      const fromLabel = !fix
+        ? routeTarget.label
+        : fix.current
+          ? `${routeTarget.label} (position at ${clock(fix.atMs)} · ${age} old)`
+          : `${routeTarget.label} (last known position, ${age} old)`;
+      return {
+        from: routeTarget.point,
+        to: end.to,
+        fromLabel,
+        toLabel: end.toLabel,
+        fix,
+        place: end.place,
+      };
+    }
+    let fromLabel = end.fromLabel;
+    let fix = null;
+    if (end.key === 'person') {
+      fix = personFix(end.row);
+      fromLabel = `${end.row.person.name} (${fix.current ? `position at ${clock(fix.atMs)}` : 'last known position'} · ${formatAge(fix.age)} old)`;
+    }
+    return {
+      from: end.from,
+      to: routeTarget.point,
+      fromLabel,
+      toLabel: routeTarget.label,
+      fix,
+      place: routeTarget.place,
+    };
   }
-  async function runRoute(profile) {
+  async function runRoute({ profile: asked } = {}) {
     const ep = routeEndpoints();
     if (!ep) return;
     const { from, to, fromLabel, toLabel } = ep;
+    const straight = haversineM(from, to);
+    const auto = defaultMode(straight);
+    const profile =
+      asked || (routeModel.chosen ? routeModel.profile : auto.profile);
+    const reason = asked || routeModel.chosen ? '' : auto.reason;
+    const other = profile === 'foot' ? 'car' : 'foot';
     routeAbort?.abort();
     routeAbort = new AbortController();
     const signal = routeAbort.signal;
-    routeModel = { ...routeModel, profile, status: 'loading' };
+    const target = routeTarget;
+    routeModel = {
+      ...routeModel,
+      profile,
+      status: 'loading',
+      reason,
+      stale: '',
+    };
     drawRouteSection();
     try {
-      const paths = await planRouteSet(from, to, {
-        profile,
-        signal,
-        hazards: twin.hazardPoints(),
-      });
+      const [paths, est] = await Promise.all([
+        planRouteSet(from, to, {
+          profile,
+          signal,
+          hazards: twin.hazardPoints(),
+        }),
+        primaryEstimate(from, to, { profile: other, signal }).catch(() => null),
+      ]);
       if (signal.aborted) return;
+      // The Advance path replaces any drawn card path (one path on the map).
+      drawn = null;
+      renderPill();
       twin.showRoute(paths, { fromLabel, toLabel });
+      const cards = routeCards(
+        paths,
+        { profile, toLabel, fromLabel },
+        {
+          areas: pathStore.areas,
+          pace: profile === 'foot' ? lastCtx?.weather?.pace : null,
+          simulatedFires: lastCtx?.fires?.simulated,
+        },
+      );
       routeModel = {
         ...routeModel,
         status: 'ready',
-        cards: routeCards(
-          paths,
-          { profile, toLabel, fromLabel },
-          {
-            areas: pathStore.areas,
-            pace: profile === 'foot' ? lastCtx?.weather?.pace : null,
-            simulatedFires: lastCtx?.fires?.simulated,
-          },
-        ),
+        cards,
+        fix: ep.fix,
+        times: {
+          [profile]: modeTime(cards[0]),
+          [other]: est?.range
+            ? `${est.range[0]}–${est.range[1]} min`
+            : 'unavailable',
+        },
+        other: est?.range
+          ? {
+              verb: MODES[other].verb,
+              text: `${formatDistance(est.distanceM)} · ${est.range[0]}–${est.range[1]} min`,
+            }
+          : null,
+      };
+      drawn = {
+        targetKey: target.key,
+        model: routeModel,
+        ep,
+        pill: `${cards[0].route.replace(/ \(.*?\)/, '')} · ${MODES[profile].verb} ${cards[0].metric}`,
       };
     } catch (error) {
       if (signal.aborted) return;
@@ -1128,10 +1360,78 @@ async function main() {
         ...routeModel,
         status: 'error',
         error: String(error?.message || error),
-        straight: formatDistance(haversineM(from, to)),
+        straight: formatDistance(straight),
       };
     }
-    drawRouteSection();
+    if (routeTarget === target) {
+      drawRouteSection();
+      // Bring the answer into view in the card (the camera never moves).
+      routeNode
+        .querySelector('.tt-route-out')
+        ?.scrollIntoView({ block: 'nearest' });
+    }
+    renderPill();
+  }
+  /** Copy path summary (J5): no coordinates; a traveler as first name + initial. */
+  async function copyPathSummary(model = routeModel, ep = null) {
+    const d = ep || drawn?.ep || routeEndpoints();
+    const card0 = model?.cards?.[0];
+    if (!d || !card0) return false;
+    const person =
+      d.fix && routeTarget?.kind === 'person' ? routeTarget.label : null;
+    const fromText = d.fix
+      ? `${shortName(person || d.fromLabel.replace(/ \(.*$/, ''))}, ${d.fix.current ? `position as of ${clock(d.fix.atMs)}` : `last known position (${formatAge(d.fix.age)} old)`}`
+      : d.fromLabel;
+    const text = pathSummaryText({
+      title: d.place?.category === 'hospital' ? 'Hospital run' : 'Path',
+      stamp: stamp().replace(/^you · /, ''),
+      from: fromText,
+      to: `${d.toLabel}${d.place?.address ? `, ${d.place.address}` : ''}${d.place?.contact ? ` · ${d.place.contact}` : ''}`,
+      toExtra: hospitalLines(d.place).filter(
+        (l) => l !== d.place?.address && l !== d.place?.contact,
+      ),
+      shown: card0,
+      other: model.other,
+      simulated: simulationOn(),
+    });
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  // The path pill (J6): the drawn path when its card is not open.
+  const pill = document.createElement('div');
+  pill.id = 'tt-path-pill';
+  pill.className = 'tt-path-pill tt-panel';
+  pill.hidden = true;
+  document.body.append(pill);
+  cleanups.push(() => pill.remove());
+  function renderPill() {
+    const show = Boolean(drawn) && routeTarget?.key !== drawn.targetKey;
+    pill.hidden = !show;
+    if (!show) return;
+    const t = document.createElement('span');
+    t.className = 't';
+    t.textContent = `Path: ${drawn.pill}`;
+    const mk = (label, fn, cls = 'tt-btn sm') => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = cls;
+      b.textContent = label;
+      b.addEventListener('click', () => fn(b));
+      return b;
+    };
+    pill.replaceChildren(
+      t,
+      mk('Frame', () => twin.frameRoute()),
+      mk('Copy', async (b) => {
+        const ok = await copyPathSummary(drawn.model, drawn.ep);
+        b.textContent = ok ? 'Copied' : 'Copy failed';
+      }),
+      mk('Remove', () => removePath()),
+    );
   }
   /** Card for a clicked safety place (hospital, police, rally point, …). */
   function selectPlace(p) {
@@ -1146,6 +1446,7 @@ async function main() {
       kind: 'place',
       label: p.name || label,
       point: ll,
+      place: p,
     });
     card.place(
       {
@@ -1153,14 +1454,24 @@ async function main() {
         name: p.name || label,
         lines: [
           [
-            '',
+            'lead',
             `${formatDistance(haversineM(sitePoint(), ll))} ${bearingLabel(sitePoint(), ll)} of ${city.short}`,
           ],
           ...(p.address ? [['', p.address]] : []),
           ...(p.contact ? [['', p.contact]] : []),
-          ...(p.chaperone_only ? [['tt-dim', 'Chaperones only']] : []),
+          ...(p.category === 'hospital'
+            ? [
+                [
+                  '',
+                  p.emergency === 'yes'
+                    ? 'Emergency department listed in OpenStreetMap · not verified'
+                    : 'Emergency department not listed in OpenStreetMap',
+                ],
+              ]
+            : []),
+          ...(p.chaperone_only ? [['', 'Chaperones only']] : []),
           [
-            'tt-dim',
+            'foot',
             p.source === 'poi'
               ? 'OpenStreetMap place · not verified by SafeTrekr'
               : 'Trip safety point (sample)',
@@ -1256,6 +1567,7 @@ async function main() {
     }
     b.savedLines = savedPathLines(pathStore.paths, {
       checks: checksFor,
+      leg: (p) => legFor(p),
       day: ev.day,
       siteKey: site.key,
       areas: pathStore.areas,
@@ -1266,7 +1578,7 @@ async function main() {
     const h = SITES[0].anchors.inside;
     const t = site.anchors.inside;
     adv.pathFor = ev.key;
-    adv.pathText[ev.key] = 'Asking OpenStreetMap routing…';
+    adv.pathText[ev.key] = 'Finding a suggested path…';
     renderAdvance();
     try {
       const paths = await planRouteSet(
@@ -1399,7 +1711,7 @@ async function main() {
       );
     const acts = el('div', 'tt-actions');
     if (site.key !== siteKey) {
-      const go = el('button', 'tt-btn primary', `Go to ${site.short}`);
+      const go = el('button', 'tt-btn', `Switch to ${site.short}`);
       go.type = 'button';
       go.dataset.focusKey = 'go';
       go.addEventListener('click', () => switchSite(site.key));
@@ -1410,7 +1722,7 @@ async function main() {
       const r = el(
         'button',
         'tt-btn',
-        drawn ? 'Clear walking path' : `Walking path from ${SITES[0].short}`,
+        drawn ? 'Remove walking path' : `Show walking path`,
       );
       r.type = 'button';
       r.dataset.focusKey = 'path';
@@ -1420,11 +1732,13 @@ async function main() {
           renderAdvance(true);
         } else pathFromHotel(ev, site);
       });
-      acts.append(r);
+      // The hotel path as its own labelled section (review/phase5 J15).
+      const pathSec = el('div', 'tt-adv-pathsec');
+      pathSec.append(el('div', 'tt-kicker', `PATH FROM ${SITES[0].short}`), r);
       // Phase 4: turn the suggested path into the operator's own.
       const h = SITES[0].anchors.inside;
       const t = site.anchors.inside;
-      const e2 = el('button', 'tt-btn', 'Plan your own path');
+      const e2 = el('button', 'tt-link', 'Plan your own path');
       e2.type = 'button';
       e2.dataset.focusKey = 'plan';
       e2.addEventListener('click', () => {
@@ -1438,9 +1752,18 @@ async function main() {
           day: ev.day,
         });
       });
-      acts.append(e2);
-    }
-    box.append(acts);
+      const or = el('span', 'tt-or');
+      or.append('or ', e2);
+      pathSec.append(or);
+      box.append(acts, pathSec);
+    } else box.append(acts);
+    box.append(
+      el(
+        'div',
+        'tt-kicker tt-adv-checks-k',
+        'CHECKS · tick each when reviewed',
+      ),
+    );
     const items = el('ul', 'tt-adv-items');
     for (const it of brief.items) {
       const li = el('li', it.warn ? 'warn' : it.ok ? 'ok' : '');
@@ -1612,9 +1935,59 @@ async function main() {
   $('tt-live-alert').addEventListener('click', () => setAppMode('live'));
 
   // ---- custom paths (phase 4): saved paths, avoid-areas, editor ----
-  const pathStore = loadStore(pref(`paths.${cityKey}`, '{}'));
-  const persistPaths = () =>
-    save(`paths.${cityKey}`, JSON.stringify(pathStore));
+  // Stored per trip and site, so two trips never share paths (phase 4
+  // deferred). The old per-site key is moved over once.
+  const storeKey = `paths.${TRIP_ID}.${cityKey}`;
+  if (
+    pref(storeKey, null) === null &&
+    pref(`paths.${cityKey}`, null) !== null
+  ) {
+    save(storeKey, pref(`paths.${cityKey}`, '{}'));
+    try {
+      localStorage.removeItem(`tripTwin.paths.${cityKey}`);
+    } catch {
+      /* per-viewer convenience only */
+    }
+  }
+  const pathStore = loadStore(pref(storeKey, '{}'));
+  const persistPaths = () => save(storeKey, JSON.stringify(pathStore));
+  // Undo for deletes: one toast, the last delete only, 10 s.
+  const toast = document.createElement('div');
+  toast.id = 'tt-toast';
+  toast.className = 'tt-toast tt-panel';
+  toast.setAttribute('role', 'status');
+  toast.hidden = true;
+  document.body.append(toast);
+  let toastTimer = null;
+  function offerUndo(text, undo) {
+    clearTimeout(toastTimer);
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'tt-btn';
+    b.textContent = 'Undo';
+    b.addEventListener('click', () => {
+      toast.hidden = true;
+      undo();
+    });
+    const t = document.createElement('span');
+    t.textContent = text;
+    toast.replaceChildren(t, b);
+    toast.hidden = false;
+    toastTimer = setTimeout(() => {
+      toast.hidden = true;
+    }, 10000);
+  }
+  cleanups.push(() => {
+    clearTimeout(toastTimer);
+    toast.remove();
+  });
+  const afterStoreChange = () => {
+    persistPaths();
+    renderCustom();
+    renderLayers();
+    adv.sig = '';
+    renderAdvance();
+  };
   const customVis = { saved: true, avoid: true };
   let customLayer = null;
   let selectedSavedId = null;
@@ -1663,8 +2036,34 @@ async function main() {
         dark: isDark(p.day),
         day: p.day,
         profile: p.profile,
+        leg: legFor(p),
       },
     );
+  /** Out / back leg timing for a path tied to an event (phase 4 deferred). */
+  function legFor(p, durationS = p.durationS) {
+    if (!p.eventKey || !p.leg) return null;
+    const e = advEvents().find((x) => x.key === p.eventKey);
+    if (!e?.epoch) return null;
+    const site = SITES.find((x) => x.key === e.siteKey);
+    const c = site?.anchors?.inside || site?.center || city.center;
+    const { set } = sunTimes(e.date, c.lat, c.lon ?? c.lng);
+    return legWindow({
+      leg: p.leg,
+      event: {
+        title: e.title,
+        startMs: e.epoch,
+        endMs: e.end ? zonedToEpoch(e.date, e.end, city.timezone) : NaN,
+      },
+      durationS,
+      sunsetMs: set ?? NaN,
+      fmt: (ms) =>
+        new Date(ms).toLocaleTimeString('en-GB', {
+          timeZone: city.timezone,
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+    });
+  }
   /** Sites within 300 m of a path's ends (so the brief can list it). */
   const siteKeysFor = (points) =>
     SITES.filter((x) => {
@@ -1688,8 +2087,38 @@ async function main() {
         return set && end > set;
       });
   }
+  // Street names for waypoints: the site's own streets first, then a
+  // cached reverse lookup through the dev proxy (phase 4 deferred).
+  const placeNames = new Map();
+  function placeName(pt, onLoad) {
+    const local = nearestStreet(pt, twin.site?.roads || []);
+    if (local) return waypointText(pt, local);
+    const key = `${pt.lat.toFixed(4)},${pt.lon.toFixed(4)}`;
+    if (placeNames.has(key)) return placeNames.get(key);
+    placeNames.set(key, null);
+    fetch(`/api/twin-place?lat=${pt.lat}&lon=${pt.lon}`, {
+      signal: abort.signal,
+    })
+      .then((r) => r.json())
+      .then((j) => {
+        if (!j.ok) return;
+        placeNames.set(key, `near ${j.name}`);
+        onLoad?.();
+      })
+      .catch(() => {});
+    return null;
+  }
+  const viaText = (p, onLoad) =>
+    p.points
+      .slice(1, -1)
+      .map(
+        (wp, i) =>
+          `${i + 1}: ${placeName(wp, onLoad) || `${wp.lat.toFixed(5)}, ${wp.lon.toFixed(5)}`}`,
+      )
+      .join(' · ');
   const pathEditor = createPathEditor({
     twin,
+    placeName,
     layer: () => customLayer,
     panel: $('tt-editor'),
     banner: $('tt-edit-banner'),
@@ -1701,6 +2130,11 @@ async function main() {
         day: d,
         label: `Day ${d}`,
       })),
+    events: (day) =>
+      advEvents()
+        .filter((e) => e.day === day && e.epoch)
+        .map((e) => ({ key: e.key, title: e.title, start: e.start })),
+    legFor,
     siteKeysFor,
     stamp,
     isDark,
@@ -1727,9 +2161,11 @@ async function main() {
     }
     confirmKey = key;
     b.textContent = `${label} — click again to confirm`;
+    b.classList.add('confirm');
     confirmTimer = setTimeout(() => {
       confirmKey = null;
       b.textContent = label;
+      b.classList.remove('confirm');
     }, 4000);
   };
   const actBtn = (text, onClick, cls = 'tt-btn') => {
@@ -1747,7 +2183,7 @@ async function main() {
     placeSelecting = true;
     twin.select(null);
     placeSelecting = false;
-    clearRoute();
+    releaseCard();
     selection = { kind: 'saved', id };
     selectedSavedId = id;
     renderCustom();
@@ -1765,6 +2201,24 @@ async function main() {
         }),
       ),
       actBtn('Frame path', () => twin.frameGeometry(p.geometry)),
+      ...(p.leg === 'back'
+        ? []
+        : [
+            actBtn('Plan return leg', () =>
+              pathEditor.start({
+                saved: {
+                  ...p,
+                  id: null,
+                  name: `${p.toLabel} → ${p.fromLabel}`.slice(0, 60),
+                  points: [...p.points].reverse(),
+                  fromLabel: p.toLabel,
+                  toLabel: p.fromLabel,
+                  leg: p.eventKey ? 'back' : null,
+                  reviewedBy: null,
+                },
+              }),
+            ),
+          ]),
       actBtn(
         review.ok
           ? 'Mark not reviewed'
@@ -1792,6 +2246,31 @@ async function main() {
         },
       ),
     );
+    // Chaperone sharing (phase 4 deferred): reviewed paths only, copied
+    // as text — nothing is sent from the prototype.
+    const share = actBtn('Copy for chaperones', async (b) => {
+      const text = chaperoneShareText(p, {
+        review,
+        leg: legFor(p),
+        via: p.points.length > 2 ? viaText(p) : '',
+        flags,
+        areas: pathStore.areas,
+      });
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        p.sharedBy = stamp();
+        persistPaths();
+        selectSaved(id);
+      } catch {
+        b.textContent = 'Copy failed — clipboard blocked';
+      }
+    });
+    share.disabled = !review.ok;
+    share.title = review.ok
+      ? 'Copies a summary for a chaperone message (prototype · not sent)'
+      : 'Review the path first — only reviewed paths are shared';
+    acts.append(share);
     const danger = document.createElement('div');
     danger.className = 'tt-actions tt-danger-row';
     danger.append(
@@ -1801,20 +2280,22 @@ async function main() {
           confirmOnce(
             `del:${id}`,
             () => {
+              const at = pathStore.paths.indexOf(p);
               pathStore.paths = pathStore.paths.filter((x) => x.id !== id);
-              persistPaths();
               selectedSavedId = null;
               selection = null;
               card.hide();
-              renderCustom();
-              renderLayers();
-              adv.sig = '';
-              renderAdvance();
+              afterStoreChange();
+              offerUndo(`Deleted saved path “${p.name}”`, () => {
+                pathStore.paths.splice(at, 0, p);
+                afterStoreChange();
+                selectSaved(p.id);
+              });
             },
             b,
             'Delete saved path',
           ),
-        'tt-btn danger',
+        'tt-btn destructive',
       ),
     );
     card.place(
@@ -1823,9 +2304,21 @@ async function main() {
         name: p.name,
         lines: [
           [
-            '',
+            'lead',
             `${p.day ? `Day ${p.day}` : 'Any day'} · ${p.profile === 'car' ? 'drive' : 'walk'} · ${formatDistance(p.distanceM)} · ${p.profile === 'car' ? 'drive time from the router' : 'group pace'}`,
           ],
+          ...(legFor(p) ? [['', legFor(p).text]] : []),
+          ...(p.points.length > 2
+            ? [
+                [
+                  '',
+                  `Via ${viaText(p, () => {
+                    if (selection?.kind === 'saved' && selection.id === id)
+                      selectSaved(id);
+                  })}`,
+                ],
+              ]
+            : []),
           ...(st.text ? [[st.warn ? 'tt-edit-flag' : '', st.text]] : []),
           ...flags
             .filter((f) => !/^avoid/.test(f.key))
@@ -1835,6 +2328,14 @@ async function main() {
             'tt-dim',
             `Saved by ${p.savedBy}${p.reviewedBy ? ` · ${review.text}` : ''}`,
           ],
+          ...(p.sharedBy
+            ? [
+                [
+                  review.ok ? 'tt-dim' : 'tt-edit-flag',
+                  `Copied for chaperones by ${p.sharedBy} (prototype · not sent)${review.ok ? '' : ' · the review is out of date since then — share again after a new review'}`,
+                ],
+              ]
+            : []),
           [
             'tt-dim',
             p.engine === 'valhalla'
@@ -1853,7 +2354,7 @@ async function main() {
     placeSelecting = true;
     twin.select(null);
     placeSelecting = false;
-    clearRoute();
+    releaseCard();
     selection = { kind: 'area', id };
     const used = pathStore.paths.filter((p) => p.areaIds.includes(id));
     const acts = document.createElement('div');
@@ -1865,18 +2366,21 @@ async function main() {
           confirmOnce(
             `area:${id}`,
             () => {
+              const at = pathStore.areas.indexOf(a);
               pathStore.areas = pathStore.areas.filter((x) => x.id !== id);
-              persistPaths();
               selection = null;
               card.hide();
-              renderCustom();
-              adv.sig = '';
-              renderAdvance();
+              afterStoreChange();
+              offerUndo(`Removed avoid-area (${areaLabel(a)})`, () => {
+                pathStore.areas.splice(at, 0, a);
+                afterStoreChange();
+                selectArea(a.id);
+              });
             },
             b,
             'Remove avoid-area',
           ),
-        'tt-btn danger',
+        'tt-btn destructive',
       ),
     );
     card.place(
@@ -1905,6 +2409,7 @@ async function main() {
       return Boolean(p);
     },
     switchSite: (key) => switchSite(key),
+    selectPerson: (id) => twin.selectPerson(id, { frame: true }),
   };
 
   // ---- compass (phase 3 Part D): north always readable; click a side ----
@@ -1920,6 +2425,37 @@ async function main() {
   );
   compass.update(twin.headingDeg);
 
+  /** Popover header: title, key hint, close (review/phase5 J8). */
+  function popHead(title, key) {
+    const h = document.createElement('div');
+    h.className = 'tt-pop-head';
+    const t = document.createElement('div');
+    t.className = 't';
+    t.textContent = title;
+    if (key) {
+      const k = document.createElement('span');
+      k.className = 'kbd';
+      k.textContent = key;
+      t.append(k);
+    }
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'tt-x';
+    x.textContent = '×';
+    x.setAttribute('aria-label', `Close ${title}`);
+    x.addEventListener('click', () => closePops({ restoreFocus: true }));
+    h.append(t, x);
+    return h;
+  }
+  function lockGlyph() {
+    const s = document.createElement('span');
+    s.className = 'tt-lock';
+    s.setAttribute('aria-hidden', 'true');
+    s.innerHTML =
+      '<svg viewBox="0 0 16 16" width="14" height="14"><rect x="3" y="7" width="10" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>';
+    return s;
+  }
+  $('tt-display').prepend(popHead('Display', 'D'));
   // ---- Layers: the five groups (06 §2.2); each row that is on shows its key ----
   const KEY = {
     people: [
@@ -1943,20 +2479,17 @@ async function main() {
       ['dash', '#f59e0b', 'Within 1 km of a heat detection'],
     ],
     buildings: [['', '#80959b', 'Mapped height · fainter = approximate']],
-    grid: [['', '#80959b', 'Spacing and units in Display (D)']],
+    grid: [['note', '', 'Spacing and units in Display (D)']],
     savedPaths: [
-      [
-        'dash',
-        '#93bafa',
-        'Saved by an operator · long dash · Advance shows the selected day',
-      ],
+      ['dash', '#93bafa', 'Saved path (long dash)'],
+      ['note', '', 'Planned by an operator · Advance shows the selected day'],
     ],
     avoidAreas: [
       ['', '#f59e0b', 'Avoid-area · applies to every path on this trip'],
     ],
     elevation: [
       ['', '#80959b', 'Contour · relative to hotel street level'],
-      ['', '#80959b', 'Interval in Display (D)'],
+      ['note', '', 'Interval in Display (D)'],
     ],
   };
   const GROUPS = [
@@ -1978,8 +2511,8 @@ async function main() {
     [
       'Paths',
       [
-        ['paths', 'Suggested walking paths', false],
-        ['savedPaths', 'Saved paths (operator)', false],
+        ['paths', 'Suggested paths', false],
+        ['savedPaths', 'Saved paths', false],
         ['avoidAreas', 'Avoid-areas', false],
       ],
     ],
@@ -2003,11 +2536,8 @@ async function main() {
       avoidAreas: customVis.avoid,
     };
     const root = $('tt-layers');
-    root.replaceChildren();
-    const title = document.createElement('div');
-    title.className = 'tt-kicker';
-    title.textContent = 'LAYERS';
-    root.append(title);
+    const scroll = root.scrollTop;
+    root.replaceChildren(popHead('Layers', 'L'));
     for (const [group, rows] of GROUPS) {
       const g = document.createElement('div');
       g.className = 'tt-layer-group';
@@ -2017,12 +2547,12 @@ async function main() {
       g.append(gh);
       for (const [key, label, locked] of rows) {
         const on = locked ? true : state[key];
-        const row = document.createElement('label');
-        row.className = 'tt-layer-row';
-        const box = document.createElement('input');
-        box.type = 'checkbox';
+        const row = document.createElement(locked ? 'div' : 'label');
+        row.className = `tt-layer-row${locked ? ' locked' : ''}`;
+        // A locked layer shows a lock, not a disabled checkbox (J8).
+        const box = locked ? lockGlyph() : document.createElement('input');
+        if (!locked) box.type = 'checkbox';
         box.checked = on;
-        box.disabled = locked;
         box.addEventListener('change', () => {
           if (key === 'grid' || key === 'elevation') {
             ground[key === 'grid' ? 'grid' : 'contours'] = box.checked;
@@ -2033,24 +2563,39 @@ async function main() {
           } else twin.setLayer(key, box.checked);
           renderLayers();
         });
-        row.append(box, document.createTextNode(label));
+        const lab = document.createElement('span');
+        lab.className = 'lab';
+        lab.textContent = label;
+        row.append(box, lab);
         if (locked) {
           const l = document.createElement('span');
           l.className = 'lock';
-          l.textContent = 'always on';
+          l.textContent = 'always shown';
           row.append(l);
         }
         g.append(row);
+        // Legends hang under their toggle; notes come after them (J8).
         if (on && KEY[key]) {
           const k = document.createElement('div');
           k.className = 'tt-key';
+          const notes = [];
           for (const [style, color, text] of KEY[key]) {
+            if (style === 'note') {
+              notes.push(text);
+              continue;
+            }
             const item = document.createElement('span');
             const sw = document.createElement('span');
             sw.className = `tt-swatch ${style}`;
             sw.style.color = color;
             item.append(sw, document.createTextNode(text));
             k.append(item);
+          }
+          for (const t of notes) {
+            const n = document.createElement('span');
+            n.className = 'tt-key-note';
+            n.textContent = t;
+            k.append(n);
           }
           g.append(k);
         }
@@ -2059,6 +2604,7 @@ async function main() {
       if (group === 'Paths') g.append(savedIndex());
       root.append(g);
     }
+    root.scrollTop = scroll;
   }
 
   /** Layers › Paths index: every saved path by day, every avoid-area (H16). */
@@ -2338,7 +2884,7 @@ async function main() {
     d.addEventListener('toggle', () => (wx.open = d.open));
     const sm = document.createElement('summary');
     const on = Object.values(wx.layers).filter(Boolean).length;
-    sm.textContent = `Weather${on ? ` · ${on} on` : ''}`;
+    sm.textContent = `Weather overlays · ${on} of 4 on`;
     d.append(sm);
     for (const [key, label] of [
       ['lightning', 'Lightning'],
@@ -2416,11 +2962,13 @@ async function main() {
   $('tt-simrain').checked = wx.sim.rain;
   $('tt-simlightning').addEventListener('change', (e) => {
     wx.sim.lightning = e.target.checked;
+    renderSimFlag();
     renderWeather();
     twin.refresh?.();
   });
   $('tt-simrain').addEventListener('change', (e) => {
     wx.sim.rain = e.target.checked;
+    renderSimFlag();
     renderWeather();
     twin.refresh?.();
   });
@@ -2525,7 +3073,42 @@ async function main() {
     });
   $('tt-help-link').addEventListener('click', () => openPop('tt-help'));
   $('tt-help-close').addEventListener('click', closePops);
-  $('tt-report-cancel').addEventListener('click', closePops);
+  $('tt-report-cancel').addEventListener('click', () => {
+    $('tt-report-floor').value = '';
+    closePops({ restoreFocus: true });
+  });
+  // Click outside closes (review/phase5 J7). A click on another control
+  // closes and still acts; a click on the 3D view closes and is swallowed,
+  // so it never selects, deselects or adds a waypoint; a drag still orbits.
+  // A report with a typed floor stays open and says so.
+  const onOutside = (e) => {
+    twin.swallowNextClick(false);
+    const id = openPopId();
+    if (!id) return;
+    const pop = $(id);
+    const trig = $(POPS[id]);
+    if (pop.contains(e.target) || trig?.contains(e.target)) return;
+    const onMap = Boolean(e.target.closest?.('#cesiumContainer'));
+    if (id === 'tt-report' && reportDirty()) {
+      setReportPending('Not shown yet — Show on twin or Cancel');
+      if (onMap) twin.swallowNextClick(true);
+      return;
+    }
+    closePops();
+    if (onMap) twin.swallowNextClick(true);
+  };
+  document.addEventListener('pointerdown', onOutside, true);
+  cleanups.push(() =>
+    document.removeEventListener('pointerdown', onOutside, true),
+  );
+  // Focus leaving a popover closes it (keyboard parity), except a dirty report.
+  for (const [pop, btn] of Object.entries(POPS))
+    $(pop).addEventListener('focusout', (e) => {
+      const to = e.relatedTarget;
+      if (!to || $(pop).contains(to) || $(btn)?.contains(to)) return;
+      if (pop === 'tt-report' && reportDirty()) return;
+      if (!$(pop).hidden) closePops();
+    });
   $('tt-report-form').addEventListener('submit', (e) => {
     e.preventDefault();
     const v = Number($('tt-report-floor').value);
@@ -2589,9 +3172,11 @@ async function main() {
   $('tt-glow').addEventListener('change', () =>
     twin.setGlowStyle($('tt-glow').value),
   );
-  $('tt-simfire').addEventListener('change', (e) =>
-    twin.setSimulatedFires(e.target.checked),
-  );
+  $('tt-simfire').addEventListener('change', (e) => {
+    twin.setSimulatedFires(e.target.checked);
+    renderSimFlag();
+  });
+  renderSimFlag();
   $('tt-osmids').addEventListener('change', (e) => {
     save('osmIds', e.target.checked ? '1' : '0');
     if (selection?.kind === 'building') twin.select(selection.geom.building.id);
@@ -2602,6 +3187,21 @@ async function main() {
   const flatNeeds = () => (lastCtx?.mode.groups || []).flatMap((g) => g.rows);
   window.addEventListener('keydown', (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
+    // Esc closes an open popover first, also from inside its fields, and
+    // returns focus to its trigger (review/phase5 J7). A typed report floor
+    // asks once.
+    if (e.key === 'Escape' && openPopId()) {
+      e.preventDefault();
+      if (reportDirty() && !$('tt-report-pending').dataset.esc) {
+        setReportPending('Esc again to discard the floor you typed');
+        $('tt-report-pending').dataset.esc = '1';
+        return;
+      }
+      if ($('tt-report-pending')) delete $('tt-report-pending').dataset.esc;
+      $('tt-report-floor').value = '';
+      closePops({ restoreFocus: true });
+      return;
+    }
     // The path editor owns the keyboard while it is open (phase 4).
     if (pathEditor.handleKey(e)) {
       e.preventDefault();
@@ -2616,9 +3216,9 @@ async function main() {
         clearAdvancePath();
         return renderAdvance(true);
       }
-      if (twin.hasRoute) return clearRoute({ keepTarget: true });
+      if (twin.hasRoute) return removePath();
       if (selection?.kind === 'place') {
-        clearRoute();
+        releaseCard();
         selection = null;
         card.hide();
         $('tt-crumb-focus').textContent = '';

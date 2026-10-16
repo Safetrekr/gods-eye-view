@@ -150,6 +150,9 @@ export function createTripTwin({
   let disposeRoute = null;
   let routeGeometry = null;
   let pickHandler = null;
+  let dragHandler = null;
+  let dragging = false;
+  let swallowClick = false;
   let editingPath = false;
 
   /** Screen point → ground {lat, lon} on the site's ground plane. */
@@ -481,6 +484,11 @@ export function createTripTwin({
       safety = createSafetyLayer(viewer, site);
       handler = new Cesium.ScreenSpaceEventHandler(scene.canvas);
       handler.setInputAction((click) => {
+        // The click that closed a popover does nothing else (review/phase5 J7).
+        if (swallowClick) {
+          swallowClick = false;
+          return;
+        }
         const picked = scene.pick(click.position);
         const entityId = typeof picked?.id?.id === 'string' ? picked.id.id : '';
         // Phase 4 edit mode: clicks place waypoints / areas, not selections.
@@ -502,6 +510,29 @@ export function createTripTwin({
         () => frameSelection(),
         Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK,
       );
+      // Phase 4 deferred: drag a waypoint. The camera holds still while a
+      // waypoint is held; a press that does not move stays a click.
+      handler.setInputAction((down) => {
+        if (!dragHandler || swallowClick) return;
+        const picked = scene.pick(down.position);
+        const entityId = typeof picked?.id?.id === 'string' ? picked.id.id : '';
+        if (!dragHandler.start(entityId)) return;
+        dragging = true;
+        scene.screenSpaceCameraController.enableInputs = false;
+        scene.canvas.style.cursor = 'grabbing';
+      }, Cesium.ScreenSpaceEventType.LEFT_DOWN);
+      handler.setInputAction((move) => {
+        if (!dragging) return;
+        const g = groundAt(move.endPosition);
+        if (g) dragHandler?.move(g);
+      }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+      handler.setInputAction((up) => {
+        if (!dragging) return;
+        dragging = false;
+        scene.screenSpaceCameraController.enableInputs = true;
+        scene.canvas.style.cursor = pickHandler ? 'crosshair' : '';
+        dragHandler?.end(groundAt(up.position));
+      }, Cesium.ScreenSpaceEventType.LEFT_UP);
       setState('ready');
       if (snapshot) refresh();
       // The group's hotel is the subject: selected with its glow on arrival.
@@ -1179,6 +1210,18 @@ export function createTripTwin({
     restoreView,
     viewFromSide,
     /** Phase 4: route map clicks to the path editor (null restores). */
+    /** The next map click only closed a popover (review/phase5 J7). */
+    swallowNextClick(on) {
+      swallowClick = Boolean(on);
+    },
+    /** Phase 4 deferred: {start(entityId) → bool, move(ground), end(ground)}. */
+    setDragHandler(h) {
+      dragHandler = h || null;
+      if (!h && dragging) {
+        dragging = false;
+        scene.screenSpaceCameraController.enableInputs = true;
+      }
+    },
     setPickHandler(fn) {
       pickHandler = fn || null;
       scene.canvas.style.cursor = fn ? 'crosshair' : '';

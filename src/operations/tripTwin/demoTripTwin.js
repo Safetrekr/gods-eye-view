@@ -9,7 +9,8 @@ import { sitesForCity } from './twinSites.js';
 import { estimateFloor, pressureAt } from './floorEstimate.js';
 import { makeTrace, mulberry32, weather } from './floorTraces.js';
 
-const TRIP = 'twin-sample-trip';
+export const TRIP_ID = 'twin-sample-trip';
+const TRIP = TRIP_ID;
 const FRESH = 120;
 const STALE = 600;
 const LOBBY = 4.5;
@@ -850,6 +851,7 @@ function safetyPoints(
     address: p.address || null,
     coordinates: p.lat !== undefined ? { lat: p.lat, lng: p.lon } : null,
     contact: p.phone || null,
+    emergency: p.emergency || null,
     instructions: extra.instructions || null,
     approval_status: extra.approval_status || 'active',
     priority: extra.priority || null,

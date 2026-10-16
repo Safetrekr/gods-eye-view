@@ -256,7 +256,26 @@ export function createHud({
 
   function renderRail(a, ctx) {
     const m = ctx.mode;
-    head.replaceChildren(el('div', `tt-topline ${m.mode}`, m.topLine));
+    // The top line reads in two lines: the state, then who / what first.
+    // "First: Name" is a button, like the A key (review/phase5 J12).
+    const [status, ...rest] = m.topLine.split(' — ');
+    const detail = rest.join(' — ');
+    head.replaceChildren(el('div', `tt-topline ${m.mode}`, status));
+    if (detail) {
+      const d = el('div', 'tt-topdetail');
+      const first = m.groups?.[0]?.rows?.[0]?.person;
+      if (first && detail.startsWith(`first: ${first.name}`)) {
+        const b = el('button', 'tt-namebtn', first.name);
+        b.type = 'button';
+        b.title = 'Select and frame (A)';
+        b.addEventListener('click', () =>
+          onSelectPerson(first.id, { frame: true }),
+        );
+        d.append('First: ', b, detail.slice(`first: ${first.name}`.length));
+        d.append(el('span', 'kbd', 'A'));
+      } else d.textContent = detail.replace(/^./, (c) => c.toUpperCase());
+      head.append(d);
+    }
     if (m.subLine) head.append(el('div', 'tt-subline', m.subLine));
     if (ctx.siteLine)
       head.append(el('div', 'tt-subline tt-site-line', ctx.siteLine));
@@ -543,16 +562,8 @@ export function createHud({
       ctx.weather?.exposure,
     ])
       if (w) incident.append(el('div', 'tt-line tt-wx-line', w.text));
-    if (ctx.dockedCutaway) {
-      incident.append(
-        el(
-          'div',
-          'tt-kicker tt-cut-kicker',
-          'FLOORS — SELECT ONE TO SEE WHO MAY BE ON IT',
-        ),
-        ctx.dockedCutaway,
-      );
-    }
+    // Official sits under the hero (06), then a one-line move summary, then
+    // the floors, then the full move section (review/phase5 J13).
     const official = el('div', 'tt-official');
     official.append(
       el('div', 'tt-kicker', 'OFFICIAL'),
@@ -561,15 +572,30 @@ export function createHud({
     for (const o of ctx.weather?.official || [])
       official.append(el('div', 'tt-official-wx', o));
     incident.append(official);
-    incident.append(el('div', 'tt-kicker', 'IF THE GROUP MUST MOVE'));
-    for (const c of pathCards(ctx.paths, {
+    const moveCards = pathCards(ctx.paths, {
       night: ctx.night,
       incident: true,
       simulated: ctx.fires?.simulated,
       pace: ctx.weather?.pace,
       areas: ctx.avoidAreas || [],
-    }))
-      incident.append(cardEl(c));
+    });
+    if (moveCards[0])
+      incident.append(
+        el(
+          'div',
+          `tt-move-sum${moveCards[0].flagged ? ' flag' : ''}`,
+          `If the group must move: ${moveCards[0].title.replace(/^Path to /, '')} · details below`,
+        ),
+      );
+    if (ctx.dockedCutaway) {
+      incident.append(
+        el('div', 'tt-kicker tt-cut-kicker', 'FLOORS'),
+        el('div', 'tt-note', 'Select a floor to see who may be on it'),
+        ctx.dockedCutaway,
+      );
+    }
+    incident.append(el('div', 'tt-kicker', 'IF THE GROUP MUST MOVE'));
+    for (const c of moveCards) incident.append(cardEl(c));
     incident.append(
       el(
         'div',
@@ -739,7 +765,7 @@ export function createCard(card, { onClose }) {
       ...lines.map(([cls, t]) => el('div', `tt-card-line ${cls || ''}`, t)),
       ...bottom,
     );
-    card.classList.remove('floor-view');
+    card.classList.remove('floor-view', 'compact');
     card.hidden = false;
   }
   const expanded = new Set();
@@ -755,9 +781,10 @@ export function createCard(card, { onClose }) {
         : row.pos.located
           ? ' · Accuracy unknown'
           : '';
+      // Lead with the verdict, then the facts, then provenance (J11).
       const lines = [
+        ['lead', verdictLongForm(row, site)],
         ['', `${state}${acc}`],
-        ['', verdictLongForm(row, site)],
       ];
       const ft = floorText(row.floor, { numbering: ctx.numbering });
       if (ft) lines.push(['', ft]);
@@ -775,11 +802,11 @@ export function createCard(card, { onClose }) {
               ? 'charging'
               : 'not charging';
         lines.push([
-          'tt-dim',
+          '',
           `${zone} · Battery ${Math.round((p.battery_level ?? 0) * 100)}% · ${charge}`,
         ]);
       }
-      lines.push(['tt-dim', 'Sample trip · fictional person']);
+      lines.push(['foot', 'Sample trip · fictional person']);
       frame(
         p.role === 'chaperone' ? 'CHAPERONE' : 'TRAVELER',
         p.name,
@@ -960,10 +987,12 @@ export function createCard(card, { onClose }) {
           : 'BUILDING',
         b.name || (geom.isHotel ? ctx.hotelLabel : 'Unnamed building'),
         lines,
-        top,
+        [],
         null,
-        bottom,
+        // Building facts first, then the floor stack and sections (J11).
+        [...top, ...bottom],
       );
+      card.classList.toggle('compact', Boolean(ctx.compact));
     },
     hide() {
       card.hidden = true;
@@ -972,66 +1001,122 @@ export function createCard(card, { onClose }) {
   };
 }
 
+/** Choice rows (review/phase5 J10): a radiogroup with arrow keys. */
+export function choiceList(items, active, onPick, label) {
+  const g = el('div', 'tt-choices');
+  g.setAttribute('role', 'radiogroup');
+  if (label) g.setAttribute('aria-label', label);
+  const btns = [];
+  for (const it of items) {
+    const on = it.key === active;
+    const b = el('button', `tt-choice${on ? ' on' : ''}`);
+    b.type = 'button';
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', String(on));
+    b.disabled = Boolean(it.disabled);
+    b.tabIndex = on || (!active && btns.length === 0) ? 0 : -1;
+    if (it.title) b.title = it.title;
+    b.append(el('span', 'dot'));
+    const txt = el('span', 'txt');
+    const lab = el('span', 'lab', it.label);
+    if (it.tag) lab.append(el('span', 'tt-tag', it.tag));
+    txt.append(lab);
+    if (it.meta) txt.append(el('span', 'meta', it.meta));
+    b.append(txt);
+    b.addEventListener('click', () => onPick(it.key));
+    btns.push(b);
+    g.append(b);
+  }
+  g.addEventListener('keydown', (e) => {
+    if (!['ArrowDown', 'ArrowUp'].includes(e.key)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const live = btns.filter((b) => !b.disabled);
+    const i = live.indexOf(document.activeElement);
+    const next =
+      live[(i + (e.key === 'ArrowDown' ? 1 : -1) + live.length) % live.length];
+    next?.focus();
+  });
+  return g;
+}
+
+/** Segmented single choice (review/phase5 J10): selected = tint, border, ✓. */
+export function segmented(items, active, onPick, label) {
+  const g = el('div', 'tt-seg2');
+  g.setAttribute('role', 'group');
+  if (label) g.setAttribute('aria-label', label);
+  for (const it of items) {
+    const on = it.key === active;
+    const b = el('button', on ? 'on' : '');
+    b.type = 'button';
+    b.setAttribute('aria-pressed', String(on));
+    b.disabled = Boolean(it.disabled);
+    if (it.title) b.title = it.title;
+    b.append(el('span', 'lab', it.label));
+    if (it.meta) b.append(el('span', 'meta', it.meta));
+    b.addEventListener('click', () => onPick(it.key));
+    g.append(b);
+  }
+  return g;
+}
+
+const step = (n, label) => {
+  const s = el('div', 'tt-step');
+  s.append(el('span', 'n', String(n)), el('span', 'lab', label));
+  return s;
+};
+
+/** The result block for one suggested path (review/phase5 J3). */
+function resultEl(card, compact = false) {
+  const c = el(
+    'div',
+    `tt-result${card.flagged ? ' flag' : ''}${compact ? ' alt' : ''}`,
+  );
+  c.append(el('div', 'k', card.kicker || ''));
+  const m = el('div', 'm', card.metric || card.title);
+  if (card.metricNote) m.append(el('span', 'note', ` ${card.metricNote}`));
+  c.append(m);
+  if (card.route && !compact) c.append(el('div', 'r', card.route));
+  for (const w of card.warnings || []) c.append(el('div', 'w', `⚠ ${w}`));
+  for (const l of card.notes || card.lines || []) c.append(el('div', 'l', l));
+  return c;
+}
+
 /**
- * Route section for a card (phase 3 Part C). Rebuilt in place by the page.
- * model = { title, origins: [{key, label, disabled}], originKey, profile,
- *           status: 'idle'|'loading'|'ready'|'error', cards, error }
+ * Path section for a person or place card (phase 3 Part C, rebuilt in
+ * review/phase5 J1–J5): 1 To / From → 2 How → the result → or plan your own.
+ * model = { title, stepLabel, idleHint, origins: [{key, label, meta, tag,
+ *   disabled, title}], originKey, profile, times, reason, status, cards,
+ *   stale, extras, error, straight }
  */
 export function renderRouteSection(
   node,
   model,
-  { onOrigin, onMode, onClear, onFrame, onEdit },
+  { onOrigin, onMode, onClear, onFrame, onEdit, onCopy, onReplan },
 ) {
   node.replaceChildren();
-  node.append(el('div', 'tt-kicker', model.title));
-  const seg = (items, active, onPick, cls) => {
-    const g = el('div', `tt-route-seg ${cls}`);
-    g.setAttribute('role', 'group');
-    for (const it of items) {
-      const b = el(
-        'button',
-        `tt-tb${it.key === active ? ' on' : ''}`,
-        it.label,
-      );
-      b.type = 'button';
-      b.disabled = Boolean(it.disabled);
-      if (it.title) b.title = it.title;
-      b.setAttribute('aria-pressed', String(it.key === active));
-      b.addEventListener('click', () => onPick(it.key));
-      g.append(b);
-    }
-    return g;
-  };
+  node.append(el('div', 'tt-kicker tt-sec-k', model.title));
   node.append(
-    seg(model.origins, model.originKey, onOrigin, 'from'),
-    seg(
+    step(1, model.stepLabel),
+    choiceList(model.origins, model.originKey, onOrigin, model.stepLabel),
+    step(2, 'How'),
+    segmented(
       [
-        { key: 'foot', label: 'Walk' },
-        { key: 'car', label: 'Drive' },
+        { key: 'foot', label: 'Walk', meta: model.times?.foot || '' },
+        { key: 'car', label: 'Drive', meta: model.times?.car || '' },
       ],
-      model.status === 'idle' ? null : model.profile,
+      model.originKey ? model.profile : model.chosen ? model.profile : null,
       onMode,
-      'mode',
+      'How',
     ),
   );
-  if (model.status === 'idle' && onEdit) {
-    const draw = el('button', 'tt-btn', 'Plan your own path');
-    draw.type = 'button';
-    draw.addEventListener('click', onEdit);
-    node.append(draw);
-  }
-  if (model.status === 'idle')
-    node.append(
-      el(
-        'div',
-        'tt-note',
-        'Pick where from, then Walk or Drive for a suggested path — or plan your own.',
-      ),
-    );
+  const out = el('div', 'tt-route-out');
+  out.setAttribute('aria-live', 'polite');
+  if (model.status === 'idle') out.append(el('div', 'tt-note', model.idleHint));
   if (model.status === 'loading')
-    node.append(el('div', 'tt-note', 'Asking OpenStreetMap routing…'));
+    out.append(el('div', 'tt-note', 'Finding a suggested path…'));
   if (model.status === 'error')
-    node.append(
+    out.append(
       el(
         'div',
         'tt-note',
@@ -1039,21 +1124,44 @@ export function renderRouteSection(
       ),
     );
   if (model.status === 'ready') {
-    for (const c of model.cards) node.append(cardEl(c));
-    const acts = el('div', 'tt-actions');
-    const frame = el('button', 'tt-link', 'Frame path');
+    if (model.reason) out.append(el('div', 'tt-note', model.reason));
+    if (model.stale) {
+      const st = el('div', 'tt-stale');
+      st.append(el('span', '', model.stale));
+      const b = el('button', 'tt-btn sm', 'Re-plan from the current position');
+      b.type = 'button';
+      b.addEventListener('click', onReplan);
+      st.append(b);
+      out.append(st);
+    }
+    model.cards.forEach((c, i) => out.append(resultEl(c, i > 0)));
+    for (const l of model.extras || [])
+      out.append(el('div', 'tt-card-line tt-route-extra', l));
+    const copy = el('button', 'tt-btn primary block', 'Copy path summary');
+    copy.type = 'button';
+    copy.addEventListener('click', async () => {
+      const ok = await onCopy();
+      copy.textContent = ok ? 'Copied' : 'Copy failed — clipboard blocked';
+    });
+    const tools = el('div', 'tt-actions tt-tools');
+    const frame = el('button', 'tt-btn sm', 'Frame path');
     frame.type = 'button';
     frame.addEventListener('click', onFrame);
-    const clear = el('button', 'tt-link', 'Clear path (Esc)');
+    const clear = el('button', 'tt-btn sm', 'Remove path');
+    clear.append(el('span', 'kbd', 'Esc'));
     clear.type = 'button';
     clear.addEventListener('click', onClear);
-    acts.append(frame, clear);
-    if (onEdit) {
-      const edit = el('button', 'tt-link', 'Plan your own path');
-      edit.type = 'button';
-      edit.addEventListener('click', onEdit);
-      acts.prepend(edit);
-    }
-    node.append(acts);
+    tools.append(frame, clear);
+    out.append(copy, tools);
+  }
+  node.append(out);
+  if (onEdit) {
+    const or = el('div', 'tt-or');
+    or.append(el('span', '', 'or '));
+    const edit = el('button', 'tt-link', 'Plan your own path');
+    edit.type = 'button';
+    edit.addEventListener('click', onEdit);
+    or.append(edit);
+    node.append(or);
   }
 }

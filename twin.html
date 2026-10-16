@@ -75,7 +75,7 @@
         aria-controls="tt-proto"
         title="Prototype controls (`)"
       >
-        Prototype ▾
+        Prototype <span class="caret" aria-hidden="true">▾</span>
       </button>
       <button
         id="tt-help-btn"
@@ -163,7 +163,7 @@
         aria-controls="tt-layers"
         title="Layers (L)"
       >
-        Layers
+        Layers <span class="caret" aria-hidden="true">▾</span>
       </button>
       <button
         class="tt-tb"
@@ -173,7 +173,7 @@
         aria-controls="tt-display"
         title="Display (D)"
       >
-        Display
+        Display <span class="caret" aria-hidden="true">▾</span>
       </button>
       <span class="tt-sep"></span>
       <button
@@ -206,8 +206,7 @@
       aria-label="Display"
       hidden
     >
-      <div class="tt-kicker">GRID &amp; ELEVATION</div>
-      <p class="tt-note">Turn them on or off in Layers › Site (G · E).</p>
+      <div class="tt-kicker tt-pop-group">GRID &amp; ELEVATION</div>
       <label class="tt-row"
         >Units
         <select id="tt-units">
@@ -225,13 +224,16 @@
         <select id="tt-contour"></select
       ></label>
       <p class="tt-note" id="tt-relief"></p>
-      <div class="tt-kicker">MOTION</div>
+      <p class="tt-note">Show or hide them in Layers › Site (G · E).</p>
+      <div class="tt-kicker tt-pop-group">MOTION</div>
       <label class="tt-check"
         ><input type="checkbox" id="tt-reduce-motion" /> Reduce motion</label
       >
-      <button class="tt-link" type="button" id="tt-help-link">
-        Keyboard shortcuts
-      </button>
+      <div class="tt-pop-foot">
+        <button class="tt-link" type="button" id="tt-help-link">
+          Keyboard shortcuts (?)
+        </button>
+      </div>
     </section>
     <section
       id="tt-report"
@@ -260,6 +262,12 @@
             <option value="other">Other</option>
           </select>
         </label>
+        <p
+          id="tt-report-pending"
+          class="tt-report-pending"
+          role="status"
+          hidden
+        ></p>
         <div class="tt-actions">
           <button class="tt-btn primary" type="submit">Show on twin</button>
           <button class="tt-btn" type="button" id="tt-report-cancel">

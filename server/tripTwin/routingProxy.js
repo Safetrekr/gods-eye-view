@@ -74,10 +74,63 @@ async function readJson(req) {
   return JSON.parse(raw || '{}');
 }
 
+// Street names for operator waypoints (phase 4 deferred): Nominatim reverse,
+// used only when the site's own OpenStreetMap streets don't reach the point.
+// Fair use: at most one request a second, cached by ~10 m cell.
+const NOMINATIM = 'https://nominatim.openstreetmap.org/reverse';
+const placeCache = new Map();
+let nextSlot = 0;
+
+/** Nominatim reverse json → {ok, name} (street, else the place name). */
+export function placeFromNominatim(json) {
+  const a = json?.address || {};
+  const name =
+    a.road || a.pedestrian || a.footway || a.square || json?.name || null;
+  return name ? { ok: true, name } : { ok: false, error: 'no street here' };
+}
+
 export function twinRoutingProxy({ fetchImpl = fetch } = {}) {
   return {
     name: 'safetrekr-trip-twin-routing',
     configureServer(server) {
+      server.middlewares.use('/api/twin-place', async (req, res) => {
+        try {
+          const q = new URL(req.url, 'http://x').searchParams;
+          const lat = Number(q.get('lat'));
+          const lon = Number(q.get('lon'));
+          if (!Number.isFinite(lat) || !Number.isFinite(lon))
+            return send(res, 400, { ok: false, error: 'bad point' });
+          const key = `${lat.toFixed(4)},${lon.toFixed(4)}`;
+          const hit = placeCache.get(key);
+          if (hit) return send(res, 200, { ...hit, cached: true });
+          const wait = Math.max(0, nextSlot - Date.now());
+          nextSlot = Date.now() + wait + 1100;
+          if (wait) await new Promise((r) => setTimeout(r, wait));
+          const r = await fetchImpl(
+            `${NOMINATIM}?format=jsonv2&zoom=17&addressdetails=1&lat=${lat}&lon=${lon}`,
+            {
+              headers: { 'User-Agent': UA, 'Accept-Language': 'en' },
+              signal: AbortSignal.timeout(10000),
+            },
+          );
+          const value = r.ok
+            ? {
+                ...placeFromNominatim(await r.json()),
+                credit:
+                  'Street names: Nominatim · © OpenStreetMap contributors',
+              }
+            : { ok: false, error: `Nominatim HTTP ${r.status}` };
+          placeCache.set(key, value);
+          if (placeCache.size > 500)
+            placeCache.delete(placeCache.keys().next().value);
+          return send(res, 200, value);
+        } catch (error) {
+          return send(res, 200, {
+            ok: false,
+            error: String(error?.message || error),
+          });
+        }
+      });
       server.middlewares.use('/api/twin-path', async (req, res) => {
         if (req.method !== 'POST') return send(res, 405, { ok: false });
         try {

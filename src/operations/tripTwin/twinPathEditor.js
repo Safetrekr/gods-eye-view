@@ -67,7 +67,8 @@ const BLOCKING = new Set(['avoid', 'avoid_endpoint', 'reach']);
 
 /**
  * deps = { twin, layer(), panel, banner, store, persist(), hazards(),
- *   days: () => [{day, label}], siteKeysFor(points), stamp(), isDark(day),
+ *   days: () => [{day, label}], events(day), legFor(edit, durationS),
+ *   siteKeysFor(points), stamp(), isDark(day),
  *   onCrumb(text), onClose(saved) }.
  */
 export function createPathEditor(deps) {
@@ -89,12 +90,43 @@ export function createPathEditor(deps) {
 
   const areasInUse = () => deps.store.areas;
 
+  // Dragging a waypoint (phase 4 deferred): straight legs while held, the
+  // router is asked once on release.
+  let dragIndex = null;
+  let dragFrame = 0;
+  const drag = {
+    start(entityId) {
+      const m = /^twin-wp:(\d+)$/.exec(entityId || '');
+      if (!edit || arming || !m) return false;
+      dragIndex = Number(m[1]);
+      return true;
+    },
+    move(ground) {
+      if (dragIndex == null) return;
+      edit.points = edit.points.map((p, i) => (i === dragIndex ? ground : p));
+      cancelAnimationFrame(dragFrame);
+      dragFrame = requestAnimationFrame(draw);
+    },
+    end(ground) {
+      if (dragIndex == null) return;
+      const i = dragIndex;
+      dragIndex = null;
+      if (ground)
+        edit.points = edit.points.map((p, k) => (k === i ? ground : p));
+      changed();
+      reroute();
+      draw();
+      render();
+    },
+  };
+
   function draw() {
     const layer = deps.layer();
     if (!layer || !edit) return;
     layer.drawEdit({
       points: edit.points,
-      geometry: result?.geometry || edit.points,
+      geometry:
+        dragIndex == null ? result?.geometry || edit.points : edit.points,
       fromLabel: edit.fromLabel,
       toLabel: edit.toLabel,
       areas: areasInUse(),
@@ -130,6 +162,7 @@ export function createPathEditor(deps) {
           day: edit.day,
           hazardsStatus: deps.hazardsStatus?.(),
           profile: edit.profile,
+          leg: deps.legFor?.(edit, result.durationS),
         });
         status = 'ready';
       } catch (e) {
@@ -169,7 +202,7 @@ export function createPathEditor(deps) {
           ? 'PLACING AVOID-AREA · click the map for its centre · Esc stops placing'
           : arming
             ? 'AVOID-AREA · choose its size and reason in the panel'
-            : 'EDITING PATH · click map: add waypoint · click a number: remove · X: avoid-area · Esc: discard';
+            : 'EDITING PATH · click map: add waypoint · drag a number: move · click a number: remove · X: avoid-area · Esc: discard';
   }
 
   /** Re-render keeping focus, caret and scroll (review/phase4). */
@@ -272,6 +305,8 @@ export function createPathEditor(deps) {
       edit.name = name.value;
       dirty = true;
     });
+    const nameRow = el('label', 'tt-edit-namerow');
+    nameRow.append(el('span', 'tt-edit-lab', 'Name'), name);
     const ends = el(
       'div',
       'tt-card-line',
@@ -308,14 +343,20 @@ export function createPathEditor(deps) {
         el(
           'div',
           'tt-note',
-          'Click the map to add one; the router is asked again after each change.',
+          'Click the map to add one, drag a number to move it; the router is asked again after each change.',
         ),
       );
     const ul = el('ol', 'tt-edit-list');
     edit.points.slice(1, -1).forEach((wp, j) => {
       const i = j + 1;
       const li = el('li');
-      li.append(el('span', 'num', `${i} · ${fmt(wp)}`));
+      const where = el(
+        'span',
+        'tt-wp-name',
+        `${i} · ${deps.placeName?.(wp, render) || fmt(wp)}`,
+      );
+      where.title = fmt(wp);
+      li.append(where);
       const move = (d) => {
         const k = i + d;
         if (k < 1 || k > edit.points.length - 2) return;
@@ -397,10 +438,57 @@ export function createPathEditor(deps) {
     sel.value = edit.day == null ? '' : String(edit.day);
     sel.addEventListener('change', () => {
       edit.day = sel.value ? Number(sel.value) : null;
+      // An event belongs to one day; a new day drops it.
+      if (!(deps.events?.(edit.day) || []).some((e) => e.key === edit.eventKey))
+        edit.eventKey = null;
       changed();
       if (result) reroute();
+      render();
     });
     day.append(sel);
+    // Out / back leg tied to an event that day (phase 4 deferred).
+    const evs = edit.day == null ? [] : deps.events?.(edit.day) || [];
+    const evRow = el('label', 'tt-row', 'For event');
+    const evSel = el('select');
+    evSel.dataset.focusKey = 'event';
+    evSel.append(new Option(evs.length ? 'No event' : 'Set a day first', ''));
+    for (const e of evs)
+      evSel.append(new Option(`${e.start} ${e.title}`, e.key));
+    evSel.value = edit.eventKey || '';
+    evSel.disabled = !evs.length;
+    evSel.addEventListener('change', () => {
+      edit.eventKey = evSel.value || null;
+      if (edit.eventKey && !edit.leg) edit.leg = 'out';
+      changed();
+      if (result) reroute();
+      render();
+    });
+    evRow.append(evSel);
+    const legSeg = el('div', 'tt-route-seg leg');
+    legSeg.setAttribute('role', 'group');
+    legSeg.setAttribute('aria-label', 'Leg');
+    if (edit.eventKey)
+      for (const [k, label] of [
+        ['out', 'Out · arrive for the start'],
+        ['back', 'Back · leave at the end'],
+      ]) {
+        const b = btn(
+          `tt-tb${edit.leg === k ? ' on' : ''}`,
+          label,
+          () => {
+            edit.leg = k;
+            changed();
+            if (result) reroute();
+            render();
+          },
+          `leg:${k}`,
+        );
+        b.setAttribute('aria-pressed', String(edit.leg === k));
+        legSeg.append(b);
+      }
+    const legNow = edit.eventKey
+      ? deps.legFor?.(edit, result?.durationS)
+      : null;
     const notes = el('textarea', 'tt-adv-notes');
     notes.dataset.focusKey = 'notes';
     notes.placeholder = 'Notes (why this path, what was checked)';
@@ -412,7 +500,7 @@ export function createPathEditor(deps) {
     const blocking = flags.filter((f) => BLOCKING.has(f.key));
     const acts = el('div', 'tt-actions');
     const save = btn(
-      `tt-btn ${confirmSave ? 'danger' : 'primary'}`,
+      `tt-btn ${confirmSave ? 'primary confirm' : 'primary'}`,
       confirmSave
         ? `Save anyway — ${blocking.map((f) => (f.key === 'reach' ? 'does not reach' : 'enters an avoid-area')).join(', ')}`
         : 'Save path',
@@ -427,13 +515,16 @@ export function createPathEditor(deps) {
     );
     return [
       head,
-      name,
+      nameRow,
       ends,
       mode,
       res,
       wps,
       av,
       day,
+      evRow,
+      ...(edit.eventKey ? [legSeg] : []),
+      ...(legNow ? [el('div', 'tt-note', legNow.text)] : []),
       notes,
       acts,
       ...(edit.fromPerson
@@ -646,6 +737,8 @@ export function createPathEditor(deps) {
     removeConfirm = null;
     notice = '';
     deps.twin.setPickHandler(null);
+    deps.twin.setDragHandler?.(null);
+    dragIndex = null;
     deps.layer()?.clearEdit();
     document.body.classList.remove('tt-editing');
     render();
@@ -686,10 +779,13 @@ export function createPathEditor(deps) {
         fromLabel: o.saved?.fromLabel || o.fromLabel,
         toLabel: o.saved?.toLabel || o.toLabel,
         notes: o.saved?.notes || '',
+        eventKey: o.saved?.eventKey ?? o.eventKey ?? null,
+        leg: o.saved?.leg ?? o.leg ?? null,
         fromPerson: Boolean(o.fromPerson),
       };
       dirty = !o.saved?.id; // a duplicate or a new plan is unsaved work
       deps.twin.setPickHandler(onPick);
+      deps.twin.setDragHandler?.(drag);
       document.body.classList.add('tt-editing');
       deps.onCrumb(
         edit.savedId ? `› Saved path: ${edit.name}` : '› New path (not saved)',

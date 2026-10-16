@@ -140,10 +140,75 @@ export function routeCards(
           (m) => m.toUpperCase(),
         ),
       );
+    // Structured for the card's result block (review/phase5 J3): warnings
+    // sit above the caveats, never inside them.
+    const warnings = lines.filter((l) => /^(Within 1 km|Enters avoid)/.test(l));
+    const notes = lines.filter((l) => !warnings.includes(l));
+    const range =
+      mode.key === 'foot'
+        ? `${p.walk[0]}–${p.walk[1]} min`
+        : p.drive
+          ? `${p.drive[0]}–${p.drive[1]} min`
+          : 'time unknown';
     return {
       flagged: Boolean(flagged) || entered.length > 0,
       title: `${p.kind === 'alternate' ? 'Alternate' : `${mode.verb} from ${req.fromLabel || 'here'} to ${req.toLabel}`} · ${formatDistance(p.distanceM)} · ${time}`,
       lines,
+      kind: p.kind,
+      kicker: `${p.kind === 'alternate' ? 'Alternate' : 'Suggested'} ${mode.noun} path`,
+      metric: `${formatDistance(p.distanceM)} · ${range}`,
+      metricNote: mode.key === 'foot' ? 'group pace' : 'no live traffic',
+      route: `${req.fromLabel || 'here'} → ${req.toLabel}`,
+      warnings,
+      notes,
     };
   });
+}
+
+/** One primary path for a mode, for the time on the mode switch (J1). */
+export async function primaryEstimate(from, to, { profile, signal }) {
+  const p = await fetchRoute(from, to, null, signal, profile);
+  return profile === 'foot'
+    ? { range: walkMinutes(p.distanceM), distanceM: p.distanceM }
+    : { range: driveMinutes(p.durationS), distanceM: p.distanceM };
+}
+
+/**
+ * Mode to draw before the operator picks one (J1): drive when the straight
+ * line is 1.2 km or more, else walk. Returns {profile, reason}.
+ */
+export function defaultMode(straightM) {
+  return straightM >= 1200
+    ? {
+        profile: 'car',
+        reason: `Showing the drive: ${formatDistance(straightM)} in a straight line. Walk is one click.`,
+      }
+    : { profile: 'foot', reason: '' };
+}
+
+/** "Emi Sato" → "Emi S." (copied text never carries a full traveler name). */
+export const shortName = (name = '') => {
+  const [first, ...rest] = String(name).trim().split(/\s+/);
+  return rest.length ? `${first} ${rest[rest.length - 1][0]}.` : first;
+};
+
+/**
+ * Plain text for "Copy path summary" (review/phase5 J5). s = {title, stamp,
+ * from, to, toExtra[], shown: card, other: {verb, distance, range}|null,
+ * simulated}. No coordinates.
+ */
+export function pathSummaryText(s) {
+  const c = s.shown;
+  return [
+    `${s.simulated ? '[SIMULATED DATA IN USE — training only] ' : ''}${s.title} — suggested, unverified (Trip Twin, ${s.stamp})`,
+    `From: ${s.from}`,
+    `To: ${s.to}`,
+    ...(s.toExtra || []).map((l) => `    ${l}`),
+    `${c.kicker.replace(/^Suggested /, '').replace(/^./, (m) => m.toUpperCase())}: ${c.metric} (${c.metricNote})`,
+    ...(s.other ? [`${s.other.verb}: ${s.other.text}`] : []),
+    ...(c.warnings.length
+      ? c.warnings.map((w) => `Flag: ${w}`)
+      : ['Flags: none raised (not a verification)']),
+    'Not checked for closures, crowds or lighting.',
+  ].join('\n');
 }
