@@ -385,9 +385,28 @@ function renderPreview() {
         p?.online ? 'Waiting for a snapshot' : 'Screen not connected',
       );
   if (img.tagName === 'IMG') img.dataset.thumb = String(slot);
+  // The role and badge are drawn over the snapshot (phase 11).
+  const wrap = el('div', 'img-wrap');
+  wrap.append(
+    img,
+    el(
+      'div',
+      'ov',
+      s ? `S${slot} · ${(ROLES[s.role] || ROLES.site).kicker}` : '',
+    ),
+    el(
+      'div',
+      'ovb',
+      s?.mode === 'advance'
+        ? `ADVANCE${s.day ? ` · DAY ${s.day}` : ''}`
+        : s?.role === 'day'
+          ? 'PLAN'
+          : 'LIVE',
+    ),
+  );
   preview.replaceChildren(
     k,
-    img,
+    wrap,
     el(
       'div',
       'sum',

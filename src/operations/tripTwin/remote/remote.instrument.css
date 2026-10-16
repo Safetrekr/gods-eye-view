@@ -177,3 +177,29 @@ body:not(.rm-m-cine) .rm-rail {
     animation: none !important;
   }
 }
+
+/* preview: the wall's role and badge over its snapshot */
+.rm-preview .img-wrap {
+  position: relative;
+}
+.rm-preview .ov {
+  position: absolute;
+  left: 10px;
+  top: 8px;
+  font: 600 11px var(--rm-mono);
+  letter-spacing: 0.14em;
+  color: var(--rm-text);
+  text-shadow: 0 1px 2px #000;
+}
+.rm-preview .ovb {
+  position: absolute;
+  right: 10px;
+  top: 8px;
+  border: 1px solid var(--rm-text);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font: 600 9px var(--rm-mono);
+  letter-spacing: 0.14em;
+  color: var(--rm-text);
+  background: rgba(4, 12, 18, 0.6);
+}

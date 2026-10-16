@@ -5356,7 +5356,7 @@ async function main() {
         const site = SITES.find((x) => x.key === e.siteKey);
         add(
           'tt-wall-line',
-          `Day ${e.day} · ${e.start} · ${e.title}${site ? ` · ${site.short || site.label || ''}` : ''}`,
+          `Day ${e.day} · ${e.start} · ${e.title}${site && !String(e.title).includes(site.short || '§') ? ` · ${site.short || site.label || ''}` : ''}`,
         );
       }
       add(

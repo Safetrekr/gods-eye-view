@@ -297,76 +297,90 @@ export function showEntry(o) {
     launchButtons = openButtons(defaultRoles(count), screenUrl);
     const opens = launchButtons.el;
     void openScreen;
+    const stepCard = (n, title, ...kids) => {
+      const c = el('div', 'tt-entry-stepcard');
+      c.append(el('div', 'tt-entry-step', `${n} · ${title}`), ...kids);
+      return c;
+    };
+    const steps = el('div', 'tt-entry-steps');
+    steps.append(
+      stepCard(
+        '1',
+        'Screens on this computer',
+        el(
+          'div',
+          'tt-note',
+          'One window per click. Chrome places each on its own monitor when you allow window placement; ⌃⌘F for full screen.',
+        ),
+        opens,
+      ),
+      stepCard(
+        '2',
+        'The remote · iPad or laptop',
+        (() => {
+          const r = el('div', 'tt-entry-remote');
+          const t = el('div');
+          t.append(
+            el(
+              'div',
+              '',
+              'Point the iPad camera at this code. The remote opens already paired.',
+            ),
+            el('div', 'tt-entry-url', remoteUrl),
+            lanHost
+              ? el('div', 'tt-note', 'Same Wi-Fi as this computer.')
+              : el(
+                  'div',
+                  'tt-edit-flag',
+                  'Not listening on the network, so an iPad cannot reach it. Restart with HOST=0.0.0.0 npx vite --config vite.twin.config.js',
+                ),
+            (() => {
+              const a = el('a', 'tt-link', 'Open the remote in this window');
+              a.href = `/twin-remote.html?setup=${setup}`;
+              return a;
+            })(),
+          );
+          r.append(qr, t);
+          return r;
+        })(),
+      ),
+      stepCard(
+        '3',
+        'Screens on another computer',
+        el(
+          'div',
+          'tt-note',
+          'Open this link in Chrome on that computer (a Mac Studio, a TV), then open its screens there.',
+        ),
+        (() => {
+          const r = el('div', 'tt-entry-copy');
+          r.append(
+            el('div', 'tt-entry-url', launchUrl),
+            btn('tt-btn sm', 'Copy link', async (e) => {
+              try {
+                await navigator.clipboard.writeText(launchUrl);
+                e.target.textContent = 'Copied';
+              } catch {
+                e.target.textContent = 'Copy failed';
+              }
+            }),
+          );
+          return r;
+        })(),
+        el(
+          'div',
+          'tt-note',
+          `Any other device: open ${lanHost ? `${base}/twin.html?view=screen` : 'twin.html?view=screen'} for a 4-digit code, then Screens › Pair a screen on the remote.`,
+        ),
+      ),
+    );
     card.replaceChildren(
       el(
         'div',
         'tt-kicker',
         `MULTI-VIEW · ${count} SCREEN${count > 1 ? 'S' : ''} + REMOTE`,
       ),
-      el('div', 'tt-entry-step', '1 · Screens on this computer'),
-      el(
-        'div',
-        'tt-note',
-        'One window per click; Chrome places each on its own monitor when you allow window placement. Press F11 (or ⌃⌘F) for full screen.',
-      ),
-      opens,
-      el('div', 'tt-entry-step', '2 · The remote (iPad or laptop)'),
-      (() => {
-        const r = el('div', 'tt-entry-remote');
-        const t = el('div');
-        t.append(
-          el(
-            'div',
-            '',
-            'Point the iPad camera at this code — the remote opens already paired.',
-          ),
-          el('div', 'tt-entry-url', remoteUrl),
-          lanHost
-            ? el('div', 'tt-note', 'Same Wi-Fi as this computer.')
-            : el(
-                'div',
-                'tt-edit-flag',
-                'This computer is not listening on the network, so an iPad cannot reach it. Restart the dev server with HOST=0.0.0.0 npx vite --config vite.twin.config.js',
-              ),
-          (() => {
-            const a = el('a', 'tt-link', 'Open the remote in this window');
-            a.href = `/twin-remote.html?setup=${setup}`;
-            return a;
-          })(),
-        );
-        r.append(qr, t);
-        return r;
-      })(),
-      el(
-        'div',
-        'tt-entry-step',
-        '3 · Screens on another computer (e.g. a Mac Studio)',
-      ),
-      el(
-        'div',
-        '',
-        'Open this link in Chrome on that computer, then open its screens there:',
-      ),
-      (() => {
-        const r = el('div', 'tt-entry-copy');
-        r.append(
-          el('div', 'tt-entry-url', launchUrl),
-          btn('tt-btn sm', 'Copy link', async (e) => {
-            try {
-              await navigator.clipboard.writeText(launchUrl);
-              e.target.textContent = 'Copied';
-            } catch {
-              e.target.textContent = 'Copy failed';
-            }
-          }),
-        );
-        return r;
-      })(),
-      el(
-        'div',
-        'tt-note',
-        `A TV or other device: open ${lanHost ? `${base}/twin.html?view=screen` : 'twin.html?view=screen'} — it shows a 4-digit code; on the remote: Screens › Pair a screen.`,
-      ),
+      steps,
       el(
         'div',
         'tt-note',
