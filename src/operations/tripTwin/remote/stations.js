@@ -445,6 +445,49 @@ function screens(ctx) {
     grid.append(card);
   }
   out.push(grid);
+  // A slot with no live window: say so and offer pairing right here.
+  const missing = Object.keys(state.screens)
+    .map(Number)
+    .filter((slot) => !presence?.screens?.[slot]?.online);
+  if (missing.length)
+    out.push(
+      el(
+        'div',
+        'rm-flag',
+        `${missing.map((n) => `S${n}`).join(', ')} ${missing.length > 1 ? 'have' : 'has'} no screen connected · if a screen shows a 4-digit code, pair it below`,
+      ),
+    );
+  out.push(kick('Pair a screen'));
+  out.push(
+    el(
+      'div',
+      'rm-note',
+      'On the new screen open twin.html?view=screen — it shows a 4-digit code. Enter it here and pick its number.',
+    ),
+  );
+  const pair = el('div', 'rm-actions');
+  const code = el('input', 'rm-input');
+  code.inputMode = 'numeric';
+  code.maxLength = 4;
+  code.placeholder = '0000';
+  code.setAttribute('aria-label', 'Pairing code');
+  const slotSel = el('select', 'rm-input');
+  slotSel.setAttribute('aria-label', 'Screen number');
+  for (let n = 1; n <= 6; n++) slotSel.append(new Option(`S${n}`, String(n)));
+  slotSel.value = String(Math.min(6, state.count + 1));
+  pair.append(
+    code,
+    slotSel,
+    btn('rm-btn', 'Pair', async () => {
+      const r = await ctx.sync.request({
+        t: 'pair',
+        code: code.value.trim(),
+        slot: Number(slotSel.value),
+      });
+      ctx.notify(r.ok ? `Paired S${r.slot}` : r.error, !r.ok);
+    }),
+  );
+  out.push(pair);
   if (target === 'all') {
     out.push(
       kick('All screens'),
@@ -573,37 +616,6 @@ function screens(ctx) {
       ),
     );
   out.push(cnt);
-  out.push(kick('Pair a screen'));
-  out.push(
-    el(
-      'div',
-      'rm-note',
-      'On the new screen open twin.html?view=screen — it shows a 4-digit code. Enter it here and pick its number.',
-    ),
-  );
-  const pair = el('div', 'rm-actions');
-  const code = el('input', 'rm-input');
-  code.inputMode = 'numeric';
-  code.maxLength = 4;
-  code.placeholder = '0000';
-  code.setAttribute('aria-label', 'Pairing code');
-  const slotSel = el('select', 'rm-input');
-  slotSel.setAttribute('aria-label', 'Screen number');
-  for (let n = 1; n <= 6; n++) slotSel.append(new Option(`S${n}`, String(n)));
-  slotSel.value = String(Math.min(6, state.count + 1));
-  pair.append(
-    code,
-    slotSel,
-    btn('rm-btn', 'Pair', async () => {
-      const r = await ctx.sync.request({
-        t: 'pair',
-        code: code.value.trim(),
-        slot: Number(slotSel.value),
-      });
-      ctx.notify(r.ok ? `Paired S${r.slot}` : r.error, !r.ok);
-    }),
-  );
-  out.push(pair);
   return out;
 }
 
