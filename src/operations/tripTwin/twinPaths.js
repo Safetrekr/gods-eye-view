@@ -194,9 +194,20 @@ export function pathCardText(p, { night = false, incident = false } = {}) {
 }
 
 /** Draw paths on the twin's heightfield. Returns a dispose function. */
-export function drawPaths(viewer, site, paths) {
+export function drawPaths(
+  viewer,
+  site,
+  paths,
+  { selected = null, faded = false } = {},
+) {
+  // Faded: a saved path covers the same ends; the suggestion steps back but
+  // stays readable and clickable. Heat ticks keep full strength.
+  const k = faded ? 0.4 : 1;
   const ds = new Cesium.CustomDataSource('trip-twin-paths');
-  viewer.dataSources.add(ds);
+  // add() resolves in a microtask: a dispose in the same tick must wait for
+  // it, or the drawing is left behind (phase 9: select, then edit a copy).
+  const added = viewer.dataSources.add(ds);
+  const hoverCasings = new Map();
   const { projector, field } = site;
   const lift = (p, dz) => {
     const [x, y] = projector.toXY(p.lat, p.lon);
@@ -210,22 +221,64 @@ export function drawPaths(viewer, site, paths) {
       lift(q, primary ? 1.0 : 0.9),
     );
     // A dark casing keeps the blue path on top of bright streets (phase 7).
-    if (!unavailable)
+    // Selected: a white glow *under* the casing, so the blue line keeps its
+    // colour and the alternate its dash (review/phase9 O6). An invisible
+    // 22 px line is the click target; hover lightens the casing (O7).
+    const isSel = selected === p.kind;
+    const under = densify(p.geometry, 12).map((q) =>
+      lift(q, primary ? 0.95 : 0.85),
+    );
+    if (!unavailable) {
+      if (isSel)
+        ds.entities.add({
+          id: `twin-path:${p.kind}:glow`,
+          polyline: {
+            positions: under,
+            width: primary ? 18 : 15,
+            arcType: Cesium.ArcType.NONE,
+            material: new Cesium.PolylineGlowMaterialProperty({
+              color: css('#eff7f3', 0.42),
+              glowPower: 0.22,
+            }),
+          },
+        });
       ds.entities.add({
+        id: `twin-path:${p.kind}:casing`,
         polyline: {
-          positions: densify(p.geometry, 12).map((q) =>
-            lift(q, primary ? 0.95 : 0.85),
-          ),
-          width: (primary ? 6 : 3) + 4,
+          positions: under,
+          width: (primary ? 7 : 4) + 4,
           arcType: Cesium.ArcType.NONE,
-          material: css('#061a23', 0.85),
+          material: css('#061a23', 0.85 * k),
         },
       });
+      hoverCasings.set(
+        p.kind,
+        ds.entities.add({
+          id: `twin-path:${p.kind}:hover`,
+          show: false,
+          polyline: {
+            positions: under,
+            width: (primary ? 7 : 4) + 6,
+            arcType: Cesium.ArcType.NONE,
+            material: css('#5f8797', 0.9),
+          },
+        }),
+      );
+      ds.entities.add({
+        id: `twin-path:${p.kind}:pick`,
+        polyline: {
+          positions: under,
+          width: 22,
+          arcType: Cesium.ArcType.NONE,
+          material: css('#061a23', 0.01),
+        },
+      });
+    }
     ds.entities.add({
       id: `twin-path:${p.kind}`,
       polyline: {
         positions,
-        width: unavailable ? 2 : primary ? 6 : 3,
+        width: unavailable ? 2 : primary ? 7 : 4,
         arcType: Cesium.ArcType.NONE,
         material: unavailable
           ? new Cesium.PolylineDashMaterialProperty({
@@ -234,11 +287,12 @@ export function drawPaths(viewer, site, paths) {
             })
           : primary
             ? new Cesium.PolylineGlowMaterialProperty({
-                color: css('#3b82f6', 0.95),
+                color: css('#3b82f6', 0.95 * k),
                 glowPower: 0.15,
               })
             : new Cesium.PolylineDashMaterialProperty({
-                color: css('#3b82f6', 0.85),
+                color: css('#3b82f6', 0.9 * k),
+                gapColor: css('#061a23', 0.85 * k),
                 dashLength: 18,
               }),
       },
@@ -264,6 +318,8 @@ export function drawPaths(viewer, site, paths) {
           },
           b,
           primary,
+          `twin-path:${p.kind}:chev:${next}`,
+          k,
         );
         next += every;
       }
@@ -287,12 +343,20 @@ export function drawPaths(viewer, site, paths) {
     }
   }
   viewer.scene.requestRender();
-  return () => {
-    if (!viewer.isDestroyed()) viewer.dataSources.remove(ds, true);
+  const dispose = () => {
+    added.then(() => {
+      if (!viewer.isDestroyed()) viewer.dataSources.remove(ds, true);
+    });
   };
+  /** Lighten one path's casing under the pointer (null: none). */
+  dispose.hover = (kind) => {
+    for (const [k, e] of hoverCasings) e.show = k === kind;
+    viewer.scene.requestRender();
+  };
+  return dispose;
 }
 
-function chevron(ds, projector, field, at, toward, primary) {
+function chevron(ds, projector, field, at, toward, primary, id, k = 1) {
   const [x, y] = projector.toXY(at.lat, at.lon);
   const [tx, ty] = projector.toXY(toward.lat, toward.lon);
   const len = Math.hypot(tx - x, ty - y) || 1;
@@ -308,11 +372,12 @@ function chevron(ds, projector, field, at, toward, primary) {
     return Cesium.Cartesian3.fromDegrees(q.lon, q.lat, h);
   };
   ds.entities.add({
+    id,
     polyline: {
       positions: [pt(l), pt(tip), pt(r)],
       width: 2,
       arcType: Cesium.ArcType.NONE,
-      material: css('#93bafa', primary ? 1 : 0.8),
+      material: css('#93bafa', (primary ? 1 : 0.8) * k),
     },
   });
 }

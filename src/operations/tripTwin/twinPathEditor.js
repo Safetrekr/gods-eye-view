@@ -7,6 +7,7 @@ import {
   AVOID_RADII,
   AVOID_REASONS,
   areaLabel,
+  alongM,
   defaultName,
   insertWaypoint,
   newId,
@@ -130,6 +131,10 @@ export function createPathEditor(deps) {
       fromLabel: edit.fromLabel,
       toLabel: edit.toLabel,
       areas: areasInUse(),
+      original:
+        edit.original && result !== edit.originalResult
+          ? edit.original.geometry
+          : null,
     });
     layer.drawAreas(areasInUse(), { show: true });
   }
@@ -140,6 +145,28 @@ export function createPathEditor(deps) {
     confirmDiscard = false;
   }
 
+  /** Back to the suggested line as drawn (no router call). */
+  function matchOriginal({ quiet = false } = {}) {
+    abort?.abort();
+    clearTimeout(timer);
+    edit.points = edit.originalPoints;
+    result = edit.originalResult;
+    flags = pathChecks(result, {
+      points: edit.points,
+      areas: areasInUse(),
+      hazards: deps.hazards(),
+      dark: deps.isDark(edit.day),
+      day: edit.day,
+      hazardsStatus: deps.hazardsStatus?.(),
+      profile: edit.profile,
+      leg: deps.legFor?.(edit, result.durationS),
+    });
+    status = 'ready';
+    if (!quiet) {
+      draw();
+      render();
+    }
+  }
   function reroute() {
     clearTimeout(timer);
     timer = setTimeout(async () => {
@@ -202,7 +229,7 @@ export function createPathEditor(deps) {
           ? 'PLACING AVOID-AREA · click the map for its centre · Esc stops placing'
           : arming
             ? 'AVOID-AREA · choose its size and reason in the panel'
-            : 'EDITING PATH · click map: add waypoint · drag a number: move · click a number: remove · X: avoid-area · Esc: discard';
+            : `${edit.savedId ? 'EDITING PATH' : 'PLANNING PATH'} · click map: add waypoint · drag a number: move · click a number: remove · X: avoid-area · Esc: discard`;
   }
 
   /** Re-render keeping focus, caret and scroll (review/phase4). */
@@ -261,11 +288,30 @@ export function createPathEditor(deps) {
         el(
           'div',
           'tt-dim tt-edit-engine',
-          result.engine === 'valhalla'
-            ? `Suggested by Valhalla (FOSSGIS) · unverified${areasInUse().length ? ' · routed around the avoid-areas it could' : ''}`
-            : `Suggested by OSRM (fallback) · unverified · avoid-areas checked, not applied${result.fallbackReason ? ` — ${result.fallbackReason}` : ''}`,
+          result === edit.originalResult
+            ? 'The suggested path as drawn (OSRM) · unverified · avoid-areas checked, not applied · add or move a waypoint to re-plan'
+            : result.engine === 'valhalla'
+              ? `Suggested by Valhalla (FOSSGIS) · unverified${areasInUse().length ? ' · routed around the avoid-areas it could' : ''}`
+              : `Suggested by OSRM (fallback) · unverified · avoid-areas checked, not applied${result.fallbackReason ? ` — ${result.fallbackReason}` : ''}`,
         ),
       );
+      // Re-planned away from the suggested line: say how it differs (phase 9).
+      if (edit.original && result !== edit.originalResult) {
+        const d = result.distanceM - edit.original.distanceM;
+        res.append(
+          el(
+            'div',
+            Math.abs(d) > 50 ? 'tt-edit-flag' : 'tt-edit-info',
+            `Re-planned: ${formatDistance(result.distanceM)} (the suggested path was ${formatDistance(edit.original.distanceM)}) · its line is shown dashed`,
+          ),
+          btn(
+            'tt-link',
+            'Match the suggested path',
+            () => matchOriginal(),
+            'match',
+          ),
+        );
+      }
       for (const f of flags)
         res.append(el('div', f.warn ? 'tt-edit-flag' : 'tt-edit-info', f.text));
       if (!flags.length)
@@ -289,13 +335,32 @@ export function createPathEditor(deps) {
   }
 
   function build() {
+    // A new path is planned, a saved one edited (review/phase9 O13–O15).
     const head = el(
       'div',
       'tt-kicker',
       edit.savedId
         ? 'SAVED PATH · EDITING · saving clears its review'
-        : 'NEW PATH · NOT SAVED',
+        : edit.fromPerson
+          ? 'NEW PATH · LIVE ONLY · CANNOT BE SAVED'
+          : edit.original
+            ? `NEW PATH · COPY OF THE SUGGESTED PATH (${edit.origin?.rank === 'alternate' ? 'ALTERNATE' : 'MAIN'}) · NOT SAVED`
+            : 'NEW PATH · NOT SAVED',
     );
+    const live = edit.fromPerson
+      ? el(
+          'div',
+          'tt-edit-info tt-live-only',
+          `Starts at ${edit.startText?.() || 'a traveler’s position'} · shown live only, nothing here is kept · to save a path, plan it from a site or a place`,
+        )
+      : null;
+    const origin = edit.original
+      ? el(
+          'div',
+          'tt-note',
+          'Started from the suggested path · that path stays on the map unchanged',
+        )
+      : null;
     const name = el('input', 'tt-edit-name');
     name.type = 'text';
     name.value = edit.name;
@@ -310,7 +375,7 @@ export function createPathEditor(deps) {
     const ends = el(
       'div',
       'tt-card-line',
-      `From ${edit.fromLabel} → to ${edit.toLabel}`,
+      `From ${edit.fromPerson && edit.startText ? edit.startText() : edit.fromLabel} → to ${edit.toLabel}`,
     );
     const mode = el('div', 'tt-route-seg mode');
     for (const [k, t] of [
@@ -336,7 +401,11 @@ export function createPathEditor(deps) {
     // Waypoints.
     const wps = el('section', 'tt-edit-sec');
     wps.append(
-      el('div', 'tt-kicker', `WAYPOINTS · ${edit.points.length - 2} of 10`),
+      el(
+        'div',
+        'tt-kicker',
+        `WAYPOINTS · ${edit.points.length - 2} OF 10${edit.original && edit.points.length > 2 ? ' · first placed at the suggested path’s turns' : ''}`,
+      ),
     );
     if (edit.points.length === 2)
       wps.append(
@@ -350,10 +419,14 @@ export function createPathEditor(deps) {
     edit.points.slice(1, -1).forEach((wp, j) => {
       const i = j + 1;
       const li = el('li');
+      // The distance along the path tells rows with one street apart (O16).
+      const along = result?.geometry?.length
+        ? ` · ${formatDistance(alongM(result.geometry, wp))} from start`
+        : '';
       const where = el(
         'span',
         'tt-wp-name',
-        `${i} · ${deps.placeName?.(wp, render) || fmt(wp)}`,
+        `${i} · ${deps.placeName?.(wp, render) || fmt(wp)}${along}`,
       );
       where.title = fmt(wp);
       li.append(where);
@@ -513,8 +586,25 @@ export function createPathEditor(deps) {
       save,
       btn('tt-btn', 'Discard', () => discard(), 'discard'),
     );
+    // Live only (a traveler's position): no save fields at all (O15).
+    if (edit.fromPerson)
+      return [
+        head,
+        live,
+        ends,
+        mode,
+        res,
+        wps,
+        av,
+        (() => {
+          const a = el('div', 'tt-actions');
+          a.append(btn('tt-btn', 'Discard', () => discard(), 'discard'));
+          return a;
+        })(),
+      ];
     return [
       head,
+      ...(origin ? [origin] : []),
       nameRow,
       ends,
       mode,
@@ -527,15 +617,6 @@ export function createPathEditor(deps) {
       ...(legNow ? [el('div', 'tt-note', legNow.text)] : []),
       notes,
       acts,
-      ...(edit.fromPerson
-        ? [
-            el(
-              'div',
-              'tt-edit-info',
-              'Starts at a traveler’s position: shown live only, not saved. Plan from a site or a place to save a path.',
-            ),
-          ]
-        : []),
       el(
         'div',
         'tt-note',
@@ -703,6 +784,8 @@ export function createPathEditor(deps) {
       result,
       { stamp: deps.stamp(), siteKeys: deps.siteKeysFor(edit.points) },
     );
+    // Where a copy began (review/phase9 O14); kept through later edits.
+    if (edit.origin) rec.origin = edit.origin;
     const i = deps.store.paths.findIndex((p) => p.id === rec.id);
     // An edit is a new version: any earlier review no longer applies.
     if (i >= 0) deps.store.paths[i] = { ...rec, reviewedBy: null };
@@ -777,7 +860,9 @@ export function createPathEditor(deps) {
       if (edit) close();
       edit = {
         savedId: o.saved?.id || null,
-        name: o.saved?.name || defaultName(o),
+        name: o.saved?.name || o.name || defaultName(o),
+        origin: o.saved?.origin || o.origin || null,
+        startText: o.startText || null,
         day: o.saved?.day ?? o.day ?? null,
         profile: o.saved?.profile || o.profile || 'foot',
         points: o.saved?.points || o.points || [o.from, o.to],
@@ -789,13 +874,36 @@ export function createPathEditor(deps) {
         fromPerson: Boolean(o.fromPerson),
       };
       dirty = !o.saved?.id; // a duplicate or a new plan is unsaved work
+      // Editing a drawn suggested path: open on that exact line, re-plan only
+      // when the operator changes something (review/phase9 UX P0).
+      if (o.original?.geometry?.length) {
+        edit.original = o.original;
+        edit.originalPoints = edit.points;
+        edit.originalResult = {
+          geometry: o.original.geometry,
+          distanceM: o.original.distanceM,
+          durationS: o.original.durationS ?? null,
+          engine: 'osrm',
+          avoidApplied: false,
+          avoidedAreas: [],
+          endpointAreas: [],
+        };
+      }
       deps.twin.setPickHandler(onPick);
       deps.twin.setDragHandler?.(drag);
       document.body.classList.add('tt-editing');
       deps.onCrumb(
-        edit.savedId ? `› Saved path: ${edit.name}` : '› New path (not saved)',
+        edit.savedId
+          ? `› Saved path: ${edit.name}`
+          : edit.original
+            ? '› Copy of suggested path (not saved)'
+            : '› New path (not saved)',
       );
-      reroute();
+      const chip = document.getElementById('tt-edit-chip');
+      if (chip)
+        chip.textContent = edit.savedId ? 'EDITING PATH' : 'PLANNING PATH';
+      if (edit.originalResult) matchOriginal({ quiet: true });
+      else reroute();
       draw();
       render();
     },

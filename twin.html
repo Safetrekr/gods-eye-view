@@ -4,7 +4,30 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex" />
-    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <!-- SafeTrekr favicon (from safetrekr-app-v2) -->
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="32x32"
+      href="/trip-twin/favicon-32x32.png"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="16x16"
+      href="/trip-twin/favicon-16x16.png"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="192x192"
+      href="/trip-twin/android-chrome-192x192.png"
+    />
+    <link
+      rel="apple-touch-icon"
+      sizes="180x180"
+      href="/trip-twin/apple-touch-icon.png"
+    />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -344,6 +367,7 @@
       hidden
     >
       <div class="tt-kicker">KEYBOARD</div>
+      <h3 class="tt-keys-h">View</h3>
       <dl class="tt-keys">
         <dt>F / Z</dt>
         <dd>
@@ -355,7 +379,24 @@
         <dt>N</dt>
         <dd>North up (view from the south side, looking north)</dd>
         <dt>1 · 2 · 3</dt>
-        <dd>Building · Neighborhood · City</dd>
+        <dd>
+          Building · Neighborhood · City (City shows the wider area: plain
+          buildings and main streets, no details on click)
+        </dd>
+        <dt>W</dt>
+        <dd>
+          Ways out view: streets, walkways, mapped entrances, places, suggested
+          and saved paths stand out; floors and hazards stay · W or Esc (after
+          cards and selection) returns
+        </dd>
+        <dt>T</dt>
+        <dd>
+          Weather timeline (Live, while a weather layer is on): ← → step, Play,
+          Esc or Back to now returns to now · otherwise opens Layers › Weather
+        </dd>
+      </dl>
+      <h3 class="tt-keys-h">Find</h3>
+      <dl class="tt-keys">
         <dt>A</dt>
         <dd>Go to the first item that needs attention</dd>
         <dt>[ · ]</dt>
@@ -364,24 +405,21 @@
         <dd>Find a person</dd>
         <dt>S</dt>
         <dd>Sites on this trip (hotel and venues)</dd>
-        <dt>X</dt>
-        <dd>While editing a path: place an avoid-area</dd>
-        <dt>V</dt>
-        <dd>Live / Advance (planning)</dd>
         <dt>H</dt>
         <dd>
           The site on screen and its Floors · type a number in Go to floor
         </dd>
         <dt>↑ · ↓ · Enter</dt>
         <dd>Move between floors · open a floor card</dd>
+        <dt>Click a path, or Layers (L) › Paths › Suggested · drawn now</dt>
+        <dd>
+          Its card: Edit a copy of this path · Frame path · Copy path summary
+        </dd>
+      </dl>
+      <h3 class="tt-keys-h">Panels</h3>
+      <dl class="tt-keys">
         <dt>L</dt>
         <dd>Layers</dd>
-        <dt>W</dt>
-        <dd>
-          Ways out view: streets, walkways, mapped entrances, places, suggested
-          and saved paths stand out; floors and hazards stay · W or Esc (after
-          cards and selection) returns
-        </dd>
         <dt>D</dt>
         <dd>Display (distance and temperature units, motion)</dd>
         <dt>G</dt>
@@ -390,20 +428,24 @@
         <dd>Elevation contours on / off (interval: Layers › Site)</dd>
         <dt>R</dt>
         <dd>Add reported floor</dd>
-        <dt>Esc</dt>
-        <dd>
-          Close panel, then the path, then step back (place or person › floor
-          card › site), then clear the selection (never exits)
-        </dd>
-        <dt>T</dt>
-        <dd>
-          Weather timeline (Live, while a weather layer is on): ← → step, Play,
-          Esc or Back to now returns to now · otherwise opens Layers › Weather
-        </dd>
+        <dt>V</dt>
+        <dd>Live / Advance (planning)</dd>
         <dt>`</dt>
         <dd>Prototype controls</dd>
         <dt>?</dt>
         <dd>This help</dd>
+      </dl>
+      <h3 class="tt-keys-h">Edit & exit</h3>
+      <dl class="tt-keys">
+        <dt>X</dt>
+        <dd>While editing a path: place an avoid-area</dd>
+        <dt>Esc</dt>
+        <dd>
+          Close panel, then weather back to now, then the path card (back to the
+          card it came from), then the path, then step back (place or person ›
+          floor card › site), then clear the selection, then end Ways out (never
+          exits)
+        </dd>
       </dl>
       <p class="tt-note">No key sends a message or dismisses a report.</p>
       <button class="tt-btn" type="button" id="tt-help-close">Close</button>

@@ -55,7 +55,7 @@ function material(source, uniforms) {
   });
 }
 
-function volume(ring, base, top, mat) {
+function volume(ring, base, top, mat, { caps = true } = {}) {
   return new Cesium.Primitive({
     geometryInstances: new Cesium.GeometryInstance({
       geometry: new Cesium.PolygonGeometry({
@@ -64,6 +64,9 @@ function volume(ring, base, top, mat) {
         ),
         height: base,
         extrudedHeight: top,
+        // Halo shells are walls only: stacked lids read as steps.
+        closeTop: caps,
+        closeBottom: caps,
         vertexFormat:
           Cesium.MaterialAppearance.MaterialSupport.BASIC.vertexFormat,
       }),
@@ -225,23 +228,28 @@ export function createSelectionGlow(
           fade: 0,
         });
         mats.push(m);
-        collection.add(volume(grow(ring, d), base, top + d * 0.8, m));
+        // One height for every shell, no lids: a smooth falloff outward,
+        // never tiers (Jesse, 16 Oct 2026: "the bloom turned into steps").
+        collection.add(
+          volume(grow(ring, d), base, top + 0.5, m, { caps: false }),
+        );
       }
     };
     // Halo size follows the building: a soft falloff, not a fixed-width line.
     const r = meanRadius(ring);
     if (style === 'aura' || style === 'aura-pool' || style === 'beacon')
+      // Softer than before (about half): the selection reads, the
+      // building under it still shows (Jesse: "make the bloom less").
       shells([
-        [0.03 * r + 1, 0.06, 0.26],
-        [0.08 * r + 2.5, 0.03, 0.15],
-        [0.15 * r + 5, 0.016, 0.09],
-        [0.26 * r + 9, 0.008, 0.05],
+        [0.03 * r + 1, 0.03, 0.1],
+        [0.09 * r + 3, 0.012, 0.05],
+        [0.18 * r + 7, 0.006, 0.03],
       ]);
     if (style === 'rim') shells([[0.4, 0.1, 0.45]]);
     if (style === 'pool' || style === 'aura-pool' || style === 'beacon') {
       const m = material(POOL_SOURCE, {
         glowColor: color,
-        strength: 0.6,
+        strength: 0.35,
         fade: 0,
       });
       mats.push(m);

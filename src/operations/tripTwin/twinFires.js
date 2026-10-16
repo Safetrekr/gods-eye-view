@@ -96,7 +96,7 @@ export function fireSummary(center, records, now = Date.now()) {
 
 export function drawFires(viewer, site, records, now = Date.now()) {
   const ds = new Cesium.CustomDataSource('trip-twin-fires');
-  viewer.dataSources.add(ds);
+  const added = viewer.dataSources.add(ds); // resolves in a microtask
   const { projector, field } = site;
   for (const r of records) {
     const ageH = (now - r.acqMs) / 3600000;
@@ -159,6 +159,8 @@ export function drawFires(viewer, site, records, now = Date.now()) {
   }
   viewer.scene.requestRender();
   return () => {
-    if (!viewer.isDestroyed()) viewer.dataSources.remove(ds, true);
+    added.then(() => {
+      if (!viewer.isDestroyed()) viewer.dataSources.remove(ds, true);
+    });
   };
 }

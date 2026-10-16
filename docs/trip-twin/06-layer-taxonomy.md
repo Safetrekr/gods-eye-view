@@ -881,3 +881,30 @@ Banned in phase-2 copy (lint): missing, empty, clear / all clear, safe (for peop
 | `Go to floor` · `Floor 52 is outside this building's floors (1–37)` | Hotel card and incident floor list | "invalid floor", "clamped" |
 | `Incident at {site} — switch to {site}? The incident stays on screen with a way back.` · `Stay at {site}` · `Switch to {site}` | Leaving the site of a live incident (also Advance, Exit) | "Are you sure?" |
 | `Elevation contours` · `Ground in view: −12 ft to +34 ft relative to hotel street level` | Layers › Site | "terrain contours", "vs" |
+
+## 14–16. Phases 6–8 vocabulary
+Kept in the review files for now: phase 6 weather (`review/phase6/04-ia.md`), phase 7 streets and Ways out (`review/phase7/04-ia.md`, `00-FIX-LIST.md` M2/M5/M8/M12), phase 8 wider area (`review/phase8/00-FIX-LIST.md` N4/N7/N9/N12). Never-list additions from those phases: "corridor", "escape route", "exit" for an entrance.
+
+## 17. Phase 9 vocabulary — selecting a drawn path (16 Oct 2026, review/phase9)
+Amends PTH-02: paths rank **Main / Alternate**; "primary / secondary" rank rally points only; "Suggested path" is the type, never a rank.
+
+| Term (as shown) | Meaning | Never say |
+|---|---|---|
+| `Main` · `Alternate` | Rank of a suggested path in one drawn set. Main is the router's first result, not a recommendation | "Primary" for a path, best, recommended, preferred, backup |
+| `SUGGESTED · MAIN · UNVERIFIED` / `SUGGESTED · ALTERNATE · UNVERIFIED` / `SUGGESTED PATH · UNVERIFIED` | Path card kicker; no rank when one path is drawn | SUGGESTED ROUTE, VERIFIED |
+| `{From} → {To}` | Path card title; the origin is always named | the destination alone |
+| `Walk · {d} · {a}–{b} min group pace` / `Drive · {d} · {a}–{b} min no live traffic` | Card metric, mode first | a single ETA |
+| `Start: Emi S. · position at 21:31 · 4 min old` | A traveler start, age read live; amber with "Not a current position — the traveler may not be there now" when not current | a start without its age |
+| `Edit a copy of this path` / `Edit a copy (live only)` | Opens the editor on the drawn line itself; the suggestion stays unchanged | "Edit this path", "Edit route", "Modify" |
+| `NEW PATH · COPY OF THE SUGGESTED PATH (MAIN) · NOT SAVED` | Editor kicker for a copy | "EDITING" for a new path |
+| `NEW PATH · LIVE ONLY · CANNOT BE SAVED` | Editor kicker when the start is a traveler's position; no save fields | a Save button that cannot save |
+| `PLANNING PATH` / `EDITING PATH` | Top-bar chip and banner: a new path / a saved path being changed | — |
+| `Started from the suggested path (main) · OSRM · 1.2 mi · planned 21:31` | Provenance line on a saved copy | — |
+| `SUGGESTED · DRAWN NOW · {n}` | Layers › Paths sub-kicker over drawn suggested paths | "On the map now" |
+| `Main · {From} → {To} · walk {d}` | Index row; opens the card and frames the path | a row without origin or mode |
+| `SAVED ON THIS TRIP · {n}` · `AVOID-AREAS · {n}` | Separate Layers summaries | one combined line |
+| `Main path to Rally point (primary)` / `Alternate path to Rally point (primary)` | Incident-panel path titles; they open the card | "Path to rally point (primary)" |
+| `› Suggested path · main` / `› Emi S. › Suggested path` | Breadcrumb focus; never truncated | "› Suggested…" |
+| `That path was replaced — card closed` / `That path is no longer on the map — card closed` | A card never outlives its line | a card silently updated with new numbers |
+| `Frame path` · `Copy path summary` · `Remove path` | The only labels for these verbs, on cards and the pill | Frame, Copy, Remove |
+| `OSM street path · not checked for closures, crowds, lighting, crime or damage` | PTH-03, in full on the card and in copied text | shortened forms |

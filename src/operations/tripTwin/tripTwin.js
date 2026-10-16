@@ -3,6 +3,7 @@
 import * as Cesium from 'cesium';
 import { createDeclutter } from './twinDeclutter.js';
 import { createStreetsLayer } from './twinStreets.js';
+import { createContextLayer } from './twinContext.js';
 import { resolveEllipsoidalGround } from '../../data/terrainHeights.js';
 import {
   TWIN_RADIUS_M,
@@ -141,6 +142,10 @@ export function createTripTwin({
   // Phase 3: page-level picks (site beacons, places) — return true if handled.
   onEntityPick = () => false,
   onAssess = () => {},
+  onContext = () => {},
+  onContextClick = () => {},
+  // Phase 9 (review O1): the drawn suggested-path set changed (id or null).
+  onDrawnPaths = () => {},
   glowStyle = DEFAULT_GLOW,
   simulateFires = false,
 }) {
@@ -192,7 +197,49 @@ export function createTripTwin({
   let declutterer = null;
   let selectedPlaceId = null;
   let streetsLayer = null;
+  // The wider area (phase 8): context ring + corridors, on by default.
+  let contextLayer = null;
+  let contextState = { ring: true, corridors: true };
+  let contextDim = { on: false, keep: null };
+  let contextInfo = { status: 'loading', counts: null };
   let hotelStepBack = false; // Ways out view (phase 7)
+  /** The wider area for the site's city (hotel ring, corridors to venues). */
+  async function loadContext(forSite) {
+    const cityKey = siteConfig(forSite.key)?.city || forSite.key;
+    contextInfo = { status: 'loading', counts: null };
+    try {
+      const res = await fetch(
+        `/scripts/fixtures/trip-twin/${cityKey}.context.json`,
+        { signal: abort?.signal },
+      );
+      if (!res.ok) throw new Error(`context ${res.status}`);
+      const data = await res.json();
+      if (site !== forSite || state !== 'ready') return;
+      contextLayer?.dispose();
+      const hotelKey = siteConfig(forSite.key)?.city || forSite.key;
+      const h = siteConfig(hotelKey)?.center;
+      contextLayer = createContextLayer(viewer, forSite, data, {
+        hotel: h ? { lat: h.lat, lon: h.lon ?? h.lng } : null,
+        coreIds: new Set([
+          ...(forSite.roads || []).map((r) => r.id),
+          ...(forSite.buildings || []).map((b) => b.id),
+        ]),
+      });
+      contextLayer.set(contextState);
+      contextLayer.setDim(contextDim.on, { keep: contextDim.keep });
+      contextInfo = {
+        status: 'ready',
+        counts: contextLayer.counts,
+        fetchedAt: data.meta?.fetchedAt || null,
+      };
+      refresh(); // re-pin people and places now the map reaches further
+    } catch (error) {
+      if (abort?.signal?.aborted) return;
+      contextInfo = { status: 'unavailable', counts: null };
+      console.warn('[TripTwin] wider area unavailable', error?.message);
+    }
+    onContext?.(contextInfo);
+  }
   /** Hotel glass: floor focus 0.4; Ways out 0.2 (edges carry the shape). */
   function applyHotelDim() {
     twin?.setHotelDim(
@@ -208,6 +255,14 @@ export function createTripTwin({
   let pathsPlanning = false;
   let pathsVisible = true;
   let disposePaths = null;
+  // Phase 9: the drawn suggested path set and which path is selected.
+  let routeSet = null;
+  let selectedPathKind = null;
+  let routeLines = null; // drawPaths dispose (+ .hover) for the shown set
+  let setSeq = 0;
+  let lastDrawnId = null;
+  let hoverKind = null;
+  let suggestionFaded = false; // a saved path covers the same ends
   let fires = { status: 'loading', records: [] };
   let disposeFires = null;
   let simulatedFires = simulateFires;
@@ -499,6 +554,7 @@ export function createTripTwin({
       refreshFires();
       safety = createSafetyLayer(viewer, site);
       safety.setSelected(selectedPlaceId);
+      loadContext(site);
       streetsLayer = createStreetsLayer(viewer, site);
       streetsLayer.set(streetsState);
       twin.setBaseStreets?.(!streetsState.streets);
@@ -535,6 +591,9 @@ export function createTripTwin({
         );
         if (personMatch) return selectPerson(personMatch[1]);
         if (entityId && onEntityPick(entityId, picked?.id)) return;
+        // The wider area is map detail only: a click keeps the selection.
+        if (picked?.primitive && contextLayer?.owns(picked.primitive))
+          return onContextClick();
         const rec = picked?.id?.opsRecord;
         if (rec && (rec.kind === 'twin-building' || rec.kind === 'twin-hotel'))
           select(rec.record.id);
@@ -555,10 +614,31 @@ export function createTripTwin({
         scene.screenSpaceCameraController.enableInputs = false;
         scene.canvas.style.cursor = 'grabbing';
       }, Cesium.ScreenSpaceEventType.LEFT_DOWN);
+      // Hover: a pointer over anything that opens a card (phase 9 UX P1-2).
+      let hoverAt = 0;
+      const CLICKABLE =
+        /^(twin-path:|twin-safety:|twin-saved:|twin-avoid:|twin-person:|twin-bracket|twin-site:)/;
+      // One MOUSE_MOVE handler: Cesium keeps only the last one per type.
       handler.setInputAction((move) => {
-        if (!dragging) return;
-        const g = groundAt(move.endPosition);
-        if (g) dragHandler?.move(g);
+        if (dragging) {
+          const g = groundAt(move.endPosition);
+          if (g) dragHandler?.move(g);
+          return;
+        }
+        if (pickHandler) return;
+        const now = performance.now();
+        if (now - hoverAt < 90) return;
+        hoverAt = now;
+        const picked = scene.pick(move.endPosition);
+        const id = typeof picked?.id?.id === 'string' ? picked.id.id : '';
+        const rec = picked?.id?.opsRecord;
+        scene.canvas.style.cursor = CLICKABLE.test(id) || rec ? 'pointer' : '';
+        // Lighten the casing of the path under the pointer (review O7).
+        const hk = /^twin-path:(primary|alternate)/.exec(id)?.[1] || null;
+        if (hk !== hoverKind) {
+          hoverKind = hk;
+          (routeLines || disposePaths)?.hover?.(hk);
+        }
       }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
       handler.setInputAction((up) => {
         if (!dragging) return;
@@ -863,6 +943,7 @@ export function createTripTwin({
       selectedId: selectedPersonId,
       // Viewing another weather time dims everyone: positions are now.
       focusIds: peopleDim ? new Set() : floorFocusIds,
+      covers: contextLayer ? (pt) => contextLayer.covers(pt) : null,
       numbering:
         place.levels_above_ground != null || place.levels_source === 'operator',
       groundLabel: place.ground_floor_label ?? 1,
@@ -894,7 +975,10 @@ export function createTripTwin({
           (snapshot.safety_points || []).filter(
             (p) => !p.location_id || p.location_id === activePlace()?.id,
           ),
-          { show: safetyVisible },
+          {
+            show: safetyVisible,
+            covers: contextLayer ? (pt) => contextLayer.covers(pt) : null,
+          },
         ) || [];
       if (!paths && !pathsPlanning) planOnce();
       const fsum = fireSummary(site.center, fires.records);
@@ -911,7 +995,9 @@ export function createTripTwin({
       if (peopleInfo?.beyond)
         chips = [
           {
-            label: `${peopleInfo.beyond} outside the mapped area`,
+            label: contextLayer
+              ? `${peopleInfo.beyond} beyond the wider area`
+              : `${peopleInfo.beyond} outside the mapped area`,
             people: true,
           },
           ...chips,
@@ -963,11 +1049,118 @@ export function createTripTwin({
   function redrawPaths() {
     disposePaths?.();
     disposePaths = null;
-    if (disposeRoute || editingPath) return; // another path has the stage
-    if (!paths?.paths?.length || !pathsVisible || state !== 'ready') return;
+    if (routeSet) {
+      // The shown set's heat proximity follows the detections too (O4).
+      const hz = hazardPoints();
+      for (const p of routeSet.paths)
+        p.hazard = hazardProximity(p.geometry, hz);
+      if (!editingPath) drawRoute();
+      return notifyDrawn();
+    }
+    if (editingPath) return; // the copy being edited has the stage
+    if (!paths?.paths?.length || !pathsVisible || state !== 'ready')
+      return notifyDrawn();
     const hz = hazardPoints();
     for (const p of paths.paths) p.hazard = hazardProximity(p.geometry, hz);
-    disposePaths = drawPaths(viewer, site, paths.paths);
+    disposePaths = drawPaths(viewer, site, paths.paths, {
+      selected: selectedPathKind,
+      faded: suggestionFaded,
+    });
+    notifyDrawn();
+  }
+
+  /** Draw (or redraw) the shown path set; steps back while editing. */
+  function drawRoute() {
+    disposeRoute?.();
+    disposeRoute = null;
+    routeLines = null;
+    routeGeometry = null;
+    if (!routeSet || state !== 'ready') return;
+    const { paths: list, fromLabel, toLabel, startText } = routeSet;
+    routeGeometry = list.flatMap((p) => p.geometry);
+    stats.route = list.map((p) => ({
+      kind: p.kind,
+      profile: p.profile,
+      distanceM: p.distanceM,
+    }));
+    // The standing rally path steps back while this one is shown.
+    disposePaths?.();
+    disposePaths = null;
+    if (editingPath) return; // the copy being edited has the stage (O13)
+    const disposeLines = drawPaths(viewer, site, list, {
+      selected: selectedPathKind,
+      faded: suggestionFaded,
+    });
+    routeLines = disposeLines;
+    const ends = new Cesium.CustomDataSource('trip-twin-route-ends');
+    const added = viewer.dataSources.add(ends);
+    const g = list[0].geometry;
+    const base = site.field.at(0, 0);
+    for (const [pt, text] of [
+      [
+        g[0],
+        startText
+          ? new Cesium.CallbackProperty(() => `Start · ${startText()}`, false)
+          : `Start · ${fromLabel}`,
+      ],
+      [g[g.length - 1], `End · ${toLabel}`],
+    ])
+      ends.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(pt.lon, pt.lat, base + 6),
+        point: {
+          pixelSize: 8,
+          color: Cesium.Color.fromCssColorString('#3b82f6'),
+          outlineColor: Cesium.Color.fromCssColorString('#eff7f3'),
+          outlineWidth: 2,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+        label: {
+          text,
+          font: '500 11px Inter, sans-serif',
+          fillColor: Cesium.Color.fromCssColorString('#93bafa'),
+          showBackground: true,
+          backgroundColor:
+            Cesium.Color.fromCssColorString('#061a23').withAlpha(0.88),
+          pixelOffset: new Cesium.Cartesian2(0, -16),
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+      });
+    disposeRoute = () => {
+      disposeLines();
+      added.then(() => {
+        if (!viewer.isDestroyed()) viewer.dataSources.remove(ends, true);
+      });
+    };
+    viewer.scene.requestRender();
+  }
+
+  /** The suggested paths on the map: the shown route, else the rally path. */
+  function drawnInfo() {
+    if (routeSet)
+      return { source: 'route', ...routeSet, faded: suggestionFaded };
+    if (paths?.paths?.length && pathsVisible && state === 'ready')
+      return {
+        source: 'rally',
+        id: paths.id,
+        paths: paths.paths,
+        fromLabel:
+          activePlace()?.name || site?.hotel?.building?.name || 'the site',
+        toLabel: 'Rally point (primary)',
+        // The fixture's name repeats "Rally point (primary) · …": keep the place.
+        toName:
+          paths.destName?.replace(/^Rally point \(primary\)( · )?/, '') || null,
+        ends: paths.ends,
+        plannedAt: paths.plannedAt,
+        fromPerson: false,
+        faded: suggestionFaded,
+      };
+    return null;
+  }
+  function notifyDrawn() {
+    const id = drawnInfo()?.id ?? null;
+    if (id === lastDrawnId) return;
+    lastDrawnId = id;
+    onDrawnPaths(id);
   }
 
   async function planOnce() {
@@ -984,6 +1177,17 @@ export function createTripTwin({
         signal,
         hazards: hazardPoints(),
       });
+      // Identity and true ends for the path card (review/phase9 O1, O5).
+      const dest = paths.paths?.find((p) => p.dest)?.dest;
+      paths.id = ++setSeq;
+      paths.plannedAt = Date.now();
+      paths.ends = dest
+        ? {
+            from: hotel,
+            to: { lat: dest.coordinates.lat, lon: dest.coordinates.lng },
+          }
+        : null;
+      paths.destName = dest?.name || null;
       stats.paths = paths.paths?.map((p) => ({
         kind: p.kind,
         distanceM: Math.round(p.distanceM),
@@ -1040,12 +1244,18 @@ export function createTripTwin({
     safety?.dispose();
     streetsLayer?.dispose();
     streetsLayer = null;
+    contextLayer?.dispose();
+    contextLayer = null;
     declutterer?.dispose();
     declutterer = null;
     disposePaths?.();
     disposePaths = null;
     paths = null;
     pathsPlanning = false;
+    routeSet = null;
+    routeLines = null;
+    selectedPathKind = null;
+    notifyDrawn();
     disposeFires?.();
     disposeFires = null;
     safety = null;
@@ -1209,63 +1419,61 @@ export function createTripTwin({
       viewer.scene.requestRender();
     },
     /** Phase 3 Part C: one on-demand route set at a time. */
-    /** One on-demand path set at a time, ends labelled (review/phase3 G11). */
-    showRoute(paths, { fromLabel = '', toLabel = '' } = {}) {
-      disposeRoute?.();
-      disposeRoute = null;
-      routeGeometry = null;
-      if (!paths?.length || state !== 'ready') return;
-      // The standing rally path steps back while this one is shown.
-      disposePaths?.();
-      disposePaths = null;
-      const disposeLines = drawPaths(viewer, site, paths);
-      const ends = new Cesium.CustomDataSource('trip-twin-route-ends');
-      viewer.dataSources.add(ends);
-      const g = paths[0].geometry;
-      const base = site.field.at(0, 0);
-      for (const [pt, text] of [
-        [g[0], `Start · ${fromLabel}`],
-        [g[g.length - 1], `End · ${toLabel}`],
-      ])
-        ends.entities.add({
-          position: Cesium.Cartesian3.fromDegrees(pt.lon, pt.lat, base + 6),
-          point: {
-            pixelSize: 8,
-            color: Cesium.Color.fromCssColorString('#3b82f6'),
-            outlineColor: Cesium.Color.fromCssColorString('#eff7f3'),
-            outlineWidth: 2,
-            disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          },
-          label: {
-            text,
-            font: '500 11px Inter, sans-serif',
-            fillColor: Cesium.Color.fromCssColorString('#93bafa'),
-            showBackground: true,
-            backgroundColor:
-              Cesium.Color.fromCssColorString('#061a23').withAlpha(0.88),
-            pixelOffset: new Cesium.Cartesian2(0, -16),
-            disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          },
-        });
-      routeGeometry = paths.flatMap((p) => p.geometry);
-      disposeRoute = () => {
-        disposeLines();
-        if (!viewer.isDestroyed()) viewer.dataSources.remove(ends, true);
+    /**
+     * One on-demand path set at a time, ends labelled (review/phase3 G11).
+     * meta (phase 9): {ends, fix, fromPerson, plannedAt, startText()} — the
+     * start label re-reads startText() each frame so a position's age is
+     * live (review/phase9 O2).
+     */
+    showRoute(paths, { fromLabel = '', toLabel = '', ...meta } = {}) {
+      if (!paths?.length || state !== 'ready') {
+        this.clearRoute();
+        return;
+      }
+      routeSet = {
+        id: ++setSeq,
+        paths,
+        fromLabel,
+        toLabel,
+        plannedAt: Date.now(),
+        fromPerson: Boolean(meta.fromPerson),
+        ends: meta.ends || null,
+        fix: meta.fix || null,
+        personId: meta.personId || null,
+        startText: meta.startText || null,
       };
-      stats.route = paths.map((p) => ({
-        kind: p.kind,
-        profile: p.profile,
-        distanceM: p.distanceM,
-      }));
-      viewer.scene.requestRender();
+      drawRoute();
+      notifyDrawn();
     },
     clearRoute() {
-      const had = Boolean(disposeRoute);
+      const had = Boolean(routeSet);
+      routeSet = null;
+      selectedPathKind = null;
       disposeRoute?.();
       disposeRoute = null;
+      routeLines = null;
       routeGeometry = null;
       stats.route = null;
       if (had) redrawPaths();
+      notifyDrawn();
+    },
+    /** The suggested paths on the map: the shown route, else the rally path. */
+    get drawnPaths() {
+      return drawnInfo();
+    },
+    /** Fade the drawn suggestion when a saved path covers its ends. */
+    setSuggestionFaded(on) {
+      if (suggestionFaded === Boolean(on)) return;
+      suggestionFaded = Boolean(on);
+      if (routeSet) drawRoute();
+      else redrawPaths();
+    },
+    /** Highlight one drawn suggested path ('primary' | 'alternate' | null). */
+    setPathSelected(kind) {
+      if (selectedPathKind === kind) return;
+      selectedPathKind = kind;
+      if (routeSet) drawRoute();
+      else redrawPaths();
     },
     /** Operator action: fit the whole path in view. */
     frameRoute() {
@@ -1288,11 +1496,24 @@ export function createTripTwin({
       });
     },
     get hasRoute() {
-      return Boolean(disposeRoute);
+      return Boolean(routeSet);
     },
     restoreView,
     viewFromSide,
     /** Phase 4: route map clicks to the path editor (null restores). */
+    /** The wider area (phase 8): {ring, corridors}. */
+    setContext(next) {
+      contextState = { ...contextState, ...next };
+      contextLayer?.set(contextState);
+    },
+    get context() {
+      return { ...contextState, ...contextInfo };
+    },
+    /** The wider area steps back (Ways out, incident); keep a strip kind. */
+    setContextDim(on, { keep = null } = {}) {
+      contextDim = { on: Boolean(on), keep };
+      contextLayer?.setDim(contextDim.on, { keep });
+    },
     /** Streets and walkways (phase 7): {streets, walkways}. */
     setStreets(next) {
       streetsState = { ...streetsState, ...next };
@@ -1334,8 +1555,13 @@ export function createTripTwin({
       pickHandler = fn || null;
       scene.canvas.style.cursor = fn ? 'crosshair' : '';
       // Other paths step back while one is being edited (review/phase4 H12).
+      const was = editingPath;
       editingPath = Boolean(fn);
-      if (editingPath) {
+      if (was === editingPath) return;
+      // Every drawn suggestion steps back while a copy is edited; the editor
+      // draws the original as a dashed ghost (review/phase9 O13).
+      if (routeSet) drawRoute();
+      else if (editingPath) {
         disposePaths?.();
         disposePaths = null;
       } else redrawPaths();

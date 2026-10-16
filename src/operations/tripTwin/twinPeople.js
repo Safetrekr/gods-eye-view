@@ -437,6 +437,8 @@ export function createPeopleLayer(viewer, site, twin) {
         numbering = true,
         groundLabel = 1,
         focusIds = null,
+        // Phase 8: is a point drawn on the map (wider area)? null = core only.
+        covers = null,
       } = {},
     ) {
       ds.entities.removeAll();
@@ -449,7 +451,10 @@ export function createPeopleLayer(viewer, site, twin) {
         if (!row.pos.located) continue;
         const c = row.person.coordinates;
         const [px, py] = projector.toXY(c.lat, c.lng);
-        if (Math.hypot(px, py) > limit) {
+        if (
+          Math.hypot(px, py) > limit &&
+          !covers?.({ lat: c.lat, lon: c.lng })
+        ) {
           beyond += 1; // shown as an edge chip, not as a pin floating over the site
           continue;
         }

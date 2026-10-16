@@ -112,8 +112,8 @@ export function createSafetyLayer(viewer, site) {
       if (lastArgs) this.update(...lastArgs);
     },
     /** Returns edge chips for points beyond the hologram. */
-    update(points = [], { show = true } = {}) {
-      lastArgs = [points, { show }];
+    update(points = [], { show = true, covers = null } = {}) {
+      lastArgs = [points, { show, covers }];
       ds.entities.removeAll();
       const chips = [];
       if (!show) return chips;
@@ -132,7 +132,8 @@ export function createSafetyLayer(viewer, site) {
         const ll = { lat: p.coordinates.lat, lon: p.coordinates.lng };
         const d = haversineM(center, ll);
         const label = SAFETY_LABEL[p.category] || p.category;
-        if (d > inView) {
+        // Pinned wherever the map is drawn (phase 8 N1), else an edge chip.
+        if (d > inView && !covers?.(ll)) {
           chips.push({
             id: p.id,
             label,

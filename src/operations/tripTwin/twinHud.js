@@ -108,10 +108,12 @@ export function pathCards(
   );
   let arriveShown = false;
   return cards.map(({ p, flagged, entered, heat }) => {
+    // Paths rank Main / Alternate; "primary" is a rally point's rank
+    // (review/phase9 O9).
     const name =
       p.kind === 'alternate'
-        ? 'Alternate path'
-        : 'Path to rally point (primary)';
+        ? 'Alternate path to Rally point (primary)'
+        : 'Main path to Rally point (primary)';
     if (p.kind === 'unavailable')
       return {
         flagged: true,
@@ -148,6 +150,7 @@ export function pathCards(
     }
     return {
       flagged,
+      kind: p.kind,
       title: `${name} · ${formatDistance(p.distanceM)} · walk ${p.walk[0]}–${p.walk[1]} min`,
       lines,
     };
@@ -156,7 +159,13 @@ export function pathCards(
 
 function cardEl(card) {
   const c = el('div', `tt-path-card${card.flagged ? ' flag' : ''}`);
-  c.append(el('div', 't', card.title));
+  if (card.kind === 'primary' || card.kind === 'alternate') {
+    // The title opens the path's card (review/phase9 O9).
+    const t = el('button', 't tt-path-open', `${card.title} ›`);
+    t.type = 'button';
+    t.dataset.kind = card.kind;
+    c.append(t);
+  } else c.append(el('div', 't', card.title));
   for (const l of card.lines) c.append(el('div', 'l', l));
   return c;
 }
@@ -593,7 +602,7 @@ export function createHud({
         el(
           'div',
           `tt-move-sum${moveCards[0].flagged ? ' flag' : ''}`,
-          `If the group must move: ${moveCards[0].title.replace(/^Path to /, '')} · details below`,
+          `If the group must move: ${moveCards[0].title.replace(/^(Main|Alternate) path/, (m) => m.toLowerCase())} · details below`,
         ),
       );
     if (moveCards[0]) {
@@ -784,7 +793,7 @@ export function createCard(card, { onClose }) {
       ...lines.map(([cls, t]) => el('div', `tt-card-line ${cls || ''}`, t)),
       ...bottom,
     );
-    card.classList.remove('floor-view', 'compact');
+    card.classList.remove('floor-view', 'compact', 'path-view');
     card.hidden = false;
   }
   const expanded = new Set();
@@ -838,6 +847,23 @@ export function createCard(card, { onClose }) {
     /** A clicked place (hospital, police, rally point, …) — phase 3 Part C. */
     place(info, bottom = []) {
       frame(info.kind, info.name, info.lines, [], null, bottom);
+    },
+    /**
+     * A drawn suggested path (review/phase9 O8): the result block, then the
+     * details. Always re-renders (the page keys it); focus stays on the
+     * button that had it.
+     */
+    path(info, { back = null, top = [], bottom = [] } = {}) {
+      const had = card.contains(document.activeElement)
+        ? document.activeElement.textContent
+        : null;
+      sig = '';
+      frame(info.kind, info.name, info.lines, top, back, bottom);
+      card.classList.add('path-view');
+      if (had)
+        [...card.querySelectorAll('button')]
+          .find((b) => b.textContent === had)
+          ?.focus();
     },
     /** Per-floor roster (phase 2): three sections, 5 rows each then Show all. */
     floor(roster, ctx, { onBack, onPerson, onCopy }) {
@@ -1095,12 +1121,12 @@ const step = (n, label) => {
 };
 
 /** The result block for one suggested path (review/phase5 J3). */
-function resultEl(card, compact = false) {
+export function resultEl(card, compact = false) {
   const c = el(
     'div',
     `tt-result${card.flagged ? ' flag' : ''}${compact ? ' alt' : ''}`,
   );
-  c.append(el('div', 'k', card.kicker || ''));
+  if (card.kicker) c.append(el('div', 'k', card.kicker));
   const m = el('div', 'm', card.metric || card.title);
   if (card.metricNote) m.append(el('span', 'note', ` ${card.metricNote}`));
   c.append(m);

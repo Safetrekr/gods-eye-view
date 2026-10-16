@@ -105,8 +105,29 @@ export function createCustomPathsLayer(viewer, site) {
       render();
     },
     /** The path being edited: line, numbered waypoints, labelled ends. */
-    drawEdit({ points, geometry, fromLabel, toLabel, areas = [] }) {
+    drawEdit({
+      points,
+      geometry,
+      fromLabel,
+      toLabel,
+      areas = [],
+      original = null,
+    }) {
       editDs.entities.removeAll();
+      // The suggested line being edited stays faintly visible (phase 9).
+      if (original?.length)
+        editDs.entities.add({
+          polyline: {
+            positions: original.map((q) => at(q, 1.2)),
+            width: 3,
+            arcType: Cesium.ArcType.NONE,
+            material: new Cesium.PolylineDashMaterialProperty({
+              color: css('#eff7f3', 0.45),
+              gapColor: css('#061a23', 0),
+              dashLength: 10,
+            }),
+          },
+        });
       if (geometry?.length)
         editDs.entities.add({
           polyline: {

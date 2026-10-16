@@ -1,5 +1,15 @@
 # Trip Twin backlog (next rounds)
 
+## Status (16 Oct 2026)
+| Item | State |
+|---|---|
+| Streets, walkways, Ways out | **Done:** phase 7 (`review/phase7`), commit 273e9db |
+| More of the city in 3D | **Done:** phase 8 (`review/phase8`). Prototype = C plus our own OSM context ring (no Cesium ion token, so B was replaced by a ring we record ourselves) |
+| Select any path, see details, edit it | **Done:** phase 9 (`review/phase9`). "Edit a copy of this path" |
+| Help overlay regrouped · frame-whole-trip honours Reduce motion | **Done** (phase 9 commit) |
+| Leader lines for moved labels | Deferred |
+| Saved path vs automatic suggestion | **Decided (Jesse): faded**, built in phase 9 (O19) |
+
 ## Next round: streets, walkways and a "ways out" view (Jesse, 16 Oct 2026)
 Jesse: "the streets … more defined than they are now, and maybe walking paths … if I need to quickly see what the best escape routes are I might toggle just the buildings and the roads."
 
@@ -14,7 +24,7 @@ Jesse: "the streets … more defined than they are now, and maybe walking paths 
 - Usability round with 10–12 operators (IA validation plan, review/phase5/04-ia.md).
 - Production delta (07-production-delta.md): Core tables, mobile pressure capture, own routing and geocoding.
 - Multi-trip operations view (SOC).
-- Leader lines for moved labels; help overlay regrouped; frame-whole-trip honours Reduce motion.
+- Leader lines for moved labels (help overlay regroup and Reduce-motion framing are done).
 
 ## More of the city in 3D (Jesse, 16 Oct 2026)
 Jesse: "right now there is a limited 3d area then there is nothing … the routes between the hotel and the venues, or an additional mile around the hotel … I'm assuming the model would be built out to encompass the rally points and emergency stuff."

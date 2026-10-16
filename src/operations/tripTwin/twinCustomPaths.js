@@ -503,3 +503,150 @@ export function chaperoneShareText(
     'Prototype · not sent — copied for a message to chaperones',
   ].join('\n');
 }
+
+/**
+ * Waypoints that make the router redraw a drawn path (phase 9, "edit this
+ * path"): the shape's turning points (Douglas–Peucker), at most `max`, none
+ * closer than `minGapM` to a neighbour or an end. Ends excluded.
+ */
+export function seedWaypoints(geometry, { max = 8, minGapM = null } = {}) {
+  if (!geometry || geometry.length < 3) return [];
+  // Spacing scales with the path: a tenth of its length, at most 150 m.
+  if (minGapM == null) {
+    let len = 0;
+    for (let i = 1; i < geometry.length; i += 1)
+      len += haversineM(geometry[i - 1], geometry[i]);
+    minGapM = Math.min(150, len / 10);
+  }
+  const o = geometry[0];
+  const kx = Math.cos((o.lat * Math.PI) / 180) * 111320;
+  const xy = geometry.map((p) => [
+    (p.lon - o.lon) * kx,
+    (p.lat - o.lat) * 110540,
+  ]);
+  const keep = (tol) => {
+    const flag = new Array(xy.length).fill(false);
+    flag[0] = flag[xy.length - 1] = true;
+    const stack = [[0, xy.length - 1]];
+    while (stack.length) {
+      const [a, b] = stack.pop();
+      const [ax, ay] = xy[a];
+      const [bx, by] = xy[b];
+      const len = Math.hypot(bx - ax, by - ay) || 1;
+      let best = -1;
+      let bestD = tol;
+      for (let i = a + 1; i < b; i += 1) {
+        const d =
+          Math.abs((bx - ax) * (ay - xy[i][1]) - (ax - xy[i][0]) * (by - ay)) /
+          len;
+        if (d > bestD) {
+          bestD = d;
+          best = i;
+        }
+      }
+      if (best > 0) {
+        flag[best] = true;
+        stack.push([a, best], [best, b]);
+      }
+    }
+    return flag;
+  };
+  // Turning points more than 20 m off the straight line between neighbours.
+  const idx = keep(20)
+    .map((v, i) => (v ? i : -1))
+    .filter((i) => i > 0 && i < xy.length - 1);
+  // Spacing: no waypoint within minGapM of the previous kept point or the end.
+  const out = [];
+  let last = geometry[0];
+  const end = geometry[geometry.length - 1];
+  for (const i of idx) {
+    const p = geometry[i];
+    if (haversineM(p, last) < minGapM || haversineM(p, end) < minGapM) continue;
+    out.push({ lat: p.lat, lon: p.lon });
+    last = p;
+  }
+  // A path over 500 m never seeds nothing: hold its middle at least, so a
+  // re-plan keeps the shape (review/phase9 O16).
+  if (!out.length && pathLengthM(geometry) > 500)
+    out.push(pointAlong(geometry, pathLengthM(geometry) / 2));
+  // Too many: keep an even spread.
+  if (out.length > max) {
+    const step = out.length / max;
+    return Array.from(
+      { length: max },
+      (_, k) => out[Math.floor(k * step + step / 2)],
+    );
+  }
+  return out;
+}
+
+/** Length of a polyline of {lat, lon} in metres. */
+export function pathLengthM(g = []) {
+  let len = 0;
+  for (let i = 1; i < g.length; i += 1) len += haversineM(g[i - 1], g[i]);
+  return len;
+}
+
+/** The point m metres along a polyline. */
+export function pointAlong(g, m) {
+  let walked = 0;
+  for (let i = 1; i < g.length; i += 1) {
+    const seg = haversineM(g[i - 1], g[i]);
+    if (walked + seg >= m && seg > 0) {
+      const t = (m - walked) / seg;
+      return {
+        lat: g[i - 1].lat + (g[i].lat - g[i - 1].lat) * t,
+        lon: g[i - 1].lon + (g[i].lon - g[i - 1].lon) * t,
+      };
+    }
+    walked += seg;
+  }
+  return { lat: g.at(-1).lat, lon: g.at(-1).lon };
+}
+
+/** Distance along a polyline to the vertex nearest pt (waypoint rows, O16). */
+export function alongM(g = [], pt) {
+  let best = 0;
+  let bestD = Infinity;
+  let walked = 0;
+  for (let i = 0; i < g.length; i += 1) {
+    if (i) walked += haversineM(g[i - 1], g[i]);
+    const d = haversineM(g[i], pt);
+    if (d < bestD) {
+      bestD = d;
+      best = walked;
+    }
+  }
+  return best;
+}
+
+/**
+ * Named streets a path follows, in order, at most `max` (the path card's
+ * "Via", review/phase9 O8). Samples every 30 m; a name counts once it holds
+ * for two samples in a row, so crossings are not listed.
+ */
+export function pathVia(g = [], roads = [], max = 3) {
+  const names = [];
+  let prev = null;
+  const len = pathLengthM(g);
+  for (let m = 0; m <= len; m += 30) {
+    const name = nearestStreet(pointAlong(g, m), roads, 18)?.name || null;
+    if (name && name === prev && names.at(-1) !== name && !names.includes(name))
+      names.push(name);
+    prev = name;
+  }
+  return names.slice(0, max);
+}
+
+/**
+ * Does a saved path cover the same start and end as a drawn suggestion?
+ * Then the suggestion is drawn faded (Jesse, 16 Oct 2026: "just faded").
+ */
+export function coversEnds(saved, ends, tolM = 60) {
+  const pts = saved?.points;
+  if (!ends?.from || !ends?.to || !pts?.length) return false;
+  return (
+    haversineM(pts[0], ends.from) <= tolM &&
+    haversineM(pts[pts.length - 1], ends.to) <= tolM
+  );
+}

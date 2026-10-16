@@ -219,7 +219,7 @@ export function pathSummaryText(s) {
       ...(c.warnings.length
         ? c.warnings.map((w) => `Flag: ${w}`)
         : ['Flags: none raised (not a verification)']),
-      'Not checked for closures, crowds or lighting.',
+      'OSM street path · not checked for closures, crowds, lighting, crime or damage.',
     ].join('\n'),
   );
 }

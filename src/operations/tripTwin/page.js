@@ -23,6 +23,7 @@ import {
   createHud,
   renderRouteSection,
   responderText,
+  resultEl,
 } from './twinHud.js';
 import {
   MODES,
@@ -38,6 +39,10 @@ import {
   areaLabel,
   nearestStreet,
   chaperoneShareText,
+  seedWaypoints,
+  coversEnds,
+  defaultName,
+  pathVia,
   legWindow,
   waypointText,
   avoidStatus,
@@ -574,6 +579,7 @@ async function main() {
 
   /** The place whose card is open glows on the map and in the chips. */
   function syncPlaceHighlight() {
+    if (selection?.kind !== 'suggested') twin.setPathSelected?.(null);
     twin.setSelectedPlace(
       selection?.kind === 'place' ? selection.place.id : null,
     );
@@ -613,10 +619,18 @@ async function main() {
     tileset,
     glowStyle: glowParam,
     simulateFires: $('tt-simfire').checked,
+    // Phase 9 (review O1): a path card never outlives its line.
+    onDrawnPaths: (id) => onDrawnPathsChange(id),
     onEntityPick: (id) => {
       const m = /^twin-site:(.+)$/.exec(id);
       if (m) {
         switchSite(m[1]);
+        return true;
+      }
+      // Phase 9: a drawn suggested path (its line or its casing).
+      const sp9 = /^twin-path:(primary|alternate)/.exec(id);
+      if (sp9) {
+        selectSuggestedPath(sp9[1]);
         return true;
       }
       const sv = /^twin-saved:([^:]+)/.exec(id);
@@ -700,6 +714,8 @@ async function main() {
       }
     },
     onAssess: (a, info) => {
+      // The open path card follows the clock, the roster and the checks (O2, O4).
+      queueMicrotask(() => renderPathCard());
       const snap = info.snapshot;
       const clock = sampleClock(snap);
       const ageS = (Date.now() - lastFeed) / 1000;
@@ -767,6 +783,7 @@ async function main() {
           );
         });
       }
+      if (mode.mode !== lastModeKey) queueMicrotask(() => syncContextDim());
       if (waysOut && mode.mode !== lastModeKey) {
         applyWaysOut();
         queueMicrotask(renderWaysTag);
@@ -936,6 +953,11 @@ async function main() {
       // Harness only: hide the scene while primitives compile.
       $('tt-veil').classList.toggle('on', state === 'loading');
     },
+    onContext: () => renderLayers(),
+    onContextClick: () =>
+      offerNotice(
+        'Wider area — no details on click · the detailed area is selectable',
+      ),
     onReady: (site) => {
       queueMicrotask(() => applyGround());
       wxLayer?.dispose();
@@ -1029,9 +1051,12 @@ async function main() {
         Cesium.Math.toRadians(-60),
         Math.max(2500, sphere.radius * 4.2),
       ),
-      duration: matchMedia('(prefers-reduced-motion: reduce)').matches
-        ? 0
-        : 1.4,
+      // Display › Reduce motion counts as well as the system setting.
+      duration:
+        matchMedia('(prefers-reduced-motion: reduce)').matches ||
+        $('tt-reduce-motion').checked
+          ? 0
+          : 1.4,
     });
   }
   /** Fly out, rebuild for another site, fly in. Trip-wide state is kept. */
@@ -1051,6 +1076,7 @@ async function main() {
       );
     }
     clearFloorFocus();
+    closePathCard();
     clearRoute();
     floorReturn = null;
     siteKey = key;
@@ -1423,6 +1449,8 @@ async function main() {
         toLabel: end.toLabel,
         fix,
         place: end.place,
+        personId: routeTarget.row?.person?.id || null,
+        personName: routeTarget.label,
       };
     }
     let fromLabel = end.fromLabel;
@@ -1438,6 +1466,8 @@ async function main() {
       toLabel: routeTarget.label,
       fix,
       place: routeTarget.place,
+      personId: end.key === 'person' ? end.row.person.id : null,
+      personName: end.key === 'person' ? end.row.person.name : null,
     };
   }
   async function runRoute({ profile: asked } = {}) {
@@ -1476,7 +1506,21 @@ async function main() {
       // The Advance path replaces any drawn card path (one path on the map).
       drawn = null;
       renderPill();
-      twin.showRoute(paths, { fromLabel, toLabel });
+      // A traveler's position is never stored: the set says so as data, so
+      // the gate never depends on a label (review/phase9 O15). Its age is
+      // read live wherever the start is named (O2).
+      const person = routeTarget.kind === 'person' || ep.personId;
+      twin.showRoute(paths, {
+        fromLabel: person ? ep.personName || fromLabel : fromLabel,
+        toLabel,
+        ends: { from, to },
+        fix: ep.fix,
+        fromPerson: Boolean(person || ep.fix),
+        personId: ep.personId,
+        startText: person
+          ? () => fixText(shortName(ep.personName || ''), ep.fix)
+          : null,
+      });
       const cards = routeCards(
         paths,
         { profile, toLabel, fromLabel },
@@ -1509,6 +1553,7 @@ async function main() {
       };
       drawn = {
         targetKey: target.key,
+        targetLabel: target.label,
         model: routeModel,
         ep,
         pill: `${cards[0].route.replace(/ \(.*?\)/, '')} · ${MODES[profile].verb} ${cards[0].metric}`,
@@ -1598,12 +1643,15 @@ async function main() {
   document.body.append(pill);
   cleanups.push(() => pill.remove());
   function renderPill() {
-    const show = Boolean(drawn) && routeTarget?.key !== drawn.targetKey;
+    // Hidden while its card is open, the path card is open, or a copy is
+    // being edited: each verb once on screen (review/phase9 O10).
+    const show =
+      Boolean(drawn) &&
+      routeTarget?.key !== drawn.targetKey &&
+      selection?.kind !== 'suggested' &&
+      !document.body.classList.contains('tt-editing');
     pill.hidden = !show;
     if (!show) return;
-    const t = document.createElement('span');
-    t.className = 't';
-    t.textContent = `Path: ${drawn.pill}`;
     const mk = (label, fn, cls = 'tt-btn sm') => {
       const b = document.createElement('button');
       b.type = 'button';
@@ -1612,14 +1660,23 @@ async function main() {
       b.addEventListener('click', () => fn(b));
       return b;
     };
+    // The title opens the path card (review/phase9 O11).
+    const open = mk(
+      `Path: ${drawn.pill}`,
+      () => {
+        if (twin.drawnPaths?.source === 'route') selectSuggestedPath('primary');
+      },
+      'tt-link t',
+    );
+    open.title = 'Open the path card';
     pill.replaceChildren(
-      t,
-      mk('Frame', () => twin.frameRoute()),
-      mk('Copy', async (b) => {
-        const ok = await copyPathSummary(drawn.model, drawn.ep);
+      open,
+      mk('Frame path', () => twin.frameRoute()),
+      mk('Copy path summary', async (b) => {
+        const ok = drawn ? await copyPathSummary(drawn.model, drawn.ep) : false;
         b.textContent = ok ? 'Copied' : 'Copy failed';
       }),
-      mk('Remove', () => removePath()),
+      mk('Remove path', () => removePath()),
     );
   }
   /** Card for a clicked safety place (hospital, police, rally point, …). */
@@ -1780,9 +1837,16 @@ async function main() {
         { lat: t.lat, lon: t.lon },
         { profile: 'foot', signal: abort.signal, hazards: twin.hazardPoints() },
       );
+      // One path on the map: the card path's pill and Copy go with it (O3).
+      drawn = null;
+      renderPill();
       twin.showRoute(paths, {
         fromLabel: SITES[0].short,
         toLabel: site.short,
+        ends: {
+          from: { lat: h.lat, lon: h.lon },
+          to: { lat: t.lat, lon: t.lon },
+        },
       });
       const p = paths[0];
       // Built at render so it follows Display › Units.
@@ -2284,15 +2348,33 @@ async function main() {
     if (!customLayer) return;
     customLayer.drawAreas(pathStore.areas, { show: customVis.avoid });
     const day = shownDay();
-    customLayer.drawSaved(
-      customVis.saved
+    const shown = customVis.saved
+      ? pathStore.paths.filter(
+          (p) => day == null || p.day == null || p.day === day,
+        )
+      : [];
+    customLayer.drawSaved(shown, {
+      selectedId: selectedSavedId,
+      areas: pathStore.areas,
+    });
+    syncSuggestionFade(shown);
+  }
+  /** A saved path on the map with the same ends fades the suggestion (Jesse). */
+  function syncSuggestionFade(shown = null) {
+    const day = shownDay();
+    const list =
+      shown ||
+      (customVis.saved
         ? pathStore.paths.filter(
             (p) => day == null || p.day == null || p.day === day,
           )
-        : [],
-      { selectedId: selectedSavedId, areas: pathStore.areas },
-    );
+        : []);
+    const ends = twin.drawnPaths?.ends;
+    const covering = list.find((p) => coversEnds(p, ends)) || null;
+    fadedBy = covering;
+    twin.setSuggestionFaded?.(Boolean(covering));
   }
+  let fadedBy = null; // the saved path that fades the drawn suggestion
   const firesUnavailable = () =>
     !['live', 'stale', 'simulated'].includes(lastCtx?.fires?.status || 'live');
   /** Every check for a saved path, re-run on display (H5/H6). */
@@ -2418,6 +2500,15 @@ async function main() {
     onCrumb: (t) => ($('tt-crumb-focus').textContent = t),
     onClose: (saved) => {
       $('tt-crumb-focus').textContent = '';
+      const from = copiedFrom;
+      copiedFrom = null;
+      renderPill();
+      // Discarding a copy goes back to the path it came from (UX 5).
+      if (!saved && from && twin.drawnPaths?.id === from.setId) {
+        renderCustom();
+        renderLayers();
+        return selectSuggestedPath(from.kind);
+      }
       if (saved) selectedSavedId = saved.id;
       renderCustom();
       renderLayers();
@@ -2452,6 +2543,407 @@ async function main() {
     b.addEventListener('click', () => onClick(b));
     return b;
   };
+  // ---- Phase 9: the drawn suggested-path card (review/phase9 O1–O15) ----
+  const PTH03 =
+    'OSM street path · not checked for closures, crowds, lighting, crime or damage';
+  /** Main / Alternate when two are drawn; none for a single path (O9). */
+  const rankOf = (set, kind) =>
+    set.paths.filter((p) => p.kind !== 'unavailable').length < 2
+      ? null
+      : kind === 'alternate'
+        ? 'alternate'
+        : 'main';
+  /** "Emi S. · position at 21:31 · 4 min old", read live from the fix (O2). */
+  function fixText(name, fix) {
+    if (!fix || !Number.isFinite(fix.atMs))
+      return `${name} · position time unknown`;
+    return `${name} · ${fix.current ? 'position' : 'last known position'} at ${clock(fix.atMs)} · ${formatAge((Date.now() - fix.atMs) / 1000)} old`;
+  }
+  const fixOld = (fix) =>
+    !fix ||
+    !fix.current ||
+    !Number.isFinite(fix.atMs) ||
+    Date.now() - fix.atMs > 300000;
+  /** The card a card route came from: the path card is its child (O12). */
+  function pathParent() {
+    const key = drawn?.targetKey || '';
+    const i = key.indexOf(':');
+    const kind = key.slice(0, i);
+    const id = key.slice(i + 1);
+    const label = drawn?.targetLabel || '';
+    const short = (t) => (t.length > 28 ? `${t.slice(0, 27).trim()}…` : t);
+    if (kind === 'person')
+      return {
+        label: shortName(label),
+        open: () => twin.selectPerson(id),
+      };
+    if (kind === 'place') {
+      const p = (lastCtx?.snapshot?.safety_points || []).find(
+        (x) => x.id === id,
+      );
+      return p ? { label: short(label), open: () => selectPlace(p) } : null;
+    }
+    if (kind === 'building')
+      return { label: short(label), open: () => twin.select(id) };
+    return null;
+  }
+  /** "Emi has moved since this path was planned" — while the card is open. */
+  function staleFor(set) {
+    if (!set.fromPerson || !set.fix || !set.personId) return '';
+    const row = (lastA?.rows || []).find((r) => r.person.id === set.personId);
+    const now = personFix(row);
+    if (!now) return '';
+    const name = firstName(row.person.name);
+    if (haversineM(now, set.fix) > 50)
+      return `${name} has moved since this path was planned`;
+    if (
+      Number.isFinite(now.atMs) &&
+      Number.isFinite(set.fix.atMs) &&
+      now.atMs - set.fix.atMs >= 120000
+    )
+      return `${name} has a newer position than this path`;
+    return '';
+  }
+  /** The same checks as the editor and saved paths, on the true ends (O4, O5). */
+  function suggestedChecks(set, p, profile) {
+    const g = p.geometry;
+    const ends = set.ends || { from: g[0], to: g[g.length - 1] };
+    const inside = pathStore.areas.filter((a) =>
+      [ends.from, ends.to].some((pt) => haversineM(pt, a.center) <= a.radiusM),
+    );
+    const live = appMode !== 'advance';
+    const now = lastCtx?.snapshot ? sampleClock(lastCtx.snapshot) : '';
+    const day = live ? null : currentAdvanceDay();
+    return pathChecks(
+      {
+        geometry: g,
+        distanceM: p.distanceM,
+        avoidApplied: true,
+        endpointAreas: inside,
+      },
+      {
+        points: [ends.from, ends.to],
+        areas: pathStore.areas,
+        hazards: twin.hazardPoints(),
+        hazardsStatus: firesUnavailable() ? 'unavailable' : 'ok',
+        profile,
+        day,
+        dark: !live && isDark(day),
+        // Live: the sample clock now, not the schedule (SUP 6).
+        leg: live
+          ? {
+              dark: Boolean(lastCtx?.night),
+              darkText: lastCtx?.night
+                ? `After dark now (${now} local) — lighting not checked`
+                : `Daylight now (${now} local)`,
+            }
+          : null,
+      },
+    );
+  }
+  /** Copy path summary for exactly this path (O3). */
+  async function copySuggested(set, p) {
+    const profile = p.profile || 'foot';
+    const c = routeCards(
+      [p],
+      { profile, fromLabel: set.fromLabel, toLabel: set.toLabel },
+      {
+        areas: pathStore.areas,
+        pace: profile === 'foot' ? lastCtx?.weather?.pace : null,
+        simulatedFires: lastCtx?.fires?.simulated,
+      },
+    )[0];
+    const rank = rankOf(set, p.kind);
+    const text = pathSummaryText({
+      title: `${rank === 'alternate' ? 'Alternate path' : rank === 'main' ? 'Main path' : 'Path'}${set.source === 'rally' ? ' to Rally point (primary)' : ''}`,
+      stamp: stamp().replace(/^you · /, ''),
+      from: set.fromPerson
+        ? `${shortName(set.fromLabel)}, ${set.fix?.current ? `position as of ${clock(set.fix.atMs)}` : `last known position (${set.fix ? formatAge((Date.now() - set.fix.atMs) / 1000) : 'time unknown'} old)`}`
+        : set.fromLabel,
+      to: `${set.toLabel}${set.toName ? ` · ${set.toName}` : ''}`,
+      toExtra: [],
+      // The same flags the card shows (review/phase9 O3, O4).
+      shown: {
+        ...c,
+        warnings: suggestedChecks(set, p, profile)
+          .filter((f) => f.warn)
+          .map((f) => f.text),
+      },
+      other: null,
+      simulated: simulationOn(),
+    });
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  let pathCardKey = '';
+  // A polite live region for selections made off the map (SUP 9).
+  const live = document.createElement('div');
+  live.setAttribute('aria-live', 'polite');
+  live.className = 'tt-sr';
+  document.body.append(live);
+  cleanups.push(() => live.remove());
+  const announce = (t) => {
+    live.textContent = '';
+    setTimeout(() => (live.textContent = t), 30);
+  };
+  /** Close the path card; say why when the line changed under it (O1). */
+  function closePathCard(why = null) {
+    if (selection?.kind !== 'suggested') return;
+    selection = null;
+    pathCardKey = '';
+    twin.setPathSelected(null);
+    syncPlaceHighlight();
+    card.hide();
+    $('tt-crumb-focus').textContent = '';
+    renderPill();
+    if (why) offerNotice(why);
+  }
+  function onDrawnPathsChange(id) {
+    if (id != null) syncSuggestionFade();
+    if (selection?.kind === 'suggested' && selection.setId !== id)
+      closePathCard(
+        id == null
+          ? 'That path is no longer on the map — card closed'
+          : 'That path was replaced — card closed',
+      );
+    renderLayers(); // a no-op while Layers is closed
+  }
+  /** Back to the card the path came from, the path still drawn (O12). */
+  function backToParent() {
+    const parent = selection?.parent;
+    closePathCard();
+    parent?.open();
+  }
+  /**
+   * Card for a drawn suggested path: what it is, where it starts (and how
+   * old that is), the checks, then "Edit a copy of this path".
+   */
+  function selectSuggestedPath(kind, { frame = false, focus = false } = {}) {
+    const set = twin.drawnPaths;
+    const p = set?.paths.find((x) => x.kind === kind);
+    if (!p || p.kind === 'unavailable') return;
+    const parent = set.source === 'route' ? pathParent() : null;
+    // Release a card plan still in flight, as a saved-path card does (O1).
+    releaseCard();
+    placeSelecting = true;
+    twin.select(null);
+    placeSelecting = false;
+    selection = { kind: 'suggested', setId: set.id, pathKind: kind, parent };
+    syncPlaceHighlight();
+    twin.setPathSelected(kind);
+    if (frame) twin.frameGeometry(p.geometry);
+    pathCardKey = '';
+    renderPathCard();
+    renderPill();
+    renderLayers(); // a no-op while Layers is closed
+    if (focus) {
+      const n = $('tt-card').querySelector('.tt-card-name');
+      n?.setAttribute('tabindex', '-1');
+      n?.focus();
+    }
+    announce(
+      `${rankOf(set, kind) === 'alternate' ? 'Alternate' : rankOf(set, kind) === 'main' ? 'Main' : 'Suggested'} path selected, ${formatDistance(p.distanceM)}`,
+    );
+  }
+  /** (Re)build the open path card; keyed, so a tick re-renders only on change. */
+  function renderPathCard() {
+    const sel = selection;
+    if (sel?.kind !== 'suggested') return;
+    const set = twin.drawnPaths;
+    if (!set || set.id !== sel.setId)
+      return closePathCard('That path is no longer on the map — card closed');
+    const p = set.paths.find((x) => x.kind === sel.pathKind);
+    if (!p) return closePathCard();
+    const profile = p.profile || 'foot';
+    const rank = rankOf(set, sel.pathKind);
+    const c = routeCards(
+      [p],
+      { profile, fromLabel: set.fromLabel, toLabel: set.toLabel },
+      {
+        areas: pathStore.areas,
+        pace: profile === 'foot' ? lastCtx?.weather?.pace : null,
+        simulatedFires: lastCtx?.fires?.simulated,
+      },
+    )[0];
+    const checks = suggestedChecks(set, p, profile);
+    const person = set.fromPerson;
+    const fromName = person ? shortName(set.fromLabel) : set.fromLabel;
+    const lines = [];
+    if (person) {
+      const old = fixOld(set.fix);
+      lines.push([
+        old ? 'tt-age-old' : '',
+        `Start: ${fixText(fromName, set.fix)}`,
+      ]);
+      if (old)
+        lines.push([
+          'tt-edit-flag',
+          'Not a current position — the traveler may not be there now',
+        ]);
+      const stale = staleFor(set);
+      if (stale)
+        lines.push([
+          'tt-edit-flag',
+          `${stale} · open their card to plan from now`,
+        ]);
+    }
+    const via = pathVia(p.geometry, twin.site?.roads || []);
+    if (via.length) lines.push(['', `Via ${via.join(', ')}`]);
+    for (const f of checks.filter((x) => !x.warn))
+      lines.push(['tt-edit-info', f.text]);
+    if (!checks.some((x) => x.warn))
+      lines.push([
+        'tt-dim',
+        'Checks: none raised (not a verification of the path)',
+      ]);
+    for (const n of c.notes.filter((t) => /^Shares|rain: allow/i.test(t)))
+      lines.push(['', n.replace('the primary path', 'the main path')]);
+    const other = set.paths.find(
+      (x) => x.kind !== sel.pathKind && x.kind !== 'unavailable',
+    );
+    if (other) {
+      const d = other.distanceM - p.distanceM;
+      lines.push([
+        '',
+        `${other.kind === 'alternate' ? 'Alternate' : 'Main'}: ${formatDistance(other.distanceM)} (${d >= 0 ? '+' : '−'}${formatDistance(Math.abs(d))})`,
+      ]);
+    }
+    if (profile === 'car')
+      lines.push(['', 'No traffic, parking or drop-off checked']);
+    if (set.faded && fadedBy)
+      lines.push([
+        'tt-edit-info',
+        `Drawn faded: the saved path “${fadedBy.name}” has the same start and end`,
+      ]);
+    lines.push(['', PTH03]);
+    lines.push([
+      'foot',
+      `Planned ${clock(set.plannedAt)} · OSRM (OpenStreetMap data)${set.source === 'rally' ? ' · automatically to Rally point (primary)' : ''}`,
+    ]);
+    const result = {
+      metric: `${profile === 'car' ? 'Drive' : 'Walk'} · ${c.metric}`,
+      metricNote: c.metricNote,
+      warnings: checks.filter((x) => x.warn).map((x) => x.text),
+      notes: [],
+      flagged: checks.some((x) => x.warn),
+    };
+    const info = {
+      kind: rank
+        ? `SUGGESTED · ${rank.toUpperCase()} · UNVERIFIED`
+        : 'SUGGESTED PATH · UNVERIFIED',
+      name: `${fromName} → ${set.toLabel}${set.toName ? ` · ${set.toName}` : ''}`,
+      lines,
+    };
+    const key = JSON.stringify([info, result, sel.parent?.label, set.id]);
+    if (key === pathCardKey && !$('tt-card').hidden) return;
+    pathCardKey = key;
+    const acts = document.createElement('div');
+    acts.className = 'tt-actions tt-saved-acts';
+    acts.append(
+      actBtn(
+        person ? 'Edit a copy (live only)' : 'Edit a copy of this path',
+        () => editSuggestedCopy(set, p),
+        'tt-btn primary',
+      ),
+      actBtn('Frame path', () => twin.frameGeometry(p.geometry)),
+    );
+    const links = document.createElement('div');
+    links.className = 'tt-path-links';
+    const copy = actBtn(
+      'Copy path summary',
+      async (b) => {
+        const now = twin.drawnPaths;
+        const ok = now?.id === set.id ? await copySuggested(set, p) : false;
+        b.textContent = ok ? 'Copied' : 'Copy failed';
+      },
+      'tt-link',
+    );
+    links.append(copy);
+    if (set.source === 'route')
+      links.append(actBtn('Remove path', () => removePath(), 'tt-link'));
+    const bottom = [acts, links];
+    if (set.source === 'rally')
+      bottom.push(
+        Object.assign(document.createElement('div'), {
+          className: 'tt-card-line foot',
+          textContent:
+            'Shown while a primary rally point is set · hide in Layers › Paths › Suggested paths',
+        }),
+      );
+    if (person)
+      bottom.unshift(
+        Object.assign(document.createElement('div'), {
+          className: 'tt-card-line tt-edit-info',
+          textContent: 'Starts at a traveler’s position: a copy can’t be saved',
+        }),
+      );
+    card.path(info, {
+      top: [resultEl(result)],
+      back: sel.parent
+        ? { label: `‹ ${sel.parent.label}`, onClick: backToParent }
+        : null,
+      bottom,
+    });
+    $('tt-crumb-focus').textContent = sel.parent
+      ? `› ${sel.parent.label} › Suggested path`
+      : `› Suggested path${rank ? ` · ${rank}` : ''}`;
+  }
+  /** "Edit a copy of this path": the editor opens on this exact line (O13). */
+  let copiedFrom = null;
+  function editSuggestedCopy(set, p) {
+    const g = p.geometry;
+    const ends = set.ends || { from: g[0], to: g[g.length - 1] };
+    const via = pathVia(g, twin.site?.roads || [])[0];
+    const rank = rankOf(set, p.kind);
+    copiedFrom = { setId: set.id, kind: p.kind };
+    twin.setPathSelected(null);
+    selection = null;
+    pathCardKey = '';
+    card.hide();
+    pathEditor.start({
+      from: ends.from,
+      to: ends.to,
+      points: [ends.from, ...seedWaypoints(g), ends.to],
+      fromLabel: set.fromPerson ? 'a traveler’s position' : set.fromLabel,
+      toLabel: set.toLabel,
+      fromPerson: set.fromPerson,
+      startText: set.fromPerson
+        ? () => fixText(shortName(set.fromLabel), set.fix)
+        : null,
+      // Never the suggestion's own name (review/phase9 O14).
+      name: set.fromPerson
+        ? undefined
+        : `${defaultName(set)} · ${via ? `via ${via}` : `planned ${clock(Date.now())}`}`.slice(
+            0,
+            80,
+          ),
+      origin: {
+        kind: 'suggested',
+        rank: rank || 'main',
+        engine: 'OSRM',
+        distanceM: p.distanceM,
+        plannedAt: set.plannedAt,
+      },
+      profile: p.profile || 'foot',
+      // The standing rally path applies every day (review/phase9 UX 9).
+      day:
+        set.source === 'rally'
+          ? null
+          : appMode === 'advance'
+            ? currentAdvanceDay()
+            : todayDay(),
+      original: {
+        geometry: g,
+        distanceM: p.distanceM,
+        durationS: p.durationS ?? null,
+      },
+    });
+    renderPill();
+  }
   /** Card for a saved path: edit, duplicate, review, delete. */
   function selectSaved(id) {
     const p = pathStore.paths.find((x) => x.id === id);
@@ -2471,7 +2963,11 @@ async function main() {
     const acts = document.createElement('div');
     acts.className = 'tt-actions tt-saved-acts';
     acts.append(
-      actBtn('Edit saved path', () => pathEditor.start({ saved: p })),
+      actBtn(
+        'Edit saved path',
+        () => pathEditor.start({ saved: p }),
+        'tt-btn primary',
+      ),
       actBtn('Duplicate', () =>
         pathEditor.start({
           saved: { ...p, id: null, name: `${p.name} (copy)` },
@@ -2601,6 +3097,15 @@ async function main() {
             .filter((f) => !/^avoid/.test(f.key))
             .map((f) => [f.warn ? 'tt-edit-flag' : 'tt-dim', f.text]),
           ...(p.notes ? [['', `Notes: ${p.notes}`]] : []),
+          // Where a copy began (review/phase9 O14).
+          ...(p.origin?.kind === 'suggested'
+            ? [
+                [
+                  'tt-dim',
+                  `Started from the suggested path (${p.origin.rank}) · ${p.origin.engine} · ${formatDistance(p.origin.distanceM)}${Number.isFinite(p.origin.plannedAt) ? ` · planned ${clock(p.origin.plannedAt)}` : ''}`,
+                ],
+              ]
+            : []),
           [
             'tt-dim',
             `Saved by ${p.savedBy}${p.reviewedBy ? ` · ${review.text}` : ''}`,
@@ -2617,7 +3122,9 @@ async function main() {
             'tt-dim',
             p.engine === 'valhalla'
               ? 'Suggested by Valhalla (FOSSGIS) · unverified · a review is a check, not an approval'
-              : 'Suggested by OSRM (fallback) · avoid-areas checked, not applied · unverified',
+              : p.origin?.kind === 'suggested'
+                ? 'The suggested path as drawn (OSRM) · avoid-areas checked, not applied · unverified'
+                : 'Suggested by OSRM (fallback) · avoid-areas checked, not applied · unverified',
           ],
         ],
       },
@@ -2688,6 +3195,11 @@ async function main() {
     },
     switchSite: (key) => switchSite(key),
     selectPerson: (id) => twin.selectPerson(id, { frame: true }),
+    drawnPaths: () => twin.drawnPaths,
+    dataSources: () =>
+      Array.from({ length: viewer.dataSources.length }, (_, i) =>
+        viewer.dataSources.get(i),
+      ).map((d) => `${d.name}:${d.entities.values.length}`),
   };
 
   // ---- compass (phase 3 Part D): north always readable; click a side ----
@@ -2719,12 +3231,18 @@ async function main() {
   ];
   let waysOut = null; // {saved, touched}
   function viewLayer(key) {
+    if (key === 'context') return twin.context.ring;
+    if (key === 'corridors') return twin.context.corridors;
     if (key === 'streets' || key === 'walkways') return twin.streets[key];
     if (key === 'savedPaths') return customVis.saved;
     if (key === 'avoidAreas') return customVis.avoid;
     return twin.layers[key];
   }
   function setViewLayer(key, on) {
+    if (key === 'context' || key === 'corridors')
+      return twin.setContext({
+        [key === 'context' ? 'ring' : 'corridors']: on,
+      });
     if (key === 'streets' || key === 'walkways')
       return twin.setStreets({ [key]: on });
     if (key === 'savedPaths' || key === 'avoidAreas') {
@@ -2739,8 +3257,17 @@ async function main() {
     b.setAttribute('aria-pressed', String(on));
     document.body.classList.toggle('tt-waysout', on);
     twin.setHotelStepBack(on);
+    syncContextDim();
     renderWaysTag();
     renderLayers();
+  }
+  /** The wider area steps back in Ways out and during an incident; in an
+   * incident the strip toward the hospital stays (review/phase8 N3). */
+  function syncContextDim() {
+    const incident = lastCtx?.mode?.mode === 'incident';
+    twin.setContextDim?.(Boolean(waysOut) || incident, {
+      keep: incident ? 'hospital' : null,
+    });
   }
   /** The always-on set (again after an incident arrives). */
   function applyWaysOut() {
@@ -2802,7 +3329,7 @@ async function main() {
     t.className = 'k';
     t.textContent = 'WAYS OUT VIEW';
     const d = document.createElement('div');
-    d.textContent = `Streets and walkways from OpenStreetMap${recorded ? ` (recorded ${recorded})` : ''}, not checked for closures, locked gates or private access${c ? ` · ${c.hotelDoors ? `${c.hotelDoors} mapped entrance${c.hotelDoors > 1 ? 's' : ''} at the hotel` : 'no entrances mapped at the hotel'} · fire exits are not mapped` : ''} · W or Esc returns`;
+    d.textContent = `Streets and walkways from OpenStreetMap${recorded ? ` (recorded ${recorded})` : ''}, not checked for closures, locked gates or private access · beyond the detailed area only main streets are drawn${c ? ` · ${c.hotelDoors ? `${c.hotelDoors} mapped entrance${c.hotelDoors > 1 ? 's' : ''} at the hotel` : 'no entrances mapped at the hotel'} · fire exits are not mapped` : ''} · W or Esc returns`;
     waysTag.replaceChildren(t, d);
     if (lastCtx?.mode?.mode === 'incident') {
       const i = document.createElement('div');
@@ -2815,6 +3342,16 @@ async function main() {
   $('tt-waysout-btn').addEventListener('click', () => toggleWaysOut());
   $('tt-incident').addEventListener('click', (e) => {
     if (e.target.closest?.('.tt-ways-btn') && !waysOut) enterWaysOut();
+    // Incident path titles open the path card (review/phase9 O9).
+    const po = e.target.closest?.('.tt-path-open');
+    if (po) {
+      if (twin.drawnPaths?.source === 'rally')
+        selectSuggestedPath(po.dataset.kind, { focus: true });
+      else
+        offerNotice(
+          'Another path is drawn now · remove it to see the rally paths',
+        );
+    }
   });
   /** Popover header: title, key hint, close (review/phase5 J8). */
   function popHead(title, key) {
@@ -2892,6 +3429,38 @@ async function main() {
         'OpenStreetMap · not checked for closures, locked gates or private access · tunnels not drawn',
       ],
     ],
+    context: [
+      [
+        '',
+        '#415e6b',
+        'Plain buildings and main streets beyond the detailed area',
+      ],
+      [
+        'note',
+        '',
+        twin.context.status === 'ready'
+          ? twin.context.counts.ringHere
+            ? `Out to ${formatRadius(twin.context.counts.ringM)} from the hotel · ${twin.context.counts.ringBuildings} buildings · OpenStreetMap, recorded ${String(twin.context.fetchedAt || '').slice(0, 10)} · no details on click · unmapped heights drawn low and fainter (not a measurement)`
+            : `Recorded around the hotel, not this venue · only the strip toward this venue is drawn here`
+          : twin.context.status === 'loading'
+            ? 'Loading the wider area…'
+            : 'Wider area not available for this site — not drawn',
+      ],
+    ],
+    corridors: [
+      [
+        '',
+        '#415e6b',
+        'More buildings and streets toward each venue and the hospital',
+      ],
+      [
+        'note',
+        '',
+        twin.context.status === 'ready'
+          ? `Toward ${twin.context.counts.strips.join(', ') || 'no places recorded'} · map detail only, not a path · about ${formatRadius(150)} either side of a recorded walk`
+          : 'Map detail only, not a path',
+      ],
+    ],
     walkways: [
       ['thin', '#b8c3c7', 'Walkway · pedestrian area'],
       ['stairs', '#e3e7e9', 'Steps'],
@@ -2934,6 +3503,9 @@ async function main() {
         ['buildings', 'Surrounding buildings', false],
         ['streets', 'Streets', false],
         ['walkways', 'Walkways, steps & entrances', false],
+        ['#beyond', 'Beyond the detailed area', false],
+        ['context', 'Wider area', false],
+        ['corridors', 'Toward venues & hospital', false],
         ['grid', 'Scale grid', false],
         ['elevation', 'Elevation contours', false],
       ],
@@ -2949,6 +3521,8 @@ async function main() {
       avoidAreas: customVis.avoid,
       streets: twin.streets.streets,
       walkways: twin.streets.walkways,
+      context: twin.context.ring,
+      corridors: twin.context.corridors,
     };
     const root = $('tt-layers');
     const scroll = root.scrollTop;
@@ -2991,6 +3565,13 @@ async function main() {
       gh.textContent = group;
       g.append(gh);
       for (const [key, label, locked] of rows) {
+        if (key.startsWith('#')) {
+          const h = document.createElement('div');
+          h.className = 'tt-key-note tt-onmap-h';
+          h.textContent = label;
+          g.append(h);
+          continue;
+        }
         const on = locked ? true : state[key];
         const row = document.createElement(locked ? 'div' : 'label');
         row.className = `tt-layer-row${locked ? ' locked' : ''}`;
@@ -3002,6 +3583,11 @@ async function main() {
           if (key === 'grid' || key === 'elevation') {
             ground[key === 'grid' ? 'grid' : 'contours'] = box.checked;
             applyGround();
+          } else if (key === 'context' || key === 'corridors') {
+            twin.setContext({
+              [key === 'context' ? 'ring' : 'corridors']: box.checked,
+            });
+            waysOutTouched(key, box.checked);
           } else if (key === 'streets' || key === 'walkways') {
             twin.setStreets({ [key]: box.checked });
             waysOutTouched(key, box.checked);
@@ -3056,7 +3642,7 @@ async function main() {
           g.append(groundOption(key));
       }
       if (group === 'Hazards') g.append(weatherGroup());
-      if (group === 'Paths') g.append(savedIndex());
+      if (group === 'Paths') g.append(onMapIndex(), savedIndex());
       if (group === 'Site') {
         // One pointer to the global units (review/phase5b IA F8).
         const u = document.createElement('button');
@@ -3071,63 +3657,123 @@ async function main() {
     root.scrollTop = scroll;
   }
 
-  /** Layers › Paths index: every saved path by day, every avoid-area (H16). */
-  function savedIndex() {
-    const d = document.createElement('details');
-    d.className = 'tt-layer-sub';
-    d.open = Boolean(savedIndex.open);
-    d.addEventListener('toggle', () => (savedIndex.open = d.open));
-    const sm = document.createElement('summary');
-    sm.textContent = `Saved paths ${pathStore.paths.length} · avoid-areas ${pathStore.areas.length}`;
-    d.append(sm);
-    const days = [...new Set(pathStore.paths.map((p) => p.day ?? 0))].sort(
-      (a, b) => a - b,
-    );
-    for (const day of days) {
-      const h = document.createElement('div');
-      h.className = 'tt-key';
-      h.textContent = day
-        ? `Day ${day}${day === todayDay() ? ' (today)' : ''}`
-        : 'Any day';
-      d.append(h);
-      for (const p of pathStore.paths.filter((x) => (x.day ?? 0) === day)) {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'tt-link tt-index-row';
-        const r = reviewState(p, pathStore.areas, checksFor(p));
-        b.textContent = `${p.name} · ${p.profile === 'car' ? 'drive' : 'walk'} · ${r.ok ? 'reviewed' : 'not reviewed'}`;
-        b.addEventListener('click', () => {
-          closePops();
-          selectSaved(p.id);
-        });
-        d.append(b);
-      }
+  /**
+   * Layers › Paths › SUGGESTED · DRAWN NOW (review/phase9 O11): each drawn
+   * suggested path, with origin and mode, opening its card.
+   */
+  function onMapIndex() {
+    const box = document.createElement('div');
+    const set = twin.drawnPaths;
+    const list = (set?.paths || []).filter((p) => p.kind !== 'unavailable');
+    const h = document.createElement('div');
+    h.className = 'tt-kicker tt-drawn-k';
+    h.textContent = `SUGGESTED · DRAWN NOW · ${list.length}`;
+    box.append(h);
+    if (!list.length) {
+      const n = document.createElement('div');
+      n.className = 'tt-index-empty';
+      n.textContent =
+        'No suggested path drawn · open a person, place or site card to find one';
+      box.append(n);
+      return box;
     }
-    if (pathStore.areas.length) {
-      const h = document.createElement('div');
-      h.className = 'tt-key';
-      h.textContent = 'Avoid-areas (whole trip)';
-      d.append(h);
+    const from = set.fromPerson ? shortName(set.fromLabel) : set.fromLabel;
+    for (const p of list) {
+      const rank = rankOf(set, p.kind);
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'tt-link tt-index-row tt-drawn-row';
+      const cur =
+        selection?.kind === 'suggested' &&
+        selection.setId === set.id &&
+        selection.pathKind === p.kind;
+      if (cur) b.setAttribute('aria-current', 'true');
+      const sw = document.createElement('span');
+      sw.className = `sw${p.kind === 'alternate' ? ' alt' : ''}`;
+      const tx = document.createElement('span');
+      tx.className = 'tx';
+      tx.textContent = `${rank === 'alternate' ? 'Alternate' : rank === 'main' ? 'Main' : 'Suggested'} · ${from} → ${set.toLabel}${set.faded ? ' · faded (saved path)' : ''}${cur ? ' · selected' : ''}`;
+      const d = document.createElement('span');
+      d.className = 'd';
+      d.textContent = `${(p.profile || 'foot') === 'car' ? 'drive' : 'walk'} ${formatDistance(p.distanceM)}`;
+      b.append(sw, tx, d);
+      b.addEventListener('click', () => {
+        closePops();
+        selectSuggestedPath(p.kind, { frame: true, focus: true });
+      });
+      box.append(b);
+    }
+    return box;
+  }
+  /** Layers › Paths index: every saved path by day, every avoid-area (H16). */
+  /** Saved paths and avoid-areas as two summaries, not one line (O11). */
+  function savedIndex() {
+    const frag = document.createDocumentFragment();
+    const sub = (key, title, n, fill) => {
+      const d = document.createElement('details');
+      d.className = `tt-layer-sub${n ? '' : ' empty'}`;
+      d.open = Boolean(savedIndex[key]);
+      d.addEventListener('toggle', () => (savedIndex[key] = d.open));
+      const sm = document.createElement('summary');
+      sm.textContent = `${title} · ${n}`;
+      d.append(sm);
+      fill(d);
+      frag.append(d);
+    };
+    sub('saved', 'SAVED ON THIS TRIP', pathStore.paths.length, (d) => {
+      const days = [...new Set(pathStore.paths.map((p) => p.day ?? 0))].sort(
+        (a, b) => a - b,
+      );
+      for (const day of days) {
+        const h = document.createElement('div');
+        h.className = 'tt-key';
+        h.textContent = day
+          ? `Day ${day}${day === todayDay() ? ' (today)' : ''}`
+          : 'Any day';
+        d.append(h);
+        for (const p of pathStore.paths.filter((x) => (x.day ?? 0) === day)) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'tt-link tt-index-row';
+          const r = reviewState(p, pathStore.areas, checksFor(p));
+          b.textContent = `${p.name} · ${p.profile === 'car' ? 'drive' : 'walk'} · ${r.ok ? 'reviewed' : 'not reviewed'}`;
+          if (selection?.kind === 'saved' && selection.id === p.id)
+            b.setAttribute('aria-current', 'true');
+          b.addEventListener('click', () => {
+            closePops();
+            selectSaved(p.id);
+          });
+          d.append(b);
+        }
+      }
+      if (!pathStore.paths.length) {
+        const n = document.createElement('div');
+        n.className = 'tt-index-empty';
+        n.textContent =
+          'None yet · edit a copy of a suggested path, or plan your own from a place card or the Advance brief';
+        d.append(n);
+      }
+    });
+    sub('areas', 'AVOID-AREAS', pathStore.areas.length, (d) => {
       for (const a of pathStore.areas) {
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'tt-link tt-index-row';
-        b.textContent = areaLabel(a);
+        b.textContent = `${areaLabel(a)} · whole trip`;
         b.addEventListener('click', () => {
           closePops();
           selectArea(a.id);
         });
         d.append(b);
       }
-    }
-    if (!pathStore.paths.length && !pathStore.areas.length) {
-      const n = document.createElement('div');
-      n.className = 'tt-key';
-      n.textContent =
-        'None yet · plan your own path from a place card or the Advance brief';
-      d.append(n);
-    }
-    return d;
+      if (!pathStore.areas.length) {
+        const n = document.createElement('div');
+        n.className = 'tt-index-empty';
+        n.textContent = 'None yet · add one while planning a path (X)';
+        d.append(n);
+      }
+    });
+    return frag;
   }
 
   // ---- Weather (phase 2): free / open sources, off by default ----
@@ -4170,6 +4816,9 @@ async function main() {
     if (k === 'Escape') {
       // popover → person opened from a floor card → floor card → selection
       if (closePops()) return;
+      // A path card first: back to the card it came from, else close (O1, O12).
+      if (selection?.kind === 'suggested')
+        return selection.parent ? backToParent() : closePathCard();
       if (adv.pathFor) {
         clearAdvancePath();
         return renderAdvance(true);
