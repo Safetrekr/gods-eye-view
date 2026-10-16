@@ -1,7 +1,8 @@
-// Trip Twin remote stations (phase 10). 01 Screens · 02 Trip · 03 Incident
-// · 04 Layers & display live; 05 People and 06 Alerts & feeds next phase.
-// Each station renders the left-hand content for the current target and,
-// when it has one, its level-2 list in the rail (tarva.network pattern).
+// Trip Twin remote stations (phase 10; review/phase10 R2, R13, R16).
+// 01 Incident · 02 People · 03 Weather (next phase) · 04 Trip · 05 Screens ·
+// 06 Layers. Every section says its scope: the target (S2 / all screens) or
+// EVERY SCREEN for wall-wide items. Each station renders the left-hand
+// content and, when it has one, its level-2 list in the rail.
 import {
   LAYER_CATALOG,
   ROLES,
@@ -21,8 +22,8 @@ const ICON = {
     '<svg viewBox="0 0 20 20"><path d="m10 3 7 4-7 4-7-4z"/><path d="m3 11 7 4 7-4"/></svg>',
   people:
     '<svg viewBox="0 0 20 20"><circle cx="7.5" cy="7" r="2.5"/><circle cx="13.5" cy="8" r="2"/><path d="M3 16c.6-2.6 2.4-4 4.5-4s3.9 1.4 4.5 4M12 13.2c.5-.7 1.4-1.2 2.4-1.2 1.6 0 2.8 1.2 3.1 3"/></svg>',
-  alerts:
-    '<svg viewBox="0 0 20 20"><path d="M10 3a4.5 4.5 0 0 0-4.5 4.5V11L4 13.5h12L14.5 11V7.5A4.5 4.5 0 0 0 10 3z"/><path d="M8.5 16a1.6 1.6 0 0 0 3 0"/></svg>',
+  weather:
+    '<svg viewBox="0 0 20 20"><path d="M6 14.5h8.5a3 3 0 0 0 .3-6 4.5 4.5 0 0 0-8.6-.8A3.4 3.4 0 0 0 6 14.5z"/><path d="m9 16-1 2M12.5 16l-1 2"/></svg>',
 };
 
 const el = (tag, cls, text) => {
@@ -52,8 +53,355 @@ const head = (title, sub) => [
   el('div', 'rm-sub', sub),
 ];
 const tgtName = (t) => (t === 'all' ? 'all screens' : `S${t}`);
+/** Section kicker with its scope (review/phase10 R16). */
+const kick = (text, scope) =>
+  el('div', 'rm-k', `${text}${scope ? ` · ${scope}` : ''}`);
+const scopeOf = (t) => (t === 'all' ? 'ALL SCREENS' : `S${t}`);
+const WALL = 'EVERY SCREEN';
+/** The screen showing a role (first one), for role-based actions. */
+const slotWithRole = (state, role) =>
+  Number(
+    Object.keys(state.screens).find((k) => state.screens[k].role === role),
+  ) || null;
+const dayText = (date) =>
+  new Date(`${date}T12:00:00Z`).toLocaleDateString('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC',
+  });
 
-// ---------------------------------------------------------------- 01 Screens
+/** The report the walls show: the operator's, else the trip data's. */
+export function currentReport(state, data) {
+  const ss = state.session;
+  if (ss.report) return { ...ss.report, source: 'operator entry' };
+  const r = data?.snapshot?.reported_incidents?.[0];
+  return r
+    ? {
+        id: r.id,
+        floor: r.floor_label,
+        kind: r.kind,
+        source: r.source,
+        at: Date.parse(r.reported_at),
+      }
+    : null;
+}
+
+// --------------------------------------------------------------- 01 Incident
+function incident(ctx) {
+  const { state, target } = ctx;
+  const ss = state.session;
+  const t = tripById(ss.tripId);
+  const data = ctx.tripData(t);
+  const report = currentReport(state, data);
+  const out = [
+    ...head(
+      'Incident',
+      `${t.title} · ${report ? 'reported · not verified' : 'no incident open'}`,
+    ),
+  ];
+  if (report) {
+    out.push(
+      el(
+        'div',
+        'rm-flag rm-hazard',
+        `Reported: ${report.kind || 'incident'} · floor ${report.floor}${report.source ? ` · ${report.source}` : ''}${Number.isFinite(report.at) ? ` · ${formatAge((Date.now() - report.at) / 1000)} ago` : ''} · not verified`,
+      ),
+    );
+    const acked = ss.incidentAck && ss.incidentAck === report.id;
+    const site = slotWithRole(state, 'site');
+    const a = el('div', 'rm-actions');
+    a.append(
+      btn(
+        'rm-btn primary',
+        acked ? 'Acknowledged' : 'Acknowledge (the wall banner shrinks)',
+        () =>
+          !acked &&
+          ctx.send(
+            { type: 'session', patch: { incidentAck: report.id } },
+            'Incident acknowledged',
+          ),
+        acked ? { disabled: 'true' } : {},
+      ),
+    );
+    if (site)
+      a.append(
+        btn('rm-btn', `Frame floor ${report.floor} on Site (S${site})`, () =>
+          ctx.send(
+            {
+              type: 'screens',
+              target: site,
+              patch: {
+                frame: {
+                  subject: { kind: 'floor', label: report.floor },
+                  nonce: Date.now(),
+                },
+              },
+            },
+            `S${site} frames floor ${report.floor}`,
+          ),
+        ),
+      );
+    if (target !== 'all')
+      a.append(
+        btn('rm-btn', `Make S${target} the incident screen`, () =>
+          ctx.send(
+            { type: 'screens', target, patch: { role: 'incident' } },
+            `S${target} → Incident & attention`,
+          ),
+        ),
+      );
+    a.append(
+      btn('rm-btn', 'Copy for responders', () => ctx.copyResponders(report)),
+    );
+    out.push(a);
+    if (ss.report)
+      out.push(
+        btn('rm-btn', 'Clear my reported floor', () =>
+          ctx.send(
+            { type: 'session', patch: { report: null } },
+            'Clear the reported floor on every screen',
+          ),
+        ),
+      );
+    out.push(
+      el(
+        'div',
+        'rm-note',
+        'Copied text stays on this device; it is never shown on a wall. Who may still be inside, by floor, is on the Incident & attention screen.',
+      ),
+    );
+  }
+  out.push(kick('Add reported floor', WALL));
+  const f = el('div', 'rm-actions');
+  const floor = el('input', 'rm-input');
+  floor.inputMode = 'numeric';
+  floor.placeholder = 'Floor';
+  floor.setAttribute('aria-label', 'Reported floor');
+  const kind = el('select', 'rm-input');
+  kind.setAttribute('aria-label', 'What was reported');
+  for (const k of ['smoke', 'fire', 'medical', 'security', 'other'])
+    kind.append(new Option(k, k));
+  f.append(
+    floor,
+    kind,
+    btn('rm-btn', 'Add reported floor', () => {
+      const n = Number(floor.value);
+      if (!Number.isFinite(n) || floor.value === '')
+        return ctx.notify('Enter a floor number', true);
+      const cmd = {
+        type: 'session',
+        patch: {
+          report: {
+            id: `op-${Date.now()}`,
+            floor: Math.round(n),
+            kind: kind.value,
+            at: Date.now(),
+          },
+        },
+      };
+      const label = `Reported floor ${Math.round(n)} on every screen`;
+      // Replacing an open report asks first (review R13).
+      if (ss.report)
+        ctx.ask(
+          cmd,
+          `Replace the reported floor ${ss.report.floor} with floor ${Math.round(n)} on every screen`,
+          label,
+        );
+      else ctx.send(cmd, label);
+    }),
+  );
+  out.push(f);
+  return out;
+}
+
+// ----------------------------------------------------------------- 02 People
+function people(ctx) {
+  const t = tripById(ctx.state.session.tripId);
+  const data = ctx.tripData(t);
+  const out = [
+    ...head('People', `${t.title} · full names on this device only`),
+  ];
+  if (!data?.snapshot) {
+    out.push(el('div', 'rm-note', 'Loading the roster…'));
+    return out;
+  }
+  const list = data.snapshot.participants || [];
+  out.push(kick(`Travelers and chaperones · ${list.length}`, WALL));
+  out.push(
+    el(
+      'div',
+      'rm-note',
+      'Spotlight selects the person on the walls (first name and initial there; initials in visitor mode).',
+    ),
+  );
+  const l = el('div', 'rm-list');
+  const sorted = [...list]
+    .map((p) => ({ p, pos: positionState(p, 0) }))
+    .sort((a, b) => Number(a.pos.current) - Number(b.pos.current));
+  for (const { p, pos } of sorted)
+    l.append(
+      row(
+        p.role === 'chaperone' ? 'C' : '',
+        p.name,
+        pos.label.startsWith(pos.chip)
+          ? pos.label
+          : `${pos.chip} · ${pos.label}`,
+        'SPOTLIGHT',
+        () =>
+          ctx.send(
+            {
+              type: 'session',
+              patch: { spotlight: { kind: 'person', id: p.id } },
+            },
+            `Spotlight ${p.name.split(' ')[0]} on every screen`,
+          ),
+      ),
+    );
+  out.push(l);
+  return out;
+}
+
+// ------------------------------------------------------------------- 04 Trip
+function trip(ctx) {
+  const { state, target } = ctx;
+  const ss = state.session;
+  const t = tripById(ss.tripId);
+  const data = ctx.tripData(t);
+  const out = [...head('Trip in focus', `${t.title} · ${t.org}`)];
+  out.push(kick('Trips on watch', WALL));
+  const trips = el('div', 'rm-list');
+  for (const x of DEMO_TRIPS)
+    trips.append(
+      row(
+        x.orgShort,
+        x.title,
+        x.org,
+        x.id === t.id ? 'IN FOCUS' : 'FOCUS',
+        () =>
+          x.id !== t.id &&
+          ctx.send(
+            {
+              type: 'session',
+              patch: { tripId: x.id, siteKey: null, spotlight: null },
+            },
+            `Every screen → ${x.title} (screens reload into its city)`,
+          ),
+        x.id === t.id,
+      ),
+    );
+  out.push(trips);
+  // Live / Advance: per screen, pins respected (review R2).
+  out.push(kick('Live or Advance', scopeOf(target)));
+  const cur = target === 'all' ? null : state.screens[target]?.mode || 'live';
+  const seg = el('div', 'rm-actions');
+  for (const [k, label] of [
+    ['live', 'Live'],
+    ['advance', 'Advance (planning)'],
+  ])
+    seg.append(
+      btn(`rm-btn${cur === k ? ' on' : ''}`, label, () => ctx.setMode(k), {
+        'aria-pressed': String(cur === k),
+      }),
+    );
+  out.push(seg);
+  if (!data) {
+    out.push(el('div', 'rm-note', 'Loading the trip plan…'));
+    return out;
+  }
+  const pick = ctx.ui.day ?? data.today;
+  const day = data.days.find((d) => d.day === pick) || data.days[0];
+  if (!day) return out;
+  out.push(
+    kick(
+      `Day ${day.day} · ${dayText(day.date)}${day.day === data.today ? ' · today' : ''}`,
+      scopeOf(target),
+    ),
+  );
+  out.push(el('div', 'rm-note', 'Pick another day in the list on the right.'));
+  const show = el('div', 'rm-actions');
+  show.append(
+    btn(
+      'rm-btn primary',
+      target === 'all'
+        ? `Plan Day ${day.day} on all screens (Advance)`
+        : `Show Day ${day.day} on S${target} (day plan)`,
+      () => ctx.showDay(day.day),
+    ),
+  );
+  out.push(show);
+  for (const e of day.events)
+    out.push(
+      row(
+        e.start,
+        e.title,
+        `${e.site}${e.end ? ` · until ${e.end}` : ''}`,
+        'GO TO SITE',
+        () =>
+          ctx.send(
+            { type: 'session', patch: { siteKey: e.siteKey } },
+            `Every screen → ${e.site}`,
+          ),
+      ),
+    );
+  if (!day.events.length)
+    out.push(el('div', 'rm-note', 'No events on the plan for this day.'));
+  if (day.flags.length) {
+    out.push(kick(`To check · ${day.flags.length}`));
+    for (const fl of day.flags) out.push(el('div', 'rm-flag', fl));
+  }
+  out.push(kick(`Sites & places · sunset ${day.sunset || '—'}`, WALL));
+  for (const s of day.sites) {
+    out.push(el('div', 'rm-note', s.label));
+    const pl = el('div', 'rm-list');
+    for (const p of s.places)
+      pl.append(
+        row(
+          '',
+          p.label,
+          p.name,
+          p.draft ? 'DRAFT · NOT APPROVED' : 'SPOTLIGHT',
+          () =>
+            ctx.send(
+              {
+                type: 'session',
+                patch: { spotlight: { kind: 'place', id: p.id } },
+              },
+              `Spotlight ${p.label} on every screen`,
+            ),
+        ),
+      );
+    if (!s.places.length)
+      pl.append(el('div', 'rm-note', 'No places recorded for this site'));
+    out.push(pl);
+  }
+  out.push(
+    el(
+      'div',
+      'rm-note',
+      'Paths for the day are drawn on the Day plan screen (saved and suggested paths with their checks).',
+    ),
+  );
+  return out;
+}
+function tripContext(ctx) {
+  const t = tripById(ctx.state.session.tripId);
+  const data = ctx.tripData(t);
+  if (!data) return [];
+  const pick = ctx.ui.day ?? data.today;
+  return data.days.map((d) =>
+    row(
+      `D${d.day}`,
+      `Day ${d.day} · ${dayText(d.date)}${d.day === data.today ? ' · today' : ''}`,
+      `${d.events.length} event${d.events.length === 1 ? '' : 's'}${d.flags.length ? ` · ${d.flags.length} to check` : ''}`,
+      '',
+      () => ctx.pickDay(d.day),
+      d.day === pick,
+    ),
+  );
+}
+
+// ---------------------------------------------------------------- 05 Screens
 function screens(ctx) {
   const { state, presence, target } = ctx;
   const out = [
@@ -83,13 +431,12 @@ function screens(ctx) {
       el(
         'div',
         'sum',
-        screenSummary(slot, s, {
+        `${screenSummary(slot, s, {
           online: Boolean(p?.online),
           ageS: p?.lastSeen ? (Date.now() - p.lastSeen) / 1000 : null,
-        }),
+        })}${s.mode === 'advance' ? ` · ADVANCE${s.day ? ` DAY ${s.day}` : ''}` : ''}`,
       ),
     );
-    // Someone working at that wall by hand (hands-on) and what they picked.
     const at = ctx.local?.[slot];
     if (at?.text)
       card.append(
@@ -100,11 +447,11 @@ function screens(ctx) {
   out.push(grid);
   if (target === 'all') {
     out.push(
-      el('div', 'rm-k', 'All screens'),
+      kick('All screens'),
       el(
         'div',
         'rm-note',
-        'Pick one screen above to change its role, pin it or size its text.',
+        'Pick one screen above (or S1–S6 at the top) to change its role, pin it or size its text.',
       ),
     );
     const a = el('div', 'rm-actions');
@@ -117,7 +464,7 @@ function screens(ctx) {
     out.push(a);
   } else {
     const s = state.screens[target];
-    out.push(el('div', 'rm-k', `S${target} · role`));
+    out.push(kick('Role', `S${target}`));
     const roles = el('div', 'rm-list');
     for (const key of ROLE_ORDER)
       roles.append(
@@ -135,7 +482,7 @@ function screens(ctx) {
         ),
       );
     out.push(roles);
-    out.push(el('div', 'rm-k', `S${target} · display`));
+    out.push(kick('Display', `S${target}`));
     const a = el('div', 'rm-actions');
     const ts = Number(s?.textScale || 2);
     a.append(
@@ -149,7 +496,7 @@ function screens(ctx) {
           `S${target} text smaller`,
         ),
       ),
-      el('span', 'rm-note', `Text ×${ts.toFixed(2).replace(/0$/, '')}`),
+      el('span', 'rm-note', `Text ×${ts}`),
       btn('rm-btn', 'Text +', () =>
         ctx.send(
           {
@@ -162,13 +509,25 @@ function screens(ctx) {
       ),
       btn(
         `rm-btn${s?.pinned ? ' on' : ''}`,
-        s?.pinned ? 'Pinned · unpin' : 'Pin (All skips it)',
+        s?.pinned ? 'Pinned · unpin' : 'Pin (All leaves it as it is)',
         () =>
           ctx.send(
             { type: 'screens', target, patch: { pinned: !s?.pinned } },
             s?.pinned ? `S${target} unpinned` : `S${target} pinned`,
           ),
         { 'aria-pressed': String(Boolean(s?.pinned)) },
+      ),
+      btn('rm-btn', 'Clear the wall’s own selection', () =>
+        ctx.send(
+          {
+            type: 'screens',
+            target,
+            patch: {
+              frame: { subject: { kind: 'clear' }, nonce: Date.now() },
+            },
+          },
+          `S${target} selection cleared`,
+        ),
       ),
       btn('rm-btn', 'Reset to role defaults', () =>
         ctx.send({ type: 'reset', target }, `S${target} reset`),
@@ -177,8 +536,7 @@ function screens(ctx) {
     );
     out.push(a);
   }
-  // Session-wide.
-  out.push(el('div', 'rm-k', 'Whole wall'));
+  out.push(kick('Whole wall', `${WALL}, PINS INCLUDED`));
   const w = el('div', 'rm-actions');
   w.append(
     btn(
@@ -189,19 +547,21 @@ function screens(ctx) {
       () =>
         ctx.send(
           { type: 'session', patch: { visitor: !state.session.visitor } },
-          state.session.visitor ? 'Visitor mode off' : 'Visitor mode on',
+          state.session.visitor
+            ? 'Visitor mode off: names back on every wall'
+            : 'Visitor mode on',
         ),
       { 'aria-pressed': String(Boolean(state.session.visitor)) },
     ),
     btn('rm-btn', 'Return all to Live + defaults', () =>
       ctx.send(
         { type: 'returnLive' },
-        'All screens back to Live and their defaults',
+        'Every screen, pinned ones too, back to Live and its role defaults',
       ),
     ),
   );
   out.push(w);
-  out.push(el('div', 'rm-k', 'Number of screens'));
+  out.push(kick('Number of screens', WALL));
   const cnt = el('div', 'rm-actions');
   for (let n = 1; n <= 6; n++)
     cnt.append(
@@ -213,8 +573,7 @@ function screens(ctx) {
       ),
     );
   out.push(cnt);
-  // Pairing a screen on another device.
-  out.push(el('div', 'rm-k', 'Pair a screen'));
+  out.push(kick('Pair a screen'));
   out.push(
     el(
       'div',
@@ -235,7 +594,7 @@ function screens(ctx) {
   pair.append(
     code,
     slotSel,
-    btn('rm-btn primary', 'Pair', async () => {
+    btn('rm-btn', 'Pair', async () => {
       const r = await ctx.sync.request({
         t: 'pair',
         code: code.value.trim(),
@@ -247,354 +606,8 @@ function screens(ctx) {
   out.push(pair);
   return out;
 }
-function screensContext(ctx) {
-  const { state, presence } = ctx;
-  const list = [
-    row(
-      '',
-      'All screens',
-      'Shared context',
-      '',
-      () => ctx.setTarget('all'),
-      ctx.target === 'all',
-    ),
-  ];
-  for (const slot of Object.keys(state.screens).map(Number)) {
-    const p = presence?.screens?.[slot];
-    list.push(
-      row(
-        `S${slot}`,
-        ROLES[state.screens[slot].role]?.label || '',
-        ctx.local?.[slot]?.on
-          ? 'hands-on at the wall'
-          : p?.online
-            ? 'online'
-            : 'not connected',
-        state.screens[slot].pinned ? 'PIN' : '',
-        () => ctx.setTarget(slot),
-        ctx.target === slot,
-      ),
-    );
-  }
-  return list;
-}
 
-// ------------------------------------------------------------------ 02 Trip
-function trip(ctx) {
-  const { state } = ctx;
-  const ss = state.session;
-  const t = tripById(ss.tripId);
-  const data = ctx.tripData(t);
-  const out = [
-    ...head(
-      t.title,
-      `${t.org} · ${ss.mode === 'advance' ? 'Advance (planning)' : 'Live'}`,
-    ),
-  ];
-  out.push(el('div', 'rm-k', 'Trips on watch'));
-  const trips = el('div', 'rm-list');
-  for (const x of DEMO_TRIPS)
-    trips.append(
-      row(
-        x.orgShort,
-        x.title,
-        x.org,
-        x.id === t.id ? 'IN FOCUS' : '',
-        () =>
-          x.id !== t.id &&
-          ctx.send(
-            {
-              type: 'session',
-              patch: { tripId: x.id, siteKey: null, day: null },
-            },
-            `Focus: ${x.title}`,
-          ),
-        x.id === t.id,
-      ),
-    );
-  out.push(trips);
-  out.push(el('div', 'rm-k', 'Mode (every screen)'));
-  const seg = el('div', 'rm-actions');
-  for (const [k, label] of [
-    ['live', 'Live'],
-    ['advance', 'Advance (planning)'],
-  ])
-    seg.append(
-      btn(
-        `rm-btn${ss.mode === k ? ' on' : ''}`,
-        label,
-        () =>
-          ss.mode !== k &&
-          ctx.send(
-            { type: 'session', patch: { mode: k } },
-            `${label} on every screen`,
-          ),
-        { 'aria-pressed': String(ss.mode === k) },
-      ),
-    );
-  out.push(seg);
-  if (!data) {
-    out.push(el('div', 'rm-note', 'Loading the trip plan…'));
-    return out;
-  }
-  const days = data.days;
-  const pick = ctx.ui.day ?? ss.day ?? data.today;
-  out.push(
-    el(
-      'div',
-      'rm-k',
-      `Days · ${days.length}${ss.mode === 'live' ? ` · today is Day ${data.today}` : ''}`,
-    ),
-  );
-  const dl = el('div', 'rm-list');
-  for (const d of days)
-    dl.append(
-      row(
-        `D${d.day}`,
-        `Day ${d.day} · ${new Date(`${d.date}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}`,
-        d.events.map((e) => `${e.start} ${e.title}`).join(' · ') ||
-          'No events on the plan',
-        `${d.events.length} event${d.events.length === 1 ? '' : 's'}${d.flags.length ? ` · ${d.flags.length} to check` : ''}`,
-        () => ctx.pickDay(d.day),
-        d.day === pick,
-      ),
-    );
-  out.push(dl);
-  const day = days.find((d) => d.day === pick);
-  if (day) {
-    out.push(el('div', 'rm-k', `Day ${day.day} · plan`));
-    const show = el('div', 'rm-actions');
-    show.append(
-      btn(
-        'rm-btn primary',
-        `Show Day ${day.day} on ${tgtName(ctx.target)}`,
-        () => ctx.showDay(day.day),
-      ),
-    );
-    out.push(show);
-    for (const e of day.events) {
-      const r = row(
-        e.start,
-        e.title,
-        `${e.site}${e.end ? ` · until ${e.end}` : ''}`,
-        'GO TO SITE',
-        () =>
-          ctx.send(
-            { type: 'session', patch: { siteKey: e.siteKey } },
-            `Every screen → ${e.site}`,
-          ),
-      );
-      out.push(r);
-    }
-    if (day.flags.length) {
-      out.push(el('div', 'rm-k', 'To check'));
-      for (const f of day.flags) out.push(el('div', 'rm-flag', f));
-    }
-    out.push(el('div', 'rm-k', `Sites & places · sunset ${day.sunset || '—'}`));
-    for (const s of day.sites) {
-      out.push(el('div', 'rm-note', s.label));
-      const pl = el('div', 'rm-list');
-      for (const p of s.places)
-        pl.append(
-          row('', p.label, p.name, p.draft ? 'DRAFT · NOT APPROVED' : '', () =>
-            ctx.send(
-              {
-                type: 'session',
-                patch: {
-                  siteKey: s.key,
-                  spotlight: { kind: 'place', id: p.id },
-                },
-              },
-              `Every screen → ${p.label}`,
-            ),
-          ),
-        );
-      if (!s.places.length)
-        pl.append(el('div', 'rm-note', 'No places recorded for this site'));
-      out.push(pl);
-    }
-    out.push(
-      el(
-        'div',
-        'rm-note',
-        'Paths for the day are drawn on The day screen (saved paths, suggested paths and their checks).',
-      ),
-    );
-  }
-  return out;
-}
-function tripContext(ctx) {
-  const t = tripById(ctx.state.session.tripId);
-  const data = ctx.tripData(t);
-  if (!data) return [];
-  const pick = ctx.ui.day ?? ctx.state.session.day ?? data.today;
-  return data.days.map((d) =>
-    row(
-      `D${d.day}`,
-      `Day ${d.day}`,
-      `${d.events.length} event${d.events.length === 1 ? '' : 's'}`,
-      d.flags.length ? '!' : '',
-      () => ctx.pickDay(d.day),
-      d.day === pick,
-    ),
-  );
-}
-
-// -------------------------------------------------------------- 03 Incident
-function incident(ctx) {
-  const { state } = ctx;
-  const ss = state.session;
-  const t = tripById(ss.tripId);
-  const data = ctx.tripData(t);
-  const fromData = data?.snapshot?.reported_incidents?.[0] || null;
-  const report =
-    ss.report ||
-    (fromData && {
-      floor: fromData.floor_label,
-      kind: fromData.kind,
-      source: fromData.source,
-      at: fromData.reported_at,
-    });
-  const out = [
-    ...head(
-      'Incident',
-      report ? 'Reported · not verified' : 'No incident open',
-    ),
-  ];
-  if (report) {
-    out.push(
-      el(
-        'div',
-        'rm-flag rm-hazard',
-        `Reported: ${report.kind || 'incident'} · floor ${report.floor}${report.source ? ` · ${report.source}` : ''}${report.at ? ` · ${formatAge((Date.now() - Date.parse(report.at)) / 1000)} ago` : ''} · not verified`,
-      ),
-    );
-    const a = el('div', 'rm-actions');
-    a.append(
-      btn(
-        'rm-btn primary',
-        ss.incidentAck
-          ? 'Acknowledged'
-          : 'Acknowledge (banner shrinks on the wall)',
-        () =>
-          ctx.send(
-            { type: 'session', patch: { incidentAck: true } },
-            'Incident acknowledged',
-          ),
-      ),
-      btn('rm-btn', 'Frame reported floor on S1', () =>
-        ctx.send(
-          {
-            type: 'screens',
-            target: 1,
-            patch: {
-              frame: {
-                subject: { kind: 'floor', label: report.floor },
-                nonce: Date.now(),
-              },
-            },
-          },
-          `S1 frames floor ${report.floor}`,
-        ),
-      ),
-      btn('rm-btn', 'Make S3 the incident screen', () =>
-        ctx.send(
-          { type: 'screens', target: 3, patch: { role: 'incident' } },
-          'S3 → Incident & attention',
-        ),
-      ),
-      btn('rm-btn', 'Copy for responders', () => ctx.copyResponders(report)),
-    );
-    if (ss.report)
-      a.append(
-        btn('rm-btn danger', 'Clear the reported floor', () =>
-          ctx.send(
-            { type: 'session', patch: { report: null } },
-            'Reported floor cleared',
-          ),
-        ),
-      );
-    out.push(a);
-    out.push(
-      el(
-        'div',
-        'rm-note',
-        'Copied text stays on this device; it is never shown on a wall.',
-      ),
-    );
-  }
-  out.push(el('div', 'rm-k', 'Report a floor'));
-  const f = el('div', 'rm-actions');
-  const floor = el('input', 'rm-input');
-  floor.inputMode = 'numeric';
-  floor.placeholder = 'Floor';
-  floor.setAttribute('aria-label', 'Reported floor');
-  const kind = el('select', 'rm-input');
-  kind.setAttribute('aria-label', 'What was reported');
-  for (const k of ['smoke', 'fire', 'medical', 'security', 'other'])
-    kind.append(new Option(k, k));
-  f.append(
-    floor,
-    kind,
-    btn('rm-btn primary', 'Report on every screen', () => {
-      const n = Number(floor.value);
-      if (!Number.isFinite(n) || floor.value === '')
-        return ctx.notify('Enter a floor number', true);
-      ctx.send(
-        {
-          type: 'session',
-          patch: { report: { floor: Math.round(n), kind: kind.value } },
-        },
-        `Reported floor ${Math.round(n)} on every screen`,
-      );
-    }),
-  );
-  out.push(f);
-  // Full names stay on the remote (walls show first name + initial).
-  if (data?.snapshot) {
-    const el2 = data.snapshot.scenario?.elapsed_s ?? 0;
-    const people = data.snapshot.participants || [];
-    out.push(
-      el(
-        'div',
-        'rm-k',
-        `Travelers · ${people.length} · full names on this device only`,
-      ),
-    );
-    const l = el('div', 'rm-list');
-    const sorted = [...people]
-      .map((p) => ({ p, pos: positionState(p, el2) }))
-      .sort((a, b) => Number(a.pos.current) - Number(b.pos.current));
-    for (const { p, pos } of sorted)
-      l.append(
-        row(
-          p.role === 'chaperone' ? 'C' : '',
-          p.name,
-          `${pos.chip} · ${pos.label}`,
-          'SPOTLIGHT',
-          () =>
-            ctx.send(
-              {
-                type: 'session',
-                patch: { spotlight: { kind: 'person', id: p.id } },
-              },
-              `Spotlight ${p.name.split(' ')[0]}`,
-            ),
-        ),
-      );
-    out.push(l);
-    out.push(
-      el(
-        'div',
-        'rm-note',
-        'Who may still be inside, by floor, is on the Incident & attention screen.',
-      ),
-    );
-  }
-  return out;
-}
-
-// ------------------------------------------------------- 04 Layers & display
+// ----------------------------------------------------------------- 06 Layers
 function layers(ctx) {
   const { state, target } = ctx;
   const slots =
@@ -604,7 +617,7 @@ function layers(ctx) {
     return vals.every((v) => v === vals[0]) ? vals[0] : null;
   };
   const out = [...head('Layers & display', `Applies to ${tgtName(target)}`)];
-  out.push(el('div', 'rm-k', 'Scale'));
+  out.push(kick('Scale', scopeOf(target)));
   const sc = el('div', 'rm-actions');
   const cur = target === 'all' ? null : state.screens[target]?.scale;
   for (const [k, label] of [
@@ -626,7 +639,7 @@ function layers(ctx) {
     );
   out.push(sc);
   for (const g of LAYER_CATALOG) {
-    out.push(el('div', 'rm-k', g.group));
+    out.push(kick(g.group, scopeOf(target)));
     for (const L of g.layers) {
       const v = value(L.key, L.def);
       const r = el('div', 'rm-layer');
@@ -635,18 +648,22 @@ function layers(ctx) {
       const seg = el('div', 'rm-seg');
       seg.setAttribute('role', 'group');
       seg.setAttribute('aria-label', L.label);
-      for (const [on, t] of [
+      for (const [on, tx] of [
         [true, 'On'],
         [false, 'Off'],
       ])
         seg.append(
           btn(
             '',
-            t,
+            tx,
             () =>
               ctx.send(
-                { type: 'screens', target, patch: { layers: { [L.key]: on } } },
-                `${L.label} ${on ? 'on' : 'off'} · ${tgtName(target)}`,
+                {
+                  type: 'screens',
+                  target,
+                  patch: { layers: { [L.key]: on } },
+                },
+                `${L.label} ${on ? 'on' : 'off'}`,
               ),
             { 'aria-pressed': String(v === on) },
           ),
@@ -670,23 +687,39 @@ const later = (title) => () => [
   el(
     'div',
     'rm-note',
-    'This station comes in the next phase. The wall already shows this content on its screens.',
+    'This station comes next phase. The Weather & alerts screen already shows official alerts, sensed hazards and the time.',
   ),
 ];
 
 export const STATIONS = [
   {
-    id: 'screens',
+    id: 'incident',
     num: '01',
-    label: 'Screens',
-    sub: 'Wall screens & roles',
-    icon: ICON.screens,
-    render: screens,
-    context: screensContext,
+    label: 'Incident',
+    sub: 'Report, board & responders',
+    icon: ICON.incident,
+    render: incident,
+  },
+  {
+    id: 'people',
+    num: '02',
+    label: 'People',
+    sub: 'Roster & spotlight',
+    icon: ICON.people,
+    render: people,
+  },
+  {
+    id: 'weather',
+    num: '03',
+    label: 'Weather',
+    sub: 'Next phase',
+    icon: ICON.weather,
+    render: later('Weather'),
+    later: true,
   },
   {
     id: 'trip',
-    num: '02',
+    num: '04',
     label: 'Trip',
     sub: 'Days, plan & places',
     icon: ICON.trip,
@@ -694,37 +727,19 @@ export const STATIONS = [
     context: tripContext,
   },
   {
-    id: 'incident',
-    num: '03',
-    label: 'Incident',
-    sub: 'Report, board & responders',
-    icon: ICON.incident,
-    render: incident,
+    id: 'screens',
+    num: '05',
+    label: 'Screens',
+    sub: 'Wall screens & roles',
+    icon: ICON.screens,
+    render: screens,
   },
   {
     id: 'layers',
-    num: '04',
+    num: '06',
     label: 'Layers',
     sub: 'Layers, scale & display',
     icon: ICON.layers,
     render: layers,
-  },
-  {
-    id: 'people',
-    num: '05',
-    label: 'People',
-    sub: 'Next phase',
-    icon: ICON.people,
-    render: later('People'),
-    later: true,
-  },
-  {
-    id: 'alerts',
-    num: '06',
-    label: 'Alerts',
-    sub: 'Next phase',
-    icon: ICON.alerts,
-    render: later('Alerts & feeds'),
-    later: true,
   },
 ];

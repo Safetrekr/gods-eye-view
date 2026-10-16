@@ -94,3 +94,30 @@ test('trip days: every day of the trip with its events, places and flags', () =>
   for (const d of days)
     for (const f of d.flags) assert.deepEqual(bannedWordHits(f), []);
 });
+
+test('the trip in focus uses the wall’s own counts, clock and report (R3)', () => {
+  const t = DEMO_TRIPS[0];
+  const snap = tripTwinDemoSnapshot(t.city, t.scenario, {
+    now: NOW,
+    elapsed: 60,
+  });
+  const tile = tripTile(t, snap, {
+    now: NOW,
+    dataAgeS: 5,
+    override: {
+      notCurrent: 4,
+      notLocated: 1,
+      localTime: '21:39',
+      incident:
+        'Smoke reported, floor 9 (operator entry, 2 min ago, not verified)',
+    },
+  });
+  assert.equal(tile.notCurrent, 4);
+  assert.equal(tile.localTime, '21:39');
+  assert.match(tile.incident, /operator entry/);
+  assert.ok(tile.need >= 100, 'an incident sorts first');
+  // Without an override: the sample clock, not the real clock.
+  const plain = tripTile(t, snap, { now: NOW, dataAgeS: 5 });
+  assert.equal(plain.localTime, '21:33');
+  assert.doesNotMatch(plain.next, /\d{4}-\d\d-\d\d/);
+});

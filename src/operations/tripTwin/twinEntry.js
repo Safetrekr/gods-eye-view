@@ -20,7 +20,11 @@ const btn = (cls, text, fn) => {
 };
 
 let screensCache = null;
-/** Open one wall window, on its own monitor when Chrome allows it. */
+let openedHere = 0; // windows this computer has opened, for monitor order
+/**
+ * Open one wall window, on its own monitor when Chrome allows it: the nth
+ * window opened on this computer goes to its nth monitor (review R17).
+ */
 async function openScreenWindow(slot, url) {
   try {
     if (!screensCache && 'getScreenDetails' in window)
@@ -28,7 +32,7 @@ async function openScreenWindow(slot, url) {
   } catch {
     screensCache = null;
   }
-  const s = screensCache?.[(slot - 1) % screensCache.length];
+  const s = screensCache?.[openedHere++ % screensCache.length];
   const features = s
     ? `left=${s.availLeft},top=${s.availTop},width=${s.availWidth},height=${s.availHeight}`
     : 'width=1280,height=760';
@@ -40,6 +44,52 @@ async function openScreenWindow(slot, url) {
  * from twin.html?view=launch&setup=…; each button opens one wall window
  * that joins its slot directly — no codes to type.
  */
+/**
+ * Open buttons that say which screens have joined, and where (R17). Clicking
+ * a screen already open on another computer asks once before taking it.
+ */
+function openButtons(slots, urlFor) {
+  const opens = el('div', 'tt-entry-opens');
+  const here = new Set();
+  const buttons = new Map();
+  let presence = null;
+  const label = (slot, role) => {
+    const p = presence?.screens?.[slot];
+    const where = !p?.online
+      ? ''
+      : here.has(slot)
+        ? ' · open here'
+        : ' · open on another computer';
+    return `Open S${slot} · ${ROLES[role].label}${where}`;
+  };
+  for (const d of slots) {
+    const b = btn('tt-btn', label(d.slot, d.role), () => {
+      const p = presence?.screens?.[d.slot];
+      if (p?.online && !here.has(d.slot) && b.dataset.ask !== '1') {
+        b.dataset.ask = '1';
+        b.textContent = `S${d.slot} is open on another computer · click again to move it here`;
+        return;
+      }
+      delete b.dataset.ask;
+      here.add(d.slot);
+      openScreenWindow(d.slot, urlFor(d.slot));
+    });
+    buttons.set(d.slot, [b, d.role]);
+    opens.append(b);
+  }
+  return {
+    el: opens,
+    update(p) {
+      presence = p;
+      for (const [slot, [b, role]] of buttons)
+        if (b.dataset.ask !== '1') {
+          b.textContent = label(slot, role);
+          b.classList.toggle('on', Boolean(p?.screens?.[slot]?.online));
+        }
+    },
+  };
+}
+
 export function showLaunch({ setup, cityKey, scenario }) {
   const box = el('div', 'tt-entry');
   box.setAttribute('role', 'dialog');
@@ -47,16 +97,22 @@ export function showLaunch({ setup, cityKey, scenario }) {
   const card = el('div', 'tt-entry-card tt-panel');
   box.append(card);
   document.body.append(box);
-  const opens = el('div', 'tt-entry-opens');
-  for (const d of defaultRoles(6))
-    opens.append(
-      btn('tt-btn', `Open S${d.slot} · ${ROLES[d.role].label}`, () =>
-        openScreenWindow(
-          d.slot,
-          `${location.origin}/twin.html?view=screen&slot=${d.slot}&setup=${setup}&city=${cityKey}&scenario=${scenario}`,
-        ),
-      ),
-    );
+  const ob = openButtons(
+    defaultRoles(6),
+    (slot) =>
+      `${location.origin}/twin.html?view=screen&slot=${slot}&setup=${setup}&city=${cityKey}&scenario=${scenario}`,
+  );
+  const opens = ob.el;
+  // Watch who joins (a launcher can never command).
+  connectSync({
+    kind: 'launcher',
+    setup,
+    on: {
+      welcome: (m) => ob.update(m.presence),
+      presence: (m) => ob.update(m.presence),
+      state: (m) => ob.update(m.presence),
+    },
+  });
   card.append(
     el('div', 'tt-kicker', 'MULTI-VIEW · SCREENS ON THIS COMPUTER'),
     el(
@@ -89,6 +145,7 @@ export function showEntry(o) {
   document.body.append(box);
   let count = Number(o.pref('screens', 6)) || 6;
   let sync = null;
+  let launchButtons = null;
 
   const close = () => {
     sync?.close();
@@ -107,7 +164,7 @@ export function showEntry(o) {
         all.append(
           el('span', 'n', '01'),
           el('span', 't', 'All in one'),
-          el('span', 's', 'Everything on this screen, as today'),
+          el('span', 's', 'Everything on this screen'),
         );
         const multi = btn('tt-entry-choice', '', () => pickCount());
         multi.append(
@@ -185,10 +242,15 @@ export function showEntry(o) {
     const info = await fetch('/api/twin-sync/info')
       .then((r) => r.json())
       .catch(() => null);
+    let asked = false;
     sync = connectSync({
       kind: 'launcher',
       on: {
+        // Setup once — never again on a reconnect, which would wipe a live
+        // wall (review R1).
         welcome() {
+          if (asked) return;
+          asked = true;
           sync.send({
             t: 'setup',
             count,
@@ -206,6 +268,8 @@ export function showEntry(o) {
           }
           launch(m.setup, info);
         },
+        presence: (m) => launchButtons?.update(m.presence),
+        state: (m) => launchButtons?.update(m.presence),
       },
     });
   }
@@ -230,13 +294,9 @@ export function showEntry(o) {
     })
       .then((src) => (qr.src = src))
       .catch(() => {});
-    const opens = el('div', 'tt-entry-opens');
-    for (const d of defaultRoles(count))
-      opens.append(
-        btn('tt-btn', `Open S${d.slot} · ${ROLES[d.role].label}`, () =>
-          openScreen(d.slot),
-        ),
-      );
+    launchButtons = openButtons(defaultRoles(count), screenUrl);
+    const opens = launchButtons.el;
+    void openScreen;
     card.replaceChildren(
       el(
         'div',

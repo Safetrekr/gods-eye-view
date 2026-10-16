@@ -742,12 +742,19 @@ async function main() {
             ),
           }
         : info.operatorReport
-          ? {
-              kind: info.operatorReport.kind,
-              source: 'operator entry',
-              clock,
-              ageMin: 0,
-            }
+          ? (() => {
+              // The report's own time and real age (review/phase10 R4).
+              const at = info.operatorReport.at ?? Date.now();
+              const ago = Math.max(0, Math.round((Date.now() - at) / 60000));
+              const [h, m] = clock.split(':').map(Number);
+              const mins = (((h * 60 + m - ago) % 1440) + 1440) % 1440;
+              return {
+                kind: info.operatorReport.kind,
+                source: 'operator entry',
+                clock: `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`,
+                ageMin: ago,
+              };
+            })()
           : null;
       const fires = firesLine(info.fires);
       const weather = weatherLines(a, snap, incident);
@@ -5033,6 +5040,7 @@ async function main() {
   // ---- SOC multi-view (phase 10): wall screens and the entry choice ----
   const VIEW = params.get('view');
   const focusTrip = tripForCity(cityKey);
+  let lastSessionReport = null; // the remote's report this wall shows
   /** What a wall screen can ask of this page (twinScreen.js). */
   const screenApi = {
     cityKey,
@@ -5055,9 +5063,16 @@ async function main() {
       }
     },
     report(r) {
-      if (r?.floor != null) twin.reportFloor(r.floor, r.kind || 'other');
+      lastSessionReport = r || null;
+      if (r?.floor != null)
+        twin.reportFloor(r.floor, r.kind || 'other', r.at ?? Date.now());
       else twin.reportFloor(null);
     },
+    /** Which report a banner is about (an acknowledgement is per report). */
+    incidentKey: () =>
+      lastSessionReport?.id ||
+      lastCtx?.snapshot?.reported_incidents?.[0]?.id ||
+      null,
     spotlight(sp) {
       if (sp?.kind === 'person') twin.selectPerson(sp.id);
       else if (sp?.kind === 'place') {
@@ -5086,13 +5101,38 @@ async function main() {
       } else setViewLayer(key, on);
     },
     applyRoleDefaults(role) {
-      // The weather screen shows the weather over the area by default.
-      if (role === 'weather')
+      // Roles look different from across the room (review R7): weather
+      // over the area with heat detections; people from straight above.
+      if (role === 'weather') {
         for (const k of ['precip', 'clouds', 'lightning'])
           screenApi.setLayer(k, true);
+        screenApi.setLayer('fires', true);
+      }
+      if (role === 'travelers') screenApi.frame({ kind: 'topdown' });
     },
     frame(subject) {
-      if (subject?.kind === 'floor') focusFloor(subject.label);
+      if (twin.state !== 'ready') return;
+      if (subject?.kind === 'clear') twin.select(null);
+      else if (subject?.kind === 'topdown') {
+        const c = twin.site.center;
+        viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(
+            c.lon ?? c.lng,
+            c.lat,
+            twin.scene.hotelBase + 2400,
+          ),
+          orientation: {
+            heading: 0,
+            pitch: -Cesium.Math.PI_OVER_TWO,
+            roll: 0,
+          },
+          duration:
+            pref('reduceMotion', '0') === '1' ||
+            matchMedia('(prefers-reduced-motion: reduce)').matches
+              ? 0
+              : 1.2,
+        });
+      } else if (subject?.kind === 'floor') focusFloor(subject.label);
       else if (subject?.kind === 'person')
         twin.selectPerson(subject.id, { frame: true });
       else if (subject?.kind === 'scale') screenApi.scale(subject.scale);
@@ -5129,7 +5169,10 @@ async function main() {
         }, 1500);
       });
     },
-    siteLabel: () => `${focusTrip.title} · ${city.short || city.label}`,
+    siteLabel: () =>
+      document.body.dataset.role === 'trips'
+        ? `Every active trip · in focus: ${focusTrip.title}`
+        : `${focusTrip.title} · ${city.short || city.label}`,
     dayLabel: () => `DAY ${currentAdvanceDay() ?? todayDay()}`,
     todayDay: () => todayDay(),
     clockText: () =>
@@ -5154,8 +5197,9 @@ async function main() {
     },
     incidentText() {
       const m = lastCtx?.mode;
+      // The banner names its trip (review R3).
       return m?.mode === 'incident'
-        ? `${m.chip} · ${m.topLine.split(' — ')[0]}`
+        ? `${focusTrip.title} · ${m.topLine.split(' — ')[0]}`
         : '';
     },
     /** Weather & alerts: official first, then sensed, then now (S4). */
@@ -5205,6 +5249,20 @@ async function main() {
     /** Trips on watch (S6): every sample trip, by need. */
     tripsPanel(node) {
       const now = Date.now();
+      const ageS = (now - lastFeed) / 1000;
+      // The trip in focus uses this wall's own counts, clock and report, so
+      // S6 agrees with S1–S5 (review R3); other trips, the same clock rules.
+      const own = lastA?.counts
+        ? {
+            notCurrent: lastA.counts['Not current'] ?? 0,
+            notLocated: lastA.counts['Not located'] ?? 0,
+            localTime: lastCtx?.snapshot ? sampleClock(lastCtx.snapshot) : null,
+            incident:
+              lastCtx?.mode?.mode === 'incident'
+                ? lastCtx.mode.topLine.split(' — ')[0]
+                : null,
+          }
+        : null;
       const tiles = sortTiles(
         DEMO_TRIPS.map((t) =>
           tripTile(
@@ -5213,14 +5271,18 @@ async function main() {
               now,
               startMs: scenarioEpoch,
             }),
-            { now, dataAgeS: (now - lastFeed) / 1000 },
+            {
+              now,
+              dataAgeS: ageS,
+              override: t.id === focusTrip.id ? own : null,
+            },
           ),
         ),
       );
       node.replaceChildren();
       const k = document.createElement('div');
       k.className = 'tt-kicker';
-      k.textContent = `TRIPS ON WATCH · ${tiles.length}`;
+      k.textContent = `TRIPS ON WATCH · ${tiles.length} · IN FOCUS: ${focusTrip.title.toUpperCase()}`;
       const grid = document.createElement('div');
       grid.className = 'tt-trips';
       for (const t of tiles) {
@@ -5271,7 +5333,8 @@ async function main() {
   if (VIEW === 'launch') return;
   await twin.open(siteKey, { osmMode });
   if (screen && renderOff) screenApi.pauseRender(true);
-  screen?.refresh();
+  // Role defaults (scale, top-down, layers) need the twin open.
+  screen?.reapply();
 }
 
 main().catch((error) => {

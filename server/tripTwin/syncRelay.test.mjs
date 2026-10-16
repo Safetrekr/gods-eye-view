@@ -101,3 +101,60 @@ test('only this computer can start a setup', () => {
   lan.say({ t: 'setup', count: 6 });
   assert.equal(lan.last('setup').ok, false);
 });
+
+test('a spoofed remote id gets nothing and cannot command (R1)', () => {
+  const relay = createRelay();
+  const launcher = fakeSocket();
+  relay.attach(launcher);
+  launcher.say({ t: 'setup', count: 2 });
+  const { setup } = launcher.last('setup');
+  const remote = fakeSocket();
+  relay.attach(remote);
+  remote.say({
+    t: 'hello',
+    id: 'remote-ipad',
+    kind: 'remote',
+    setup,
+    name: 'iPad',
+  });
+  assert.equal(remote.last('welcome').controller, true);
+  // Presence carries no device ids.
+  const p = remote.last('welcome').presence;
+  assert.equal(JSON.stringify(p).includes('remote-ipad'), false);
+  assert.equal(p.youControl, true);
+  // An attacker claims the same id without the token.
+  const evil = fakeSocket();
+  relay.attach(evil, { isLocal: false });
+  evil.say({ t: 'hello', id: 'remote-ipad', kind: 'remote' });
+  assert.equal(evil.last('welcome').type, 'denied');
+  evil.say({
+    t: 'cmd',
+    reqId: 1,
+    cmd: { type: 'session', patch: { report: { floor: 30 } } },
+  });
+  assert.equal(evil.last('ack'), undefined, 'no answer to a refused socket');
+  assert.equal(relay.host.state.session.report, null);
+  // A refused socket receives no broadcasts.
+  remote.say({
+    t: 'cmd',
+    reqId: 2,
+    cmd: { type: 'session', patch: { visitor: true } },
+  });
+  assert.equal(evil.last('state'), undefined);
+});
+
+test('a screen whose slot is given away is told', () => {
+  const relay = createRelay();
+  const launcher = fakeSocket();
+  relay.attach(launcher);
+  launcher.say({ t: 'setup', count: 2 });
+  const { setup } = launcher.last('setup');
+  const a = fakeSocket();
+  relay.attach(a);
+  a.say({ t: 'hello', id: 'A', kind: 'screen', setup, slot: 2 });
+  const b = fakeSocket();
+  relay.attach(b);
+  b.say({ t: 'hello', id: 'B', kind: 'screen', setup, slot: 2 });
+  assert.ok(a.last('unpaired'), 'old screen told');
+  assert.equal(b.last('welcome').slot, 2);
+});

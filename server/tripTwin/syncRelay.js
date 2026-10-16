@@ -1,14 +1,21 @@
-// Trip Twin SOC multi-view relay (phase 10): one WebSocket endpoint on the
-// dev server, /api/twin-sync, that hosts the session (pairing, lease,
-// commands, presence) and forwards screen snapshots to remotes. Plus
-// GET /api/twin-sync/info with this machine's LAN addresses for the QR.
+// Trip Twin SOC multi-view relay (phase 10; review/phase10 R1, R10, R17,
+// R18): one WebSocket endpoint on the dev server, /api/twin-sync, that hosts
+// the session (pairing, lease, commands, presence) and forwards screen
+// snapshots and hands-on state to remotes. Plus GET /api/twin-sync/info with
+// this machine's LAN addresses for the QR.
+// A socket's identity is bound only after an accepted hello; refused
+// sockets get nothing; presence never carries device ids. The wall is saved
+// to a file so a restart keeps screens and the remote paired.
 // Prototype only: plain ws, LAN, no login — production needs TLS, device
 // enrolment, SSO, signed commands and an audit log (07-production-delta).
 import os from 'node:os';
+import fs from 'node:fs';
+import path from 'node:path';
 import { WebSocketServer } from 'ws';
 import { createSessionHost } from '../../src/operations/tripTwin/twinSessionHost.js';
 
 const PATH = '/api/twin-sync';
+const STORE = path.join(os.tmpdir(), 'trip-twin-soc-session.json');
 
 /** IPv4 LAN addresses (no loopback, no link-local). */
 export function lanAddresses(ifaces = os.networkInterfaces()) {
@@ -24,9 +31,39 @@ export function lanAddresses(ifaces = os.networkInterfaces()) {
   return out;
 }
 
+/** Presence as one socket may see it: no device ids, its own flag. */
+export function presenceFor(p, meId) {
+  const screens = {};
+  for (const [slot, s] of Object.entries(p.screens || {}))
+    screens[slot] = {
+      online: s.online,
+      lastSeen: s.lastSeen,
+      you: s.id === meId,
+    };
+  return {
+    screens,
+    remotes: (p.remotes || []).map((r) => ({
+      name: r.name,
+      online: r.online,
+      controller: r.controller,
+      you: r.id === meId,
+    })),
+    youControl: Boolean(meId) && p.controller === meId,
+    anyController: Boolean(p.controller),
+    handover: p.handover && {
+      fromName: p.handover.fromName,
+      at: p.handover.at,
+      you: p.handover.from === meId,
+    },
+  };
+}
+
 /** Wire a host to sockets. Exposed for tests (no Vite needed). */
-export function createRelay({ host = createSessionHost() } = {}) {
-  const sockets = new Map(); // ws → {id, kind, local}
+export function createRelay({
+  host = createSessionHost(),
+  save = () => {},
+} = {}) {
+  const sockets = new Map(); // ws → {id, kind} once accepted
   const local = new WeakMap(); // ws → opened from this computer
   const send = (ws, msg) => {
     if (ws.readyState === 1) ws.send(JSON.stringify(msg));
@@ -34,17 +71,28 @@ export function createRelay({ host = createSessionHost() } = {}) {
   const each = (fn) => {
     for (const [ws, meta] of sockets) fn(ws, meta);
   };
-  const broadcastState = (extra = {}) =>
-    each((ws) =>
+  const view = (meta) => presenceFor(host.presence(), meta.id);
+  const broadcastState = (extra = {}) => {
+    save(host.snapshot());
+    each((ws, meta) =>
       send(ws, {
         t: 'state',
         state: host.state,
-        presence: host.presence(),
+        presence: view(meta),
         ...extra,
       }),
     );
+  };
   const presence = () =>
-    each((ws) => send(ws, { t: 'presence', presence: host.presence() }));
+    each((ws, meta) => send(ws, { t: 'presence', presence: view(meta) }));
+  /** Tell devices their slot went to another device (R10). */
+  const tellUnpaired = (ids = []) =>
+    each((ws, meta) => {
+      if (ids.includes(meta.id)) {
+        send(ws, { t: 'unpaired' });
+        sockets.delete(ws);
+      }
+    });
 
   function onMessage(ws, raw) {
     let m;
@@ -53,25 +101,36 @@ export function createRelay({ host = createSessionHost() } = {}) {
     } catch {
       return;
     }
-    const me = sockets.get(ws) || {};
+    const me = sockets.get(ws);
+    // Before an accepted hello, only hello and (from this computer) setup.
+    if (!me && m.t !== 'hello' && m.t !== 'setup') return;
     switch (m.t) {
       case 'hello': {
         const r = host.hello({
-          id: m.id,
+          id: String(m.id || ''),
           kind: m.kind,
           token: m.token,
           name: m.name,
           setup: m.setup,
           slot: m.slot,
         });
-        sockets.set(ws, { id: m.id, kind: m.kind, local: local.get(ws) });
+        if (r.type === 'denied') {
+          send(ws, { t: 'welcome', type: 'denied', error: r.error });
+          break;
+        }
+        const meta = { id: String(m.id), kind: m.kind };
+        sockets.set(ws, meta);
+        tellUnpaired(r.unpaired);
+        const { unpaired: _u, ...rest } = r;
+        void _u;
         send(ws, {
           t: 'welcome',
-          ...r,
+          ...rest,
           state: host.state,
-          presence: host.presence(),
+          presence: view(meta),
         });
-        presence();
+        if (r.type === 'paired') broadcastState();
+        else presence();
         break;
       }
       case 'setup': {
@@ -89,14 +148,21 @@ export function createRelay({ host = createSessionHost() } = {}) {
           tripId: m.tripId,
           siteKey: m.siteKey,
         });
-        send(ws, { t: 'setup', ...r });
+        // The launcher may watch who joins (R17); it can never command.
+        sockets.set(ws, {
+          id: `launcher-${String(m.id || 'local')}`,
+          kind: 'launcher',
+        });
+        send(ws, { t: 'setup', ok: true, ...r });
         broadcastState();
         break;
       }
       case 'pair': {
         const r = host.pair({ by: me.id, code: m.code, slot: m.slot });
-        send(ws, { t: 'pair-result', reqId: m.reqId, ...r });
+        const { unpaired, ...rest } = r;
+        send(ws, { t: 'pair-result', reqId: m.reqId, ...rest });
         if (r.ok) {
+          tellUnpaired(unpaired);
           each((s, meta) => {
             if (meta.id === r.deviceId)
               send(s, { t: 'paired', slot: r.slot, token: r.token });
@@ -109,19 +175,24 @@ export function createRelay({ host = createSessionHost() } = {}) {
         const r = host.command({ by: me.id, cmd: m.cmd });
         send(ws, { t: 'ack', reqId: m.reqId, ...r });
         if (r.ok)
-          broadcastState({ changed: r.changed, skipped: r.skipped, by: me.id });
+          broadcastState({
+            changed: r.changed,
+            skipped: r.skipped,
+            by: 'remote',
+          });
         break;
       }
       case 'undo': {
         const r = host.undo({ by: me.id, undoId: m.undoId });
         send(ws, { t: 'ack', reqId: m.reqId, ...r });
-        if (r.ok) broadcastState({ undone: true, by: me.id });
+        if (r.ok) broadcastState({ undone: true, by: 'remote' });
         break;
       }
       case 'hb':
         host.beat(me.id);
         break;
       case 'request-control': {
+        if (me.kind !== 'remote') break;
         const r = host.requestControl(me.id);
         send(ws, { t: 'control', ...r });
         presence();
@@ -137,31 +208,27 @@ export function createRelay({ host = createSessionHost() } = {}) {
             (s, meta) => meta.kind === 'screen' && send(s, { t: 'identify' }),
           );
         break;
-      case 'local': {
-        // Hands-on on a wall and what was picked there: remotes only.
-        const slot = host.slotOf(me.id);
-        if (!slot) break;
-        each(
-          (s, meta) =>
-            meta.kind === 'remote' &&
-            send(s, {
-              t: 'local',
-              slot,
-              on: Boolean(m.on),
-              text: String(m.text || '').slice(0, 120),
-            }),
-        );
-        break;
-      }
+      case 'local':
       case 'thumb': {
-        // Screens send snapshots; only remotes receive them.
+        // Only paired screens send these; only remotes receive them.
+        if (me.kind !== 'screen') break;
         const slot = host.slotOf(me.id);
         if (!slot) break;
-        each(
-          (s, meta) =>
-            meta.kind === 'remote' &&
-            send(s, { t: 'thumb', slot, data: m.data, at: Date.now() }),
-        );
+        const msg =
+          m.t === 'thumb'
+            ? {
+                t: 'thumb',
+                slot,
+                data: String(m.data || '').slice(0, 400000),
+                at: Date.now(),
+              }
+            : {
+                t: 'local',
+                slot,
+                on: Boolean(m.on),
+                text: String(m.text || '').slice(0, 120),
+              };
+        each((s, meta) => meta.kind === 'remote' && send(s, msg));
         break;
       }
       default:
@@ -185,14 +252,40 @@ export function createRelay({ host = createSessionHost() } = {}) {
   };
 }
 
+function loadStore() {
+  try {
+    return JSON.parse(fs.readFileSync(STORE, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
 export function twinSyncRelay() {
   return {
     name: 'trip-twin-sync-relay',
     configureServer(server) {
-      const relay = createRelay();
+      // A restart keeps the wall: session, devices and tokens (R18).
+      let timer = null;
+      const save = (snap) => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          fs.promises.writeFile(STORE, JSON.stringify(snap)).catch(() => {});
+        }, 300);
+      };
+      const relay = createRelay({
+        host: createSessionHost({ restore: loadStore() }),
+        save,
+      });
       const wss = new WebSocketServer({ noServer: true });
       server.httpServer?.on('upgrade', (req, socket, head) => {
         if (!req.url?.startsWith(PATH)) return; // Vite's HMR keeps its own
+        // Same origin only: no other web page can open the wall's socket.
+        const origin = req.headers.origin || '';
+        const hostHeader = req.headers.host || '';
+        if (origin && origin.replace(/^https?:\/\//, '') !== hostHeader) {
+          socket.destroy();
+          return;
+        }
         const ip = req.socket.remoteAddress || '';
         const isLocal = /^(127\.|::1$|::ffff:127\.)/.test(ip);
         wss.handleUpgrade(req, socket, head, (ws) =>

@@ -271,6 +271,7 @@ export function createTripTwin({
   let elapsed = 0;
   let floorsOn = true; // Jesse: people on their estimated floors by default
   let sessionReported; // undefined = use the snapshot's report; null = cleared
+  let sessionAt = null; // when the operator's report was made (review/phase10 R4)
   let sessionKind = null; // operator-entered report kind
   let dismissed = null; // { reason, at } for the snapshot report (Undo restores)
   // Phase 3: reports and dismissals belong to the site they were made at.
@@ -280,11 +281,13 @@ export function createTripTwin({
       sessionBySite.set(activeSiteKey, {
         sessionReported,
         sessionKind,
+        sessionAt,
         dismissed,
       });
     const saved = sessionBySite.get(nextKey);
     sessionReported = saved ? saved.sessionReported : undefined;
     sessionKind = saved ? saved.sessionKind : null;
+    sessionAt = saved ? saved.sessionAt : null;
     dismissed = saved ? saved.dismissed : null;
   }
   let firesVisible = true;
@@ -1024,7 +1027,7 @@ export function createTripTwin({
       night: isNight(),
       operatorReport:
         sessionReported !== undefined && sessionReported !== null
-          ? { label: sessionReported, kind: sessionKind }
+          ? { label: sessionReported, kind: sessionKind, at: sessionAt }
           : null,
       dismissed,
     });
@@ -1348,9 +1351,11 @@ export function createTripTwin({
       refresh();
     },
     /** Operator-entered floor (session only). null clears it. */
-    reportFloor(label, kind = 'other') {
+    /** at: when it was reported (a remote's report keeps its own time). */
+    reportFloor(label, kind = 'other', at = Date.now()) {
       sessionReported = label;
       sessionKind = label === null ? null : kind;
+      sessionAt = label === null ? null : at;
       if (label !== null) dismissed = null;
       refresh();
     },

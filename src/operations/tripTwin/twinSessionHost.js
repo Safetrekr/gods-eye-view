@@ -1,14 +1,14 @@
-// SOC multi-view session host (phase 10): pairing codes, one controller at
-// a time (lease), presence, commands through the pure reducer and 10 s undo.
-// Runs inside the dev-server relay (server/tripTwin/syncRelay.js) and, as a
-// same-machine fallback, inside the remote (BroadcastChannel). Pure: no I/O.
+// SOC multi-view session host (phase 10; review/phase10 R1, R10, R14, R17,
+// R18): pairing, one controller at a time (lease), presence, commands
+// through the pure reducer and 10 s undo. Runs inside the dev-server relay
+// (server/tripTwin/syncRelay.js). Pure: no I/O; snapshot()/restore for the
+// relay to keep the wall across restarts.
 // Prototype only — production needs TLS, device enrolment, operator SSO,
 // signed commands and an audit log (07-production-delta).
 import { applyCommand, applyUndo, createSession } from './twinSession.js';
 
 export const CODE_TTL_MS = 5 * 60 * 1000;
 export const LEASE_MS = 30 * 1000;
-export const HANDOVER_AUTO_MS = 15 * 1000;
 export const UNDO_MS = 10 * 1000;
 export const MAX_TRIES = 5;
 export const SETUP_TTL_MS = 10 * 60 * 1000;
@@ -16,19 +16,22 @@ export const SETUP_TTL_MS = 10 * 60 * 1000;
 export function createSessionHost({
   now = () => Date.now(),
   random = Math.random,
-  state = null,
+  restore = null,
 } = {}) {
-  let session = state || createSession({ epochMs: now() });
-  const devices = new Map(); // id → {kind, slot, token, name, lastSeen}
+  let session = restore?.session || createSession({ epochMs: now() });
+  // id → {kind, slot, token, name, lastSeen, online}
+  const devices = new Map(
+    (restore?.devices || []).map(([id, d]) => [id, { ...d, online: false }]),
+  );
   const codes = new Map(); // code → {deviceId, expires}
   let tries = 0;
   let lockedUntil = 0;
-  let lease = { holder: null, at: 0 };
+  let lease = restore?.lease || { holder: null, at: 0 };
   let handover = null; // {from, at}
   // Setup tokens: the computer that chose Multi-view opens its own screen
   // windows and shows a QR for the remote; both carry this token.
   const setups = new Map(); // token → {expires}
-  const undos = new Map(); // id → {undo, expires, by}
+  const undos = new Map(); // id → {undo, expires}
   let undoSeq = 0;
 
   const token = () =>
@@ -42,7 +45,21 @@ export function createSessionHost({
     return c;
   };
   const leaseLive = () => lease.holder && now() - lease.at < LEASE_MS;
+  const holderOnline = () =>
+    leaseLive() && devices.get(lease.holder)?.online !== false;
+  /** Free the slot for a new device; the old device is told (R10). */
+  function freeSlot(slot, keepId) {
+    const out = [];
+    for (const [id, d] of devices)
+      if (d.kind === 'screen' && d.slot === slot && id !== keepId) {
+        d.slot = null;
+        d.token = null;
+        out.push(id);
+      }
+    return out;
+  }
 
+  /** Presence with device ids — the relay strips ids per socket. */
   function presence() {
     const screens = {};
     const remotes = [];
@@ -60,15 +77,18 @@ export function createSessionHost({
           online: d.online !== false,
           // A dropped remote keeps the lease for 30 s so it can come back,
           // but walls say "Remote offline" at once.
-          controller: lease.holder === id && leaseLive() && d.online !== false,
+          controller: lease.holder === id && holderOnline(),
         });
     }
-    const holder = devices.get(lease.holder);
     return {
       screens,
       remotes,
-      controller: leaseLive() && holder?.online !== false ? lease.holder : null,
-      handover: handover && { from: handover.from, at: handover.at },
+      controller: holderOnline() ? lease.holder : null,
+      handover: handover && {
+        from: handover.from,
+        fromName: devices.get(handover.from)?.name || 'Another remote',
+        at: handover.at,
+      },
     };
   }
 
@@ -77,29 +97,30 @@ export function createSessionHost({
       return session;
     },
     presence,
-    /** Start (or restart) a multi-view setup for N screens. */
+    /** What the relay saves to disk (no setup tokens or codes). */
+    snapshot() {
+      return { session, devices: [...devices], lease };
+    },
+    /** Start a multi-view setup for N screens: a fresh wall. */
     setup({ count = 4, tripId = null, siteKey = null } = {}) {
       const t = now();
-      // Starting Multi-view starts a fresh wall: roles, pins, visitor mode
-      // and reports from an earlier session do not carry over.
       const prevRev = session.rev;
       session = createSession({ count, epochMs: t });
       session.rev = prevRev + 1;
-      // The console's trip and site; one clock for every screen.
       session = applyCommand(
         session,
         { type: 'session', patch: { tripId, siteKey } },
         { by: 'setup', at: t },
       ).state;
-      session.session.epochMs = session.session.epochMs || t;
+      session.session.epochMs = t;
       const tk = token();
       setups.set(tk, { expires: t + SETUP_TTL_MS });
       return { setup: tk, expires: t + SETUP_TTL_MS, count: session.count };
     },
     /**
-     * A device says hello. Screens with a known token get their slot back;
-     * new screens get a pairing code. Remotes claim the lease when it is
-     * free, else join as a viewer.
+     * A device says hello. Returns {type, …, unpaired: [ids to tell]}.
+     * An id that holds a token belongs to that device: claiming it without
+     * the token is refused (review/phase10 R1).
      */
     hello({
       id,
@@ -111,37 +132,36 @@ export function createSessionHost({
     }) {
       const t = now();
       const known = devices.get(id);
-      const setupOk = setup && setups.get(setup)?.expires > t;
-      if (
-        kind === 'screen' &&
-        setupOk &&
-        Number(slot) >= 1 &&
-        Number(slot) <= 6
-      ) {
-        const s = Number(slot);
-        for (const [oid, d] of devices)
-          if (d.kind === 'screen' && d.slot === s && oid !== id) {
-            d.slot = null;
-            d.token = null;
-          }
-        const d = {
-          kind: 'screen',
-          slot: s,
-          token: token(),
-          lastSeen: t,
-          online: true,
-        };
-        devices.set(id, d);
-        if (!session.screens[s])
-          session = applyCommand(
-            session,
-            { type: 'count', n: Math.max(s, session.count) },
-            { by: 'setup', at: t },
-          ).state;
-        return { type: 'paired', slot: s, token: d.token };
-      }
+      const setupOk = Boolean(setup) && setups.get(setup)?.expires > t;
+      if (!id || typeof id !== 'string')
+        return { type: 'denied', error: 'No device id' };
+      if (known?.token && tk !== known.token)
+        return { type: 'denied', error: 'This device id is already in use' };
+      if (kind === 'launcher')
+        return setupOk
+          ? { type: 'launcher' }
+          : { type: 'denied', error: 'Start multi-view on this computer' };
       if (kind === 'screen') {
-        if (known?.token && known.token === tk && known.slot) {
+        if (setupOk && Number(slot) >= 1 && Number(slot) <= 6) {
+          const s = Number(slot);
+          const unpaired = freeSlot(s, id);
+          const d = {
+            kind: 'screen',
+            slot: s,
+            token: token(),
+            lastSeen: t,
+            online: true,
+          };
+          devices.set(id, d);
+          if (!session.screens[s])
+            session = applyCommand(
+              session,
+              { type: 'count', n: Math.max(s, session.count) },
+              { by: 'setup', at: t },
+            ).state;
+          return { type: 'paired', slot: s, token: d.token, unpaired };
+        }
+        if (known?.token && known.slot) {
           known.lastSeen = t;
           known.online = true;
           return { type: 'paired', slot: known.slot, token: known.token };
@@ -152,35 +172,30 @@ export function createSessionHost({
         devices.set(id, { kind, lastSeen: t, online: true });
         return { type: 'pair-code', code, expires: t + CODE_TTL_MS };
       }
-      // Remotes need the setup QR or a token from an earlier pairing.
-      const trusted =
-        setupOk ||
-        (known?.kind === 'remote' && known.token && known.token === tk);
+      if (kind !== 'remote') return { type: 'denied', error: 'Unknown device' };
+      // Remotes need the setup QR or their own token from an earlier pairing.
+      const trusted = setupOk || (known?.kind === 'remote' && known.token);
       if (!trusted)
         return {
           type: 'denied',
           error: 'Scan the QR on the Trip Twin computer to pair this remote',
         };
-      const rt = known?.token && known.token === tk ? tk : token();
+      const rt = known?.token || token();
       devices.set(id, {
         kind: 'remote',
-        name,
+        name: String(name || 'Remote').slice(0, 24),
         token: rt,
         lastSeen: t,
         online: true,
       });
-      if (!leaseLive()) lease = { holder: id, at: t };
-      return {
-        type: 'remote',
-        token: rt,
-        controller: lease.holder === id,
-      };
+      if (!holderOnline()) lease = { holder: id, at: t };
+      return { type: 'remote', token: rt, controller: lease.holder === id };
     },
     /** The remote enters a screen's code and gives it a slot (1–6). */
     pair({ by, code, slot }) {
       const t = now();
       if (lease.holder !== by || !leaseLive())
-        return { ok: false, error: 'Only the controlling remote can pair' };
+        return { ok: false, error: 'Only the remote in control can pair' };
       if (t < lockedUntil)
         return {
           ok: false,
@@ -199,26 +214,25 @@ export function createSessionHost({
       codes.delete(String(code)); // single use
       const s = Number(slot);
       if (!(s >= 1 && s <= 6)) return { ok: false, error: 'Slot must be 1–6' };
-      // One device per slot: the old one is unpaired.
-      for (const [id, d] of devices)
-        if (d.kind === 'screen' && d.slot === s && id !== c.deviceId) {
-          d.slot = null;
-          d.token = null;
-        }
+      const unpaired = freeSlot(s, c.deviceId);
       const d = devices.get(c.deviceId) || { kind: 'screen' };
       d.slot = s;
       d.token = token();
       d.lastSeen = t;
       devices.set(c.deviceId, d);
-      if (!session.screens[s]) {
-        const r = applyCommand(
+      if (!session.screens[s])
+        session = applyCommand(
           session,
           { type: 'count', n: Math.max(s, session.count) },
           { by, at: t },
-        );
-        session = r.state;
-      }
-      return { ok: true, deviceId: c.deviceId, slot: s, token: d.token };
+        ).state;
+      return {
+        ok: true,
+        deviceId: c.deviceId,
+        slot: s,
+        token: d.token,
+        unpaired,
+      };
     },
     /** Heartbeat from any device; the controller's renews the lease. */
     beat(id) {
@@ -227,19 +241,20 @@ export function createSessionHost({
       d.lastSeen = now();
       d.online = true;
       if (lease.holder === id) lease.at = now();
-      // A hand-over request nobody answered is granted after 15 s.
-      if (handover && now() - handover.at >= HANDOVER_AUTO_MS) {
-        lease = { holder: handover.from, at: now() };
-        handover = null;
-      }
     },
     gone(id) {
       const d = devices.get(id);
       if (d) d.online = false;
+      // A remote that asked for control and left takes its request with it.
+      if (handover?.from === id) handover = null;
     },
-    /** A viewer asks for control; free or stale leases pass at once. */
+    /**
+     * A viewer asks for control. Granted at once only when nobody is in
+     * control (offline or lapsed); otherwise the controller decides —
+     * never silently (review/phase10 R14).
+     */
     requestControl(id) {
-      if (!leaseLive() || lease.holder === id) {
+      if (!holderOnline() || lease.holder === id) {
         lease = { holder: id, at: now() };
         handover = null;
         return { granted: true };
@@ -263,6 +278,7 @@ export function createSessionHost({
       const r = applyCommand(session, cmd, { by, at: now() });
       if (r.error) return { ok: false, error: r.error };
       session = r.state;
+      lease.at = now();
       const undoId = `u${++undoSeq}`;
       undos.set(undoId, { undo: r.undo, expires: now() + UNDO_MS });
       for (const [k, v] of undos) if (v.expires < now()) undos.delete(k);
@@ -284,9 +300,12 @@ export function createSessionHost({
       session = applyUndo(session, u.undo, { by, at: now() });
       return { ok: true, rev: session.rev };
     },
-    /** Screens on this slot (to address thumbnails and identify). */
+    /** A device's slot (to address thumbnails and identify). */
     slotOf(id) {
       return devices.get(id)?.slot ?? null;
+    },
+    kindOf(id) {
+      return devices.get(id)?.kind ?? null;
     },
   };
 }

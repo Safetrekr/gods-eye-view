@@ -46,7 +46,7 @@ const ui = {
 
   target:
     ss.get('target', '1') === 'all' ? 'all' : Number(ss.get('target', '1')),
-  station: ss.get('station', 'screens'),
+  station: ss.get('station', 'incident'),
   day: null,
   confirm: null, // {cmd, label, text}
   bar: null, // {kind: 'undo'|'err'|'ok', text, undoId, until}
@@ -113,16 +113,22 @@ function notify(text, err = false) {
   ui.bar = { kind: err ? 'err' : 'ok', text, until: Date.now() + 5000 };
   renderBar();
 }
+/** Ask before running a command, with this text (review R11/R13). */
+function ask(cmd, text, label = '') {
+  ui.confirm = { cmd, label, text, until: Date.now() + 15000 };
+  renderBar();
+}
 async function send(cmd, label = '') {
-  if (!ui.controller) return notify('View only — request control first', true);
-  if (needsConfirm(cmd) && ui.confirm?.cmd !== cmd) {
-    const text =
+  if (!ui.controller)
+    return notify('View only — take control first (top bar)', true);
+  if (needsConfirm(cmd) && ui.confirm?.cmd !== cmd)
+    return ask(
+      cmd,
       cmd.type === 'screens' && cmd.target === 'all'
-        ? previewAll(ui.state, cmd.patch).text
-        : label || 'Change every screen';
-    ui.confirm = { cmd, label, text };
-    return renderBar();
-  }
+        ? `${label} · ${previewAll(ui.state, cmd.patch).text.replace(/^[^→]*→ /, 'on ')}`
+        : label || 'Change every screen',
+      label,
+    );
   ui.confirm = null;
   const r = await sync.request({ t: 'cmd', cmd });
   if (!r.ok) return notify(r.error || 'Not applied', true);
@@ -130,10 +136,12 @@ async function send(cmd, label = '') {
     .filter((c) => c !== 'session')
     .map((s) => `S${s}`);
   const skipped = (r.skipped || []).map((s) => `S${s}`);
+  // Name the screens only for an All push; a single target is in the label.
+  const all = cmd.target === 'all' || cmd.type === 'returnLive';
   ui.bar = {
     kind: 'undo',
     undoId: r.undoId,
-    text: `${label || 'Applied'}${applied.length ? ` · ${applied.join(', ')}` : ''}${skipped.length ? ` · ${skipped.join(', ')} pinned, skipped` : ''}`,
+    text: `${label || 'Applied'}${all && applied.length ? ` · ${applied.join(', ')}` : ''}${skipped.length ? ` · ${skipped.join(', ')} pinned, unchanged` : ''}`,
     until: Date.now() + 10000,
   };
   renderBar();
@@ -159,23 +167,52 @@ function pickDay(day) {
   renderContent(true);
   renderRail();
 }
-/** "Show Day n on target": one screen becomes The day; All goes Advance. */
+/** Is an incident open (the operator's report or the trip data's)? */
+function incidentOpen() {
+  const t = tripById(ui.state?.session?.tripId);
+  return Boolean(
+    ui.state?.session?.report ||
+    tripData(t)?.snapshot?.reported_incidents?.length,
+  );
+}
+/** Live / Advance for the target; pinned screens stay as they are (R2). */
+function setMode(mode) {
+  const target = ui.target;
+  const cmd = { type: 'screens', target, patch: { mode } };
+  const label =
+    mode === 'advance'
+      ? `${target === 'all' ? 'All screens' : `S${target}`} → Advance`
+      : `${target === 'all' ? 'All screens' : `S${target}`} → Live`;
+  if (mode === 'advance' && incidentOpen()) {
+    const p = target === 'all' ? previewAll(ui.state, cmd.patch) : null;
+    return ask(
+      cmd,
+      `Incident open · Advance hides traveler positions on ${p ? p.applied.map((s) => `S${s}`).join(', ') : `S${target}`}${p?.pinned.length ? ` · ${p.pinned.map((s) => `S${s}`).join(', ')} pinned, stays as it is` : ''}`,
+      label,
+    );
+  }
+  send(cmd, label);
+}
+/** One command per action (R12): S5 → day plan for Day n; All → Advance. */
 function showDay(day) {
   ui.day = day;
-  if (ui.target === 'all')
-    send(
-      { type: 'session', patch: { mode: 'advance', day } },
-      `Every screen → Advance · Day ${day}`,
+  const target = ui.target;
+  if (target !== 'all')
+    return send(
+      { type: 'screens', target, patch: { role: 'day', day } },
+      `S${target} → Day plan · Day ${day}`,
     );
-  else
-    sync
-      .request({ t: 'cmd', cmd: { type: 'session', patch: { day } } })
-      .then(() =>
-        send(
-          { type: 'screens', target: ui.target, patch: { role: 'day' } },
-          `S${ui.target} → The day · Day ${day}`,
-        ),
-      );
+  const cmd = {
+    type: 'screens',
+    target: 'all',
+    patch: { mode: 'advance', day },
+  };
+  const p = previewAll(ui.state, cmd.patch);
+  ask(
+    cmd,
+    `${incidentOpen() ? 'Incident open · traveler positions leave those walls · ' : ''}Advance · Day ${day} on ${p.applied.map((s) => `S${s}`).join(', ')}${p.pinned.length ? ` · ${p.pinned.map((s) => `S${s}`).join(', ')} pinned, stays as it is` : ''}`,
+    `Advance · Day ${day} on all screens`,
+  );
 }
 async function copyResponders(report) {
   const t = tripById(ui.state.session.tripId);
@@ -228,7 +265,7 @@ function renderHead() {
     el('span', 'mono', t.orgShort),
     el('span', 'org', `${t.org} · ${t.title}`),
   );
-  const ctl = ui.presence?.remotes?.find((r) => r.controller);
+  const ctl = ui.presence?.remotes?.find((r) => r.controller && !r.you);
   const link = el(
     'div',
     `rm-link ${ui.link === 'online' ? (ui.controller ? 'ok' : 'warn') : 'warn'}`,
@@ -236,18 +273,27 @@ function renderHead() {
       ? 'Not connected · retrying'
       : ui.controller
         ? `In control · ${device}`
-        : `View only · ${ctl ? `${ctl.name || 'another remote'} in control` : 'no controller'}`,
+        : `View only · ${ctl ? `${ctl.name || 'another remote'} in control` : 'no remote in control'}`,
   );
   const extra = [];
+  const ho = ui.presence?.handover;
   if (ui.link === 'online' && !ui.controller)
     extra.push(
-      btn('rm-btn', 'Request control', () =>
-        sync.send({ t: 'request-control' }),
+      btn(
+        'rm-btn',
+        ui.presence?.anyController
+          ? ho?.you
+            ? 'Asked for control…'
+            : 'Ask for control'
+          : 'Take control',
+        () => sync.send({ t: 'request-control' }),
       ),
     );
-  if (ui.controller && ui.presence?.handover)
+  // Never silent (R14): the controller sees who asks and decides.
+  if (ui.controller && ho && !ho.you)
     extra.push(
-      btn('rm-btn', 'Hand over control', () =>
+      el('span', 'rm-link warn', `${ho.fromName} asks for control`),
+      btn('rm-btn', 'Hand over', () =>
         sync.send({ t: 'handover', accept: true }),
       ),
       btn('rm-btn', 'Keep control', () =>
@@ -362,8 +408,10 @@ function ctx() {
     local: ui.local,
     sync,
     send,
+    ask,
     notify,
     setTarget,
+    setMode,
     pickDay,
     showDay,
     tripData,
@@ -457,6 +505,8 @@ function renderRail() {
 }
 function renderBar() {
   const b = ui.bar;
+  // A confirm that nobody answers goes away after 15 s (R11).
+  if (ui.confirm && Date.now() > ui.confirm.until) ui.confirm = null;
   if (ui.confirm) {
     bar.hidden = false;
     bar.className = 'rm-bar ask';
@@ -470,7 +520,11 @@ function renderBar() {
         renderBar();
       }),
     );
-    bar.querySelector('.primary')?.focus();
+    // Focus the new question once; the 1 s repaint must not steal focus.
+    if (!ui.confirm.focused) {
+      ui.confirm.focused = true;
+      bar.querySelector('.primary')?.focus();
+    }
     return;
   }
   if (!b || Date.now() > b.until) {
@@ -533,6 +587,7 @@ const sync = connectSync({
       ui.controller = Boolean(m.controller);
       ui.state = m.state;
       ui.presence = m.presence;
+      ui.presence = m.presence;
       if (ui.target !== 'all' && !ui.state.screens[ui.target])
         ui.target = 'all';
       renderAll();
@@ -540,14 +595,13 @@ const sync = connectSync({
     state(m) {
       ui.state = m.state;
       ui.presence = m.presence || ui.presence;
+      ui.controller = Boolean(ui.presence?.youControl);
       if (ui.target !== 'all' && !ui.state.screens[ui.target]) setTarget('all');
       renderAll();
     },
     presence(m) {
       ui.presence = m.presence;
-      ui.controller = Boolean(
-        m.presence?.controller && m.presence.controller === sync.id,
-      );
+      ui.controller = Boolean(m.presence?.youControl);
       renderHead();
       renderTargets();
       renderPreview();
@@ -559,7 +613,7 @@ const sync = connectSync({
       notify(
         m.granted
           ? 'You are in control'
-          : 'Asked for control · the other remote can accept (granted after 15 s)',
+          : 'Asked for control · the remote in control decides',
       );
       renderHead();
     },

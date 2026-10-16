@@ -25,8 +25,8 @@ export const ROLES = Object.freeze({
   travelers: {
     key: 'travelers',
     textScale: 1.75,
-    label: 'Travelers',
-    kicker: 'TRAVELERS',
+    label: 'People',
+    kicker: 'PEOPLE',
     sub: 'Where everyone is now',
     canvas: true,
     scale: 'city',
@@ -51,8 +51,8 @@ export const ROLES = Object.freeze({
   day: {
     key: 'day',
     textScale: 1.75,
-    label: 'The day',
-    kicker: 'THE DAY',
+    label: 'Day plan',
+    kicker: 'DAY PLAN',
     sub: 'Schedule · places · paths',
     canvas: true,
     scale: 'city',
@@ -152,9 +152,12 @@ export const LAYER_CATALOG = Object.freeze([
     ],
   },
   {
-    group: 'Safety & paths',
+    group: 'Safety',
+    layers: [{ key: 'safety', label: 'Safety resources', def: true }],
+  },
+  {
+    group: 'Paths',
     layers: [
-      { key: 'safety', label: 'Safety resources', def: true },
       { key: 'paths', label: 'Suggested paths', def: true },
       { key: 'savedPaths', label: 'Saved paths', def: true },
       { key: 'avoidAreas', label: 'Avoid-areas', def: true },

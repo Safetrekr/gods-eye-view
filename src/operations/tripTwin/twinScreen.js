@@ -16,7 +16,7 @@ const el = (tag, cls, text) => {
   return n;
 };
 const clock = (ms) =>
-  new Date(ms).toLocaleTimeString([], {
+  new Date(ms).toLocaleTimeString('en-GB', {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
@@ -45,7 +45,14 @@ export function createScreenMode({ api, slot = null, setup = null }) {
   const chip = el('div', 'tt-wall-chip');
   chip.setAttribute('role', 'status');
   const sample = el('div', 'tt-wall-sample', 'SAMPLE TRIP · FICTIONAL PEOPLE');
-  right.append(time, chip, sample);
+  // Visitor mode is visible on every wall (review/phase10 R6).
+  const visitorMark = el(
+    'div',
+    'tt-wall-visitor',
+    'VISITOR MODE · INITIALS ONLY',
+  );
+  visitorMark.hidden = true;
+  right.append(time, chip, visitorMark, sample);
   head.append(left, badge, right);
   const stale = el('div', 'tt-wall-stale');
   stale.hidden = true;
@@ -77,6 +84,8 @@ export function createScreenMode({ api, slot = null, setup = null }) {
   let dragging = false;
   let pendingCamera = [];
   let sentLocal = '';
+  let remoteGoneAt = null; // when the controlling remote went away
+  let restoredAt = null; // a cached state shown before the link connects
   // Assigned below; the client reports status while it is being created.
   let sync = null;
 
@@ -162,10 +171,11 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     document.body.classList.toggle('tt-visitor', Boolean(ss.visitor));
     if (s) {
       applyRole(s);
+      // Live / Advance and the day are this screen's own (review R2).
       const dayRole = s.role === 'day';
-      const mode = dayRole ? 'advance' : ss.mode;
-      const key = `${mode}:${ss.day}:${s.role}`;
-      if (key !== applied.modeKey) api.setMode(mode, ss.day);
+      const mode = dayRole ? 'advance' : s.mode || 'live';
+      const key = `${mode}:${s.day}:${s.role}`;
+      if (key !== applied.modeKey) api.setMode(mode, s.day);
       applied.modeKey = key;
       for (const [k, v] of Object.entries(s.layers || {}))
         if (applied.layers?.[k] !== v) api.setLayer(k, v);
@@ -206,7 +216,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     try {
       localStorage.setItem(
         `tripTwin.soc.lastState.${mySlot}`,
-        JSON.stringify(next),
+        JSON.stringify({ state: next, at: Date.now() }),
       );
     } catch {
       /* ignore */
@@ -221,27 +231,32 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     kicker.textContent = mySlot ? `S${mySlot} · ${role.kicker}` : role.kicker;
     where.textContent = api.siteLabel();
     const ss = state?.session || {};
-    const adv = s?.role === 'day' || ss.mode === 'advance';
-    // The day screen in Live shows today's plan: say so, not "Advance".
-    badge.textContent =
-      ss.mode === 'advance'
-        ? `ADVANCE · ${api.dayLabel()}`
-        : adv
-          ? `PLAN · TODAY · ${api.dayLabel()}`
-          : 'LIVE';
-    badge.classList.toggle('adv', adv);
+    const advance = s?.mode === 'advance';
+    const dayPlan = s?.role === 'day';
+    // The day plan in Live shows today's plan: say so, not "Advance".
+    badge.textContent = advance
+      ? `ADVANCE · ${api.dayLabel()}`
+      : dayPlan
+        ? `TODAY'S PLAN · ${api.dayLabel()}`
+        : 'LIVE';
+    badge.classList.toggle('adv', advance || dayPlan);
+    document.body.classList.toggle('tt-dayplan-live', dayPlan && !advance);
     time.textContent = api.clockText();
+    visitorMark.hidden = !ss.visitor;
     const ctl = presence?.remotes?.find((r) => r.controller);
-    const age = (Date.now() - (lastChangeAt || welcomeAt || Date.now())) / 1000;
+    const hands = handsOn() ? ' · hands-on' : '';
+    const changed = lastChangeAt || welcomeAt;
     if (!sync?.online) {
-      chip.textContent = `S${mySlot ?? '?'} · not connected`;
+      chip.textContent = `S${mySlot ?? '?'} · not connected${hands}`;
       chip.className = 'tt-wall-chip warn';
     } else if (!ctl) {
-      chip.textContent = `S${mySlot ?? '?'} · Remote offline${presence?.offlineFor ? ` · ${mmss(presence.offlineFor)}` : ''}`;
+      if (!remoteGoneAt) remoteGoneAt = Date.now();
+      chip.textContent = `S${mySlot ?? '?'} · Remote offline · since ${clock(remoteGoneAt).slice(0, 5)}${hands}`;
       chip.className = 'tt-wall-chip warn';
     } else {
+      remoteGoneAt = null;
       const recent = Date.now() - lastChangeAt < 3000;
-      chip.textContent = `S${mySlot} · ${handsOn() ? 'hands-on · ' : ''}Remote: ${ctl.name || 'remote'}${recent ? ` · ${changeText}` : ` · ${Math.round(age)} s ago`}`;
+      chip.textContent = `S${mySlot} · Remote: ${ctl.name || 'remote'}${recent ? ` · ${changeText}` : changed ? ` · changed ${mmss((Date.now() - changed) / 1000)} ago` : ''}${hands}`;
       chip.className = `tt-wall-chip${recent ? ' changed' : ''}${s?.pinned ? ' pinned' : ''}`;
     }
     // Link age, separate from data age (supervision spec).
@@ -249,24 +264,39 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     const lost = !sync?.online || (link != null && link > 15);
     stale.hidden = !lost || !state;
     if (lost && state) {
-      const since = link ?? 0;
-      stale.textContent = `STALE · last update ${clock(Date.now() - since * 1000)} · ${mmss(since)} ago · showing the last state`;
-      stale.classList.toggle('heavy', since > 120);
+      if (link == null && restoredAt)
+        stale.textContent = `STALE · showing the state saved at ${clock(restoredAt)} · not connected to the Trip Twin computer`;
+      else {
+        const since = link ?? 0;
+        stale.textContent = `STALE · last update ${clock(Date.now() - since * 1000)} · ${mmss(since)} ago · showing the last state`;
+        stale.classList.toggle('heavy', since > 120);
+      }
     }
-    // Incident banner: from this screen's own data, remote or not.
+    // Incident banner: from this screen's own data, remote or not. An
+    // acknowledgement belongs to one report (review R4).
     const inc = api.incidentText();
     banner.hidden = !inc;
+    document.body.classList.toggle('tt-banner-on', Boolean(inc));
     if (inc) {
       banner.textContent = inc;
-      banner.classList.toggle('acked', Boolean(ss.incidentAck));
+      banner.classList.toggle(
+        'acked',
+        Boolean(ss.incidentAck) && ss.incidentAck === api.incidentKey(),
+      );
     }
   }
 
   const handsOn = () => Date.now() - lastInput < HANDS_MS;
+  let lastMove = 0;
   function onInput(e) {
+    const b = document.body;
+    b.classList.remove('tt-idle-cursor');
+    lastMove = Date.now();
+    // A cursor passing over a wall is not hands-on: a press, a scroll or a
+    // key is (review R9).
+    if (e.type === 'pointermove') return;
     if (e.type === 'pointerdown') dragging = true;
     lastInput = Date.now();
-    const b = document.body;
     if (!b.classList.contains('tt-hands-on')) {
       b.classList.add('tt-hands-on');
       paint();
@@ -285,7 +315,14 @@ export function createScreenMode({ api, slot = null, setup = null }) {
   function syncLocal() {
     const b = document.body;
     const now = Date.now();
-    if (now - lastInput > IDLE_CURSOR_MS) b.classList.add('tt-idle-cursor');
+    if (now - lastMove > IDLE_CURSOR_MS) b.classList.add('tt-idle-cursor');
+    // Queued camera moves run 3 s after the last input, released or not.
+    if (pendingCamera.length && now - lastInput > 3000) {
+      dragging = false;
+      const run = pendingCamera;
+      pendingCamera = [];
+      for (const fn of run) fn();
+    }
     if (!handsOn() && b.classList.contains('tt-hands-on')) {
       b.classList.remove('tt-hands-on');
       paint();
@@ -299,6 +336,14 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       sentLocal = text;
       sync.send({ t: 'local', on: handsOn(), text });
     }
+  }
+
+  /** The setup token has done its job once the screen has joined (R1). */
+  function dropSetupFromUrl() {
+    const q = new URLSearchParams(location.search);
+    if (!q.has('setup')) return;
+    q.delete('setup');
+    history.replaceState(null, '', `?${q}`);
   }
 
   function identify() {
@@ -368,12 +413,28 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         if (m.type === 'paired') {
           mySlot = m.slot;
           pair.hidden = true;
+          restoredAt = null;
+          dropSetupFromUrl();
           applyState(m.state, { force: true });
         } else if (m.type === 'pair-code') showPair(m.code);
+      },
+      // This slot went to another device: back to a pairing code (R10).
+      unpaired() {
+        sync.forget();
+        try {
+          localStorage.removeItem(`tripTwin.soc.lastState.${mySlot}`);
+        } catch {
+          /* ignore */
+        }
+        const q = new URLSearchParams(location.search);
+        q.delete('setup');
+        q.delete('slot');
+        location.search = `?${q}`;
       },
       paired(m) {
         mySlot = m.slot;
         pair.hidden = true;
+        dropSetupFromUrl();
         identify();
         // The state follows in the next broadcast.
       },
@@ -382,10 +443,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         applyState(m.state, m);
       },
       presence(m) {
-        const had = presence?.remotes?.some((r) => r.controller);
         presence = m.presence;
-        const has = presence?.remotes?.some((r) => r.controller);
-        if (had && !has) presence.offlineSince = Date.now();
         paint();
       },
       identify,
@@ -400,16 +458,15 @@ export function createScreenMode({ api, slot = null, setup = null }) {
           localStorage.getItem(`tripTwin.soc.lastState.${mySlot}`) || 'null',
         )
       : null;
-    if (last) applyState(last, { force: true });
+    if (last?.state) {
+      restoredAt = last.at || null;
+      applyState(last.state, { force: true });
+    }
   } catch {
     /* ignore */
   }
   const tick = setInterval(() => {
     syncLocal();
-    if (presence && !presence.remotes?.some((r) => r.controller))
-      presence.offlineFor = presence.offlineSince
-        ? (Date.now() - presence.offlineSince) / 1000
-        : 0;
     paint();
   }, 1000);
   const snapTimer = setInterval(snapshot, 4000);
@@ -421,6 +478,14 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       return mySlot;
     },
     refresh() {
+      renderPanel();
+      paint();
+    },
+    /** Once the twin is open: run the role's defaults again (scale etc.). */
+    reapply() {
+      document.body.dataset.role = '';
+      applied.modeKey = null;
+      if (state) applyState(state, { force: true });
       renderPanel();
       paint();
     },

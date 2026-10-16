@@ -54,7 +54,7 @@ const localTime = (now, timeZone) =>
 export function tripTile(
   trip,
   snapshot,
-  { now = Date.now(), dataAgeS = 0 } = {},
+  { now = Date.now(), dataAgeS = 0, override = null } = {},
 ) {
   const city = TWIN_CITIES[trip.city];
   if (!snapshot)
@@ -67,19 +67,30 @@ export function tripTile(
       line: 'No data received',
       need: 1,
     };
-  const elapsed = snapshot.scenario?.elapsed_s ?? 0;
+  // Positions age from the data, like the walls (review/phase10 R3).
   const people = snapshot.participants || [];
   let notCurrent = 0;
   let notLocated = 0;
   for (const p of people) {
-    const pos = positionState(p, elapsed);
+    const pos = positionState(p, dataAgeS || 0);
     if (!pos.located) notLocated += 1;
     else if (!pos.current) notCurrent += 1;
   }
+  if (override) {
+    notCurrent = override.notCurrent ?? notCurrent;
+    notLocated = override.notLocated ?? notLocated;
+  }
   const report = snapshot.reported_incidents?.[0] || null;
+  const incident = override
+    ? override.incident || null
+    : report
+      ? `Reported: ${report.kind} · floor ${report.floor_label} · not verified`
+      : null;
   const tz = snapshot.trips?.[0]?.timezone || city?.timezone;
   const today = new Date(now).toLocaleDateString('en-CA', { timeZone: tz });
-  const hhmm = localTime(now, tz);
+  // The sample clock, as every wall header shows it.
+  const hhmm =
+    override?.localTime || sampleTime(snapshot) || localTime(now, tz);
   const next = (snapshot.itinerary || [])
     .filter(
       (e) =>
@@ -101,11 +112,9 @@ export function tripTile(
     people: people.length,
     notCurrent,
     notLocated,
-    incident: report
-      ? `Reported: ${report.kind} · floor ${report.floor_label} · not verified`
-      : null,
+    incident,
     next: next
-      ? `${next.event_date === today ? 'Today' : next.event_date} ${next.start_time} · ${next.title}`
+      ? `${next.event_date === today ? 'Today' : dayText(next.event_date)} ${next.start_time} · ${next.title}`
       : 'No more events on the plan',
     data: stale
       ? `Data delayed · ${formatAge(dataAgeS)} old`
@@ -113,8 +122,26 @@ export function tripTile(
     stale,
     // Need, not name, decides the order (travel-risk review).
     need:
-      (report ? 100 : 0) + notCurrent * 2 + notLocated * 3 + (stale ? 20 : 0),
+      (incident ? 100 : 0) + notCurrent * 2 + notLocated * 3 + (stale ? 20 : 0),
   };
+}
+
+/** "Sat 17 Oct" for a date string. */
+const dayText = (date) =>
+  new Date(`${date}T12:00:00Z`).toLocaleDateString('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC',
+  });
+
+/** The scenario's sample clock (clock + elapsed), "HH:MM". */
+function sampleTime(snapshot) {
+  const sc = snapshot?.scenario;
+  if (!sc?.clock) return null;
+  const [h, m] = sc.clock.split(':').map(Number);
+  const mins = (h * 60 + m + Math.floor((sc.elapsed_s || 0) / 60)) % 1440;
+  return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
 }
 
 /** Tiles in order of need; ties keep the trip order. */

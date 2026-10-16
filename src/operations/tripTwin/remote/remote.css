@@ -689,3 +689,58 @@ button {
 .rm-preview .age.hands {
   color: var(--rm-text);
 }
+
+/* ---------- review/phase10 R11, R13, R15 ---------- */
+[hidden] {
+  display: none !important;
+}
+/* The confirm / undo bar has a fixed slot: content never jumps. */
+.rm-bar,
+.rm-bar[hidden] {
+  display: flex !important;
+  min-height: 56px;
+}
+.rm-bar[hidden] {
+  visibility: hidden;
+}
+/* Rail lists grow to fit two lines and fade at the bottom edge. */
+.r-context {
+  grid-auto-rows: max-content;
+  -webkit-mask-image: linear-gradient(#000 85%, transparent);
+  mask-image: linear-gradient(#000 85%, transparent);
+  padding-bottom: 18px;
+}
+.r-context .rm-row {
+  min-height: 44px;
+  height: auto;
+}
+/* An open incident is red on the Incident tile (red = incidents). */
+.rm-tile .pill {
+  background: var(--rm-hazard);
+  color: #1b0508;
+}
+/* On / Off: 44 px and a clear pressed state. */
+.rm-seg button {
+  min-height: 44px;
+}
+.rm-seg button[aria-pressed='true'] {
+  background: var(--rm-text);
+  color: var(--rm-field);
+  font-weight: 600;
+}
+.rm-layer {
+  max-width: 560px;
+}
+/* Status dots are neutral: green means approved places only. */
+.rm-link.ok::before {
+  background: var(--rm-text);
+  box-shadow: none;
+}
+.r-active .k .st {
+  color: var(--rm-text-2);
+}
+@media (max-width: 1279px) {
+  .rm-stage {
+    grid-template-columns: minmax(220px, 280px) 1fr;
+  }
+}
