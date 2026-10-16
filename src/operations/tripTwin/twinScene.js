@@ -72,7 +72,7 @@ function baseHeight(rings0, projector, field) {
 }
 
 /** Densify a lat/lon polyline so it can follow the heightfield. */
-function drape(coords, projector, field, lift, stepM = 15) {
+export function drape(coords, projector, field, lift, stepM = 15) {
   const out = [];
   for (let i = 0; i < coords.length; i++) {
     const a = coords[i];
@@ -153,6 +153,7 @@ export function buildTwinScene(viewer, site) {
     triangles += b.rings[0].length * 4;
   }
 
+  const contextMaterials = []; // surrounding buildings (Ways out fades them)
   const bandPrimitives = bands.map((band) => {
     const group = new Cesium.PrimitiveCollection();
     primitives.add(group);
@@ -163,6 +164,7 @@ export function buildTwinScene(viewer, site) {
       if (!list.length) continue;
       const material = glassMaterial(...tokens);
       materials.push(material);
+      contextMaterials.push(material);
       group.add(
         new Cesium.Primitive({
           geometryInstances: list,
@@ -368,6 +370,7 @@ export function buildTwinScene(viewer, site) {
 
   let disposed = false;
   let contextOn = true;
+  let baseStreetsOff = false; // the Streets layer draws its own (phase 7)
   let lastReveal = 0;
   return {
     primitives,
@@ -385,6 +388,12 @@ export function buildTwinScene(viewer, site) {
       primitives: bandPrimitives.length * 2 + 4,
       roads: streetInstances.length,
     },
+    /** The faint base streets step aside while the Streets layer is on. */
+    setBaseStreets(on) {
+      baseStreetsOff = !on;
+      if (streets) streets.show = on && lastReveal >= radius / 2;
+      viewer.scene.requestRender();
+    },
     /** Show bands whose radius is ≤ r, plus hotel, grid and streets. */
     reveal(r) {
       lastReveal = r;
@@ -395,12 +404,17 @@ export function buildTwinScene(viewer, site) {
       });
       if (grid) grid.show = r >= radius / 4;
       if (contours) contours.show = r >= radius / 4;
-      if (streets) streets.show = r >= radius / 2;
+      if (streets) streets.show = r >= radius / 2 && !baseStreetsOff;
     },
     /** Surrounding buildings on/off (Layers › Site). The hotel always stays. */
     /** Floor focus (phase 3 Part F): the hotel glass steps back. */
-    setHotelDim(on) {
-      hotelMaterial.uniforms.fade = on ? 0.4 : 1;
+    setHotelDim(on, level = 0.4) {
+      hotelMaterial.uniforms.fade = on ? level : 1;
+      viewer.scene.requestRender();
+    },
+    /** Ways out (phase 7): surrounding buildings step back to faint volumes. */
+    setContextDim(on) {
+      for (const m of contextMaterials) m.uniforms.fade = on ? 0.35 : 1;
       viewer.scene.requestRender();
     },
     setContextVisible(on) {

@@ -596,6 +596,12 @@ export function createHud({
           `If the group must move: ${moveCards[0].title.replace(/^Path to /, '')} · details below`,
         ),
       );
+    if (moveCards[0]) {
+      // Streets and walkways around the hotel (phase 7): the operator's call.
+      const w = el('button', 'tt-link tt-ways-btn', 'Ways out view (W)');
+      w.type = 'button';
+      incident.append(w);
+    }
     if (ctx.dockedCutaway) {
       incident.append(
         el('div', 'tt-kicker tt-cut-kicker', 'FLOORS'),
@@ -985,6 +991,14 @@ export function createCard(card, { onClose }) {
           ctx.numbering
             ? `${b.levels || '?'} floors · ${ctx.groundLabel === 1 ? 'US numbering · lobby = 1' : 'ground floor = 0'}`
             : 'Floor numbering not verified',
+        ]);
+      // Doors (phase 7): only what OpenStreetMap maps; never "exit".
+      if (geom.isHotel && ctx.doors)
+        lines.push([
+          'foot',
+          ctx.doors.hotelDoors
+            ? `Mapped entrances: ${ctx.doors.hotelDoors}${ctx.doors.hotelMain ? ` (${ctx.doors.hotelMain} main)` : ''} · OpenStreetMap, unverified · fire exits are not mapped`
+            : 'No entrances mapped at this building in OpenStreetMap · fire exits are not mapped',
         ]);
       if (ctx.showOsmIds)
         lines.push([

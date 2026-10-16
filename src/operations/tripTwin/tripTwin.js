@@ -2,6 +2,7 @@
 // exit sequences (03 §5.1, §5.4; 05 §3.1, §3.5). Idempotent open/close/dispose.
 import * as Cesium from 'cesium';
 import { createDeclutter } from './twinDeclutter.js';
+import { createStreetsLayer } from './twinStreets.js';
 import { resolveEllipsoidalGround } from '../../data/terrainHeights.js';
 import {
   TWIN_RADIUS_M,
@@ -190,6 +191,16 @@ export function createTripTwin({
   let safety = null;
   let declutterer = null;
   let selectedPlaceId = null;
+  let streetsLayer = null;
+  let hotelStepBack = false; // Ways out view (phase 7)
+  /** Hotel glass: floor focus 0.4; Ways out 0.2 (edges carry the shape). */
+  function applyHotelDim() {
+    twin?.setHotelDim(
+      floorFocus !== null || hotelStepBack,
+      floorFocus !== null ? 0.4 : 0.2,
+    );
+  }
+  let streetsState = { streets: false, walkways: false };
   let peopleDim = false;
   let chips = [];
   let peopleInfo = { beyond: 0 };
@@ -488,6 +499,12 @@ export function createTripTwin({
       refreshFires();
       safety = createSafetyLayer(viewer, site);
       safety.setSelected(selectedPlaceId);
+      streetsLayer = createStreetsLayer(viewer, site);
+      streetsLayer.set(streetsState);
+      twin.setBaseStreets?.(!streetsState.streets);
+      // A site switch keeps the Ways out view (review/phase7 M4).
+      applyHotelDim();
+      twin.setContextDim?.(hotelStepBack);
       // Labels stay inside the area the panels leave free.
       declutterer = createDeclutter(viewer, {
         bounds: () => {
@@ -622,7 +639,7 @@ export function createTripTwin({
       floorFocus === null ? null : floorFocus - groundLabel(),
       { label: floorFocus, state: info?.state ?? null },
     );
-    twin?.setHotelDim(floorFocus !== null);
+    applyHotelDim();
     redrawPeople();
   }
 
@@ -1021,6 +1038,8 @@ export function createTripTwin({
     savedView = null;
     stats.floorFocus = null;
     safety?.dispose();
+    streetsLayer?.dispose();
+    streetsLayer = null;
     declutterer?.dispose();
     declutterer = null;
     disposePaths?.();
@@ -1274,6 +1293,22 @@ export function createTripTwin({
     restoreView,
     viewFromSide,
     /** Phase 4: route map clicks to the path editor (null restores). */
+    /** Streets and walkways (phase 7): {streets, walkways}. */
+    setStreets(next) {
+      streetsState = { ...streetsState, ...next };
+      streetsLayer?.set(streetsState);
+      twin?.setBaseStreets?.(!streetsState.streets);
+    },
+    /** Ways out: the hotel's glass steps back so streets behind it read. */
+    setHotelStepBack(on) {
+      hotelStepBack = Boolean(on);
+      applyHotelDim();
+      twin?.setContextDim?.(hotelStepBack);
+      viewer.scene.requestRender();
+    },
+    get streets() {
+      return { ...streetsState, counts: streetsLayer?.counts || null };
+    },
     /** The place whose card is open glows on the map (phase 5b). */
     setSelectedPlace(id) {
       selectedPlaceId = id || null;

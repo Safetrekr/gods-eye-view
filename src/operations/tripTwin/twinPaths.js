@@ -209,6 +209,18 @@ export function drawPaths(viewer, site, paths) {
     const positions = densify(p.geometry, 12).map((q) =>
       lift(q, primary ? 1.0 : 0.9),
     );
+    // A dark casing keeps the blue path on top of bright streets (phase 7).
+    if (!unavailable)
+      ds.entities.add({
+        polyline: {
+          positions: densify(p.geometry, 12).map((q) =>
+            lift(q, primary ? 0.95 : 0.85),
+          ),
+          width: (primary ? 6 : 3) + 4,
+          arcType: Cesium.ArcType.NONE,
+          material: css('#061a23', 0.85),
+        },
+      });
     ds.entities.add({
       id: `twin-path:${p.kind}`,
       polyline: {

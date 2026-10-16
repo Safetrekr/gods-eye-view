@@ -226,6 +226,14 @@ export function parseOverpassElements(elements = []) {
         id: `way/${el.id}`,
         highway: tags.highway,
         name: tags.name || null,
+        // Walkability tags (review/phase7 UX P0-2): never walk a tunnel,
+        // motorway or a way marked foot=no / private.
+        tunnel: tags.tunnel && tags.tunnel !== 'no' ? tags.tunnel : null,
+        bridge: tags.bridge && tags.bridge !== 'no' ? tags.bridge : null,
+        foot: tags.foot || null,
+        access: tags.access || null,
+        footway: tags.footway || null,
+        crossing: tags.crossing || null,
         coords: el.geometry.map(ll),
       });
       continue;

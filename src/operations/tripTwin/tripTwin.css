@@ -3029,3 +3029,92 @@ body.tt-editing .tt-edit-chip {
     'cap cap now'
     'legend legend legend';
 }
+/* Phase 7: Ways out view toggle */
+.tt-toolbar #tt-waysout-btn[aria-pressed='true'] {
+  background: var(--tt-sel-bg);
+  box-shadow: inset 0 0 0 1px var(--tt-text);
+  color: var(--tt-text);
+  font-weight: 600;
+}
+/* Phase 7 review: Ways out tag, legend swatches, pressed toggle */
+.tt-ways-tag {
+  position: fixed;
+  left: calc(var(--rail) + 2 * var(--g) + 4px);
+  top: calc(var(--bar) + var(--g) + 36px);
+  z-index: 12;
+  max-width: min(560px, calc(100vw - var(--rail) - var(--rcol) - 6 * var(--g)));
+  padding: 6px 10px;
+  background: var(--tt-glass);
+  border: 1px solid var(--tt-border);
+  border-left: 3px solid var(--tt-text-2);
+  border-radius: 3px;
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--tt-text-2);
+}
+.tt-ways-tag[hidden] {
+  display: none;
+}
+.tt-ways-tag .k {
+  font: 600 11px/14px var(--tt-mono);
+  letter-spacing: 0.12em;
+  color: var(--tt-text);
+}
+.tt-ways-tag .inside {
+  margin-top: 4px;
+  color: var(--tt-text);
+}
+.tt-swatch.thick {
+  height: 4px;
+}
+.tt-swatch.thin {
+  height: 1px;
+}
+.tt-swatch.stairs {
+  height: 8px;
+  width: 10px;
+  background: none;
+  border-left: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+}
+.tt-swatch.door {
+  width: 7px;
+  height: 7px;
+  background: currentColor;
+  transform: rotate(45deg);
+  margin: 0 4px;
+}
+.tt-toolbar #tt-waysout-btn[aria-pressed='true'] {
+  box-shadow: none;
+  border: 1px solid var(--tt-text);
+}
+.tt-toolbar #tt-waysout-btn[aria-pressed='true']::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  background: var(--tt-text);
+  vertical-align: 1px;
+}
+.tt-toolbar .tt-tb:focus:not(:focus-visible) {
+  outline: none;
+}
+.tt-ways-btn {
+  display: block;
+  margin: 2px 0 8px;
+}
+.tt-swatch.thick {
+  height: 0;
+  border-top-width: 4px;
+}
+.tt-swatch.thin {
+  height: 0;
+  border-top-width: 1px;
+}
+.tt-swatch.stairs {
+  border-top: 0;
+}
+.tt-swatch.door {
+  border-top: 0;
+}

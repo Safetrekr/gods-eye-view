@@ -418,6 +418,7 @@ async function main() {
         hotelLabel: city.label,
         siteKind: city.kind === 'lodging' ? 'hotel' : 'venue',
         siteWhen: city.day ? `DAY ${city.day} · ${city.start}` : '',
+        doors: twin.streets?.counts || null,
         // During an incident here the panel carries the floors; the hotel
         // card folds to its title so the panel keeps the height (J13).
         compact:
@@ -766,6 +767,10 @@ async function main() {
           );
         });
       }
+      if (waysOut && mode.mode !== lastModeKey) {
+        applyWaysOut();
+        queueMicrotask(renderWaysTag);
+      }
       lastModeKey = mode.mode;
       // Top bar: mode chip, data age, sample clock, trip in the breadcrumb.
       const chip = $('tt-mode');
@@ -788,7 +793,9 @@ async function main() {
       const reportBtn = $('tt-report-btn');
       reportBtn.textContent = Number.isFinite(info.reportedLabel)
         ? `Reported floor ${info.reportedLabel}`
-        : 'Add reported floor';
+        : innerWidth < 1440
+          ? 'Report floor'
+          : 'Add reported floor';
       // Lightning outside the view gets an edge chip (nearest point).
       const ltg = strikes()
         .map((pt) => ({ pt, d: haversineM(city.center, pt) }))
@@ -2696,6 +2703,119 @@ async function main() {
   );
   compass.update(twin.headingDeg);
 
+  // ---- "Ways out" view (phase 7; review/phase7 M1–M4) ----
+  // Adds and emphasises, never hides: streets, walkways, buildings, places,
+  // suggested and saved paths and avoid-areas on; the scene steps back.
+  // Never touches floors, hazards, weather or the weather time. Leaving
+  // restores only the layers the operator did not touch.
+  const WAYS_KEYS = [
+    'streets',
+    'walkways',
+    'buildings',
+    'safety',
+    'paths',
+    'savedPaths',
+    'avoidAreas',
+  ];
+  let waysOut = null; // {saved, touched}
+  function viewLayer(key) {
+    if (key === 'streets' || key === 'walkways') return twin.streets[key];
+    if (key === 'savedPaths') return customVis.saved;
+    if (key === 'avoidAreas') return customVis.avoid;
+    return twin.layers[key];
+  }
+  function setViewLayer(key, on) {
+    if (key === 'streets' || key === 'walkways')
+      return twin.setStreets({ [key]: on });
+    if (key === 'savedPaths' || key === 'avoidAreas') {
+      customVis[key === 'savedPaths' ? 'saved' : 'avoid'] = on;
+      return renderCustom();
+    }
+    twin.setLayer(key, on);
+  }
+  function setWaysOutUi() {
+    const on = Boolean(waysOut);
+    const b = $('tt-waysout-btn');
+    b.setAttribute('aria-pressed', String(on));
+    document.body.classList.toggle('tt-waysout', on);
+    twin.setHotelStepBack(on);
+    renderWaysTag();
+    renderLayers();
+  }
+  /** The always-on set (again after an incident arrives). */
+  function applyWaysOut() {
+    for (const k of WAYS_KEYS) setViewLayer(k, true);
+  }
+  function enterWaysOut() {
+    waysOut = {
+      saved: Object.fromEntries(WAYS_KEYS.map((k) => [k, viewLayer(k)])),
+      touched: new Set(),
+    };
+    applyWaysOut();
+    setWaysOutUi();
+  }
+  function exitWaysOut({ keep = false } = {}) {
+    const v = waysOut;
+    if (!v) return;
+    waysOut = null;
+    if (!keep)
+      for (const k of WAYS_KEYS)
+        if (!v.touched.has(k)) setViewLayer(k, v.saved[k]);
+    setWaysOutUi();
+    return v;
+  }
+  function toggleWaysOut() {
+    if (waysOut) exitWaysOut();
+    else enterWaysOut();
+  }
+  /** A layer changed by hand while the view is on. */
+  function waysOutTouched(key, on) {
+    if (!waysOut || !WAYS_KEYS.includes(key)) return;
+    waysOut.touched.add(key);
+    // Turning off what the view is made of ends it, keeping your layers.
+    if (!on && ['streets', 'walkways', 'buildings'].includes(key)) {
+      const v = exitWaysOut({ keep: true });
+      offerUndo('Ways out ended — your layer change kept', () => {
+        for (const k of WAYS_KEYS) setViewLayer(k, v.saved[k]);
+        renderLayers();
+      });
+      const undo = $('tt-toast').querySelector('.tt-btn');
+      if (undo) undo.textContent = 'Back to my layers';
+    }
+  }
+  // In-map tag while the view is on: what it is, where the data comes from,
+  // what it does not know (review/phase7 M2). Never on the mode chip.
+  const waysTag = document.createElement('div');
+  waysTag.className = 'tt-ways-tag';
+  waysTag.setAttribute('role', 'status');
+  waysTag.hidden = true;
+  document.body.append(waysTag);
+  cleanups.push(() => waysTag.remove());
+  function renderWaysTag() {
+    waysTag.hidden = !waysOut;
+    if (!waysOut) return;
+    const c = twin.streets.counts;
+    const recorded = twin.site?.osmFetchedAt
+      ? new Date(twin.site.osmFetchedAt).toISOString().slice(0, 10)
+      : '';
+    const t = document.createElement('div');
+    t.className = 'k';
+    t.textContent = 'WAYS OUT VIEW';
+    const d = document.createElement('div');
+    d.textContent = `Streets and walkways from OpenStreetMap${recorded ? ` (recorded ${recorded})` : ''}, not checked for closures, locked gates or private access${c ? ` · ${c.hotelDoors ? `${c.hotelDoors} mapped entrance${c.hotelDoors > 1 ? 's' : ''} at the hotel` : 'no entrances mapped at the hotel'} · fire exits are not mapped` : ''} · W or Esc returns`;
+    waysTag.replaceChildren(t, d);
+    if (lastCtx?.mode?.mode === 'incident') {
+      const i = document.createElement('div');
+      i.className = 'inside';
+      i.textContent =
+        'Inside the building: follow hotel staff and the posted evacuation plan.';
+      waysTag.append(i);
+    }
+  }
+  $('tt-waysout-btn').addEventListener('click', () => toggleWaysOut());
+  $('tt-incident').addEventListener('click', (e) => {
+    if (e.target.closest?.('.tt-ways-btn') && !waysOut) enterWaysOut();
+  });
   /** Popover header: title, key hint, close (review/phase5 J8). */
   function popHead(title, key) {
     const h = document.createElement('div');
@@ -2761,6 +2881,27 @@ async function main() {
       ['', '#f59e0b', 'Avoid-area · applies to every path on this trip'],
     ],
     elevation: [['', '#80959b', 'Contour · relative to hotel street level']],
+    streets: [
+      ['thick', '#eff7f3', 'Major street'],
+      ['', '#b8c3c7', 'Minor street'],
+      ['thin', '#9aa8ac', 'Alley or service road'],
+      ['thick', '#415e6b', 'No walking (motorway, private)'],
+      [
+        'note',
+        '',
+        'OpenStreetMap · not checked for closures, locked gates or private access · tunnels not drawn',
+      ],
+    ],
+    walkways: [
+      ['thin', '#b8c3c7', 'Walkway · pedestrian area'],
+      ['stairs', '#e3e7e9', 'Steps'],
+      ['door', '#eff7f3', 'Mapped entrance (OSM, unverified)'],
+      [
+        'note',
+        '',
+        'Sidewalks are part of the street · fire exits are not mapped',
+      ],
+    ],
   });
   const GROUPS = [
     [
@@ -2791,6 +2932,8 @@ async function main() {
       [
         ['hotel', 'Hotel', true],
         ['buildings', 'Surrounding buildings', false],
+        ['streets', 'Streets', false],
+        ['walkways', 'Walkways, steps & entrances', false],
         ['grid', 'Scale grid', false],
         ['elevation', 'Elevation contours', false],
       ],
@@ -2804,10 +2947,42 @@ async function main() {
       elevation: ground.contours,
       savedPaths: customVis.saved,
       avoidAreas: customVis.avoid,
+      streets: twin.streets.streets,
+      walkways: twin.streets.walkways,
     };
     const root = $('tt-layers');
     const scroll = root.scrollTop;
     root.replaceChildren(popHead('Layers', 'L'));
+    // Views (phase 7): a named preset over the layers below.
+    {
+      const g = document.createElement('div');
+      g.className = 'tt-layer-group';
+      const gh = document.createElement('div');
+      gh.className = 'tt-kicker';
+      gh.textContent = 'Views';
+      const row = document.createElement('label');
+      row.className = 'tt-layer-row';
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = Boolean(waysOut);
+      box.addEventListener('change', () => toggleWaysOut());
+      const lab = document.createElement('span');
+      lab.className = 'lab';
+      lab.textContent = 'Ways out';
+      const k = document.createElement('span');
+      k.className = 'kbd';
+      k.textContent = 'W';
+      row.append(box, lab, k);
+      const note = document.createElement('div');
+      note.className = 'tt-key';
+      const n = document.createElement('span');
+      n.className = 'tt-key-note';
+      n.textContent =
+        'Turns on streets, walkways, places, paths and avoid-areas; the scene steps back. Floors and hazards stay as they are.';
+      note.append(n);
+      g.append(gh, row, note);
+      root.append(g);
+    }
     for (const [group, rows] of GROUPS) {
       const g = document.createElement('div');
       g.className = 'tt-layer-group';
@@ -2827,10 +3002,17 @@ async function main() {
           if (key === 'grid' || key === 'elevation') {
             ground[key === 'grid' ? 'grid' : 'contours'] = box.checked;
             applyGround();
+          } else if (key === 'streets' || key === 'walkways') {
+            twin.setStreets({ [key]: box.checked });
+            waysOutTouched(key, box.checked);
           } else if (key === 'savedPaths' || key === 'avoidAreas') {
             customVis[key === 'savedPaths' ? 'saved' : 'avoid'] = box.checked;
             renderCustom();
-          } else twin.setLayer(key, box.checked);
+            waysOutTouched(key, box.checked);
+          } else {
+            twin.setLayer(key, box.checked);
+            waysOutTouched(key, box.checked);
+          }
           renderLayers();
         });
         const lab = document.createElement('span');
@@ -4003,7 +4185,10 @@ async function main() {
       }
       if (selection?.kind === 'person' && floorReturn !== null)
         return focusFloor(floorReturn);
-      if (!clearFloorFocus()) twin.select(null);
+      if (clearFloorFocus()) return;
+      // Ways out ends last: after cards, paths, floor focus and selection.
+      if (!selection && waysOut) return exitWaysOut();
+      twin.select(null);
       return;
     }
     if (k === 'h' || k === 'H') {
@@ -4058,6 +4243,7 @@ async function main() {
     if (k === 'r' || k === 'R') return openPop('tt-report');
     if (k === '?') return openPop('tt-help');
     if (k === '`') return openPop('tt-proto');
+    if (k === 'w' || k === 'W') return toggleWaysOut();
     if (k === 'g' || k === 'G' || k === 'e' || k === 'E') {
       const flag = k === 'g' || k === 'G' ? 'grid' : 'contours';
       ground[flag] = !ground[flag];
