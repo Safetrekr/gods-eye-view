@@ -2,7 +2,7 @@
    SafeTrekr dark tokens; green only for approved places of safety; never red
    or green on people; mono only for numbers and kickers. */
 :root {
-  --tt-field: #061a23;
+  --tt-field: #040c12;
   --tt-card: #07212c;
   --tt-glass: rgba(7, 33, 44, 0.96);
   --tt-border: #1e404f;
@@ -643,7 +643,7 @@ details.tt-disclose[open] > summary::before {
   pointer-events: auto;
   font: 500 12px/22px var(--tt-font);
   color: var(--tt-green-text);
-  background: rgba(6, 26, 35, 0.92);
+  background: rgba(4, 12, 18, 0.92);
   border: 1px solid var(--tt-green);
   border-radius: 3px;
   padding: 0 8px;
@@ -1310,7 +1310,7 @@ button.tt-bar-hotel:hover {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: rgba(6, 26, 35, 0.86);
+  background: rgba(4, 12, 18, 0.86);
   border: 1px solid var(--tt-border);
   transition: transform 120ms var(--ease);
 }
@@ -1704,7 +1704,7 @@ body.tt-advance-mode #tt-incident {
   white-space: nowrap;
   font: 500 11px/14px var(--tt-font);
   color: var(--tt-text-2);
-  background: rgba(6, 26, 35, 0.86);
+  background: rgba(4, 12, 18, 0.86);
   padding: 1px 6px;
   border-radius: 2px;
 }
@@ -1798,7 +1798,7 @@ body.tt-editing #tt-card {
   font: 600 11px/16px var(--tt-mono);
   letter-spacing: 0.04em;
   color: var(--tt-path-text);
-  background: rgba(6, 26, 35, 0.94);
+  background: rgba(4, 12, 18, 0.94);
   border: 1px solid var(--tt-path);
   border-radius: 3px;
   padding: 6px 10px;
@@ -3253,7 +3253,7 @@ button.tt-path-open:focus-visible {
   z-index: 60;
   display: grid;
   place-items: center;
-  background: rgba(6, 26, 35, 0.72);
+  background: rgba(4, 12, 18, 0.72);
   backdrop-filter: blur(6px);
 }
 .tt-entry-card {
@@ -3405,7 +3405,7 @@ body[data-view='screen'] .tt-rcol {
   align-items: center;
   gap: 24px;
   padding: 0 24px;
-  background: linear-gradient(rgba(6, 26, 35, 0.94), rgba(6, 26, 35, 0.7));
+  background: linear-gradient(rgba(4, 12, 18, 0.94), rgba(4, 12, 18, 0.7));
   border-bottom: 1px solid var(--tt-border);
 }
 body[data-view='screen'] .tt-wall-head {
@@ -3479,7 +3479,7 @@ body[data-view='screen'] .tt-wall-head {
   background: repeating-linear-gradient(
     135deg,
     rgba(245, 158, 11, 0.16) 0 12px,
-    rgba(6, 26, 35, 0.86) 12px 24px
+    rgba(4, 12, 18, 0.86) 12px 24px
   );
   border-bottom: 2px solid var(--tt-attention);
 }
@@ -3499,7 +3499,7 @@ body[data-view='screen'] .tt-wall-head {
   border-radius: 10px;
   font: 700 28px var(--tt-font);
   color: var(--tt-hazard-text);
-  background: rgba(6, 26, 35, 0.94);
+  background: rgba(4, 12, 18, 0.94);
   border: 2px solid var(--tt-hazard);
 }
 .tt-wall-banner.acked {
@@ -3544,7 +3544,7 @@ body[data-view='screen'] .tt-wall-head {
   place-items: center;
   font: 700 40vh var(--tt-mono);
   color: var(--tt-text);
-  background: rgba(6, 26, 35, 0.6);
+  background: rgba(4, 12, 18, 0.6);
 }
 .tt-wall-panel {
   position: fixed;
@@ -3812,7 +3812,7 @@ body[data-view='screen'].tt-hands-on::after {
   z-index: 19;
   pointer-events: none;
   border: 4px solid var(--tt-text);
-  box-shadow: inset 0 0 0 1px rgba(6, 26, 35, 0.6);
+  box-shadow: inset 0 0 0 1px rgba(4, 12, 18, 0.6);
   font: 700 16px var(--tt-mono);
   letter-spacing: 0.16em;
   color: var(--tt-field);

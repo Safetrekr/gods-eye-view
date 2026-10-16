@@ -478,7 +478,7 @@ function boltCanvas() {
   c.height = 36;
   const g = c.getContext('2d');
   g.fillStyle = '#ee7789';
-  g.strokeStyle = '#061a23';
+  g.strokeStyle = '#040c12';
   g.lineWidth = 2;
   g.beginPath();
   g.moveTo(17, 2);
@@ -524,7 +524,7 @@ export function createWeatherLayer(viewer, site) {
         fillColor: color,
         showBackground: true,
         backgroundColor:
-          Cesium.Color.fromCssColorString('#061a23').withAlpha(0.85),
+          Cesium.Color.fromCssColorString('#040c12').withAlpha(0.85),
         horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
       },
@@ -657,7 +657,7 @@ export function createWeatherLayer(viewer, site) {
               fillColor: Cesium.Color.fromCssColorString('#f299a6'),
               showBackground: true,
               backgroundColor:
-                Cesium.Color.fromCssColorString('#061a23').withAlpha(0.85),
+                Cesium.Color.fromCssColorString('#040c12').withAlpha(0.85),
               pixelOffset: new Cesium.Cartesian2(0, -42),
               disableDepthTestDistance: Number.POSITIVE_INFINITY,
             },
@@ -713,7 +713,7 @@ export function createWeatherLayer(viewer, site) {
               fillColor: grey,
               showBackground: true,
               backgroundColor:
-                Cesium.Color.fromCssColorString('#061a23').withAlpha(0.8),
+                Cesium.Color.fromCssColorString('#040c12').withAlpha(0.8),
               disableDepthTestDistance: Number.POSITIVE_INFINITY,
             },
           });

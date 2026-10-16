@@ -24,7 +24,7 @@ export function createSiteBeacons(viewer, site) {
           position: Cesium.Cartesian3.fromDegrees(p.lon, p.lat, base + 120),
           point: {
             pixelSize: 10,
-            color: Cesium.Color.fromCssColorString('#061a23'),
+            color: Cesium.Color.fromCssColorString('#040c12'),
             outlineColor: text,
             outlineWidth: 2,
             disableDepthTestDistance: Number.POSITIVE_INFINITY,
@@ -36,7 +36,7 @@ export function createSiteBeacons(viewer, site) {
             fillColor: text,
             showBackground: true,
             backgroundColor:
-              Cesium.Color.fromCssColorString('#061a23').withAlpha(0.85),
+              Cesium.Color.fromCssColorString('#040c12').withAlpha(0.85),
             pixelOffset: new Cesium.Cartesian2(0, -18),
             disableDepthTestDistance: Number.POSITIVE_INFINITY,
             distanceDisplayCondition: BEACON_RANGE,

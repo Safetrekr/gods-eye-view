@@ -3,6 +3,7 @@
 // snapshot of the target, then the station's controls. Every setting for
 // the walls lives here; the walls are display only.
 import './remote.css';
+import './remote.instrument.css';
 import { connectSync } from '../twinSync.js';
 import { ROLES, screenSummary } from '../twinScreenRoles.js';
 import { needsConfirm, previewAll } from '../twinSession.js';
@@ -160,6 +161,10 @@ function setStation(id) {
   ss.set('station', id);
   document.body.classList.remove('rm-menu');
   swap();
+  // The rail's tiles arrive as a wavefront on a station change (phase 11).
+  rail.classList.add('rm-wave');
+  clearTimeout(waveTimer);
+  waveTimer = setTimeout(() => rail.classList.remove('rm-wave'), 900);
   renderRail();
 }
 function pickDay(day) {
@@ -249,6 +254,21 @@ content.setAttribute('aria-live', 'polite');
 stage.append(preview, content);
 main.append(targets, bar, stage);
 const rail = el('aside', 'rm-rail');
+let waveTimer = null;
+// This remote's own animation (its device, its choice); reduced motion wins.
+const remoteMotion = () => {
+  try {
+    return localStorage.getItem('tripTwin.remote.motion') !== '0';
+  } catch {
+    return true;
+  }
+};
+const applyRemoteMotion = () =>
+  document.body.classList.toggle(
+    'rm-m-cine',
+    remoteMotion() && !matchMedia('(prefers-reduced-motion: reduce)').matches,
+  );
+applyRemoteMotion();
 rail.setAttribute('aria-label', 'Stations');
 grid.append(main, rail);
 const aperture = btn('rm-aperture', 'MENU', () =>
@@ -416,6 +436,16 @@ function ctx() {
     showDay,
     tripData,
     copyResponders,
+    remoteMotion,
+    setRemoteMotion(on) {
+      try {
+        localStorage.setItem('tripTwin.remote.motion', on ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      applyRemoteMotion();
+      renderContent(true);
+    },
   };
 }
 let contentKey = '';
@@ -496,6 +526,10 @@ function renderRail() {
     );
     if (s.id === ui.station) t.setAttribute('aria-current', 'true');
     t.innerHTML = s.icon;
+    t.style.setProperty(
+      '--rd',
+      `${(STATIONS.length - 1 - STATIONS.indexOf(s)) * 0.05}s`,
+    );
     t.append(el('span', 'num', s.num), el('span', 'lab', s.label));
     if (s.id === 'incident' && incidentOpen)
       t.append(el('span', 'pill', 'OPEN'));

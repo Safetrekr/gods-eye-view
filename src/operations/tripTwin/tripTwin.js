@@ -30,7 +30,7 @@ import { drawFires, fireSummary, loadFires } from './twinFires.js';
 import { assessSnapshot, bearingLabel } from './twinData.js';
 
 const OVERPASS_TIMEOUT_MS = 25000;
-const FIELD = '#061a23';
+const FIELD = '#040c12';
 
 export async function loadOsm(siteKey, mode, signal) {
   const city = siteConfig(siteKey);
@@ -1123,7 +1123,7 @@ export function createTripTwin({
           fillColor: Cesium.Color.fromCssColorString('#93bafa'),
           showBackground: true,
           backgroundColor:
-            Cesium.Color.fromCssColorString('#061a23').withAlpha(0.88),
+            Cesium.Color.fromCssColorString('#040c12').withAlpha(0.88),
           pixelOffset: new Cesium.Cartesian2(0, -16),
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },

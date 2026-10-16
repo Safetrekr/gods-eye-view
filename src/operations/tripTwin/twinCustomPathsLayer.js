@@ -20,7 +20,7 @@ export function createCustomPathsLayer(viewer, site) {
     font: '500 11px Inter, sans-serif',
     fillColor: css(fill),
     showBackground: true,
-    backgroundColor: css('#061a23', 0.88),
+    backgroundColor: css('#040c12', 0.88),
     disableDepthTestDistance: Number.POSITIVE_INFINITY,
     distanceDisplayCondition: LABEL_RANGE,
   });
@@ -35,7 +35,7 @@ export function createCustomPathsLayer(viewer, site) {
           arcType: Cesium.ArcType.NONE,
           material: new Cesium.PolylineDashMaterialProperty({
             color: css('#f59e0b', 1),
-            gapColor: css('#061a23', 0.9),
+            gapColor: css('#040c12', 0.9),
             dashLength: 10,
           }),
         },
@@ -84,7 +84,7 @@ export function createCustomPathsLayer(viewer, site) {
             arcType: Cesium.ArcType.NONE,
             material: new Cesium.PolylineDashMaterialProperty({
               color: css('#93bafa', sel ? 1 : 0.8),
-              gapColor: css('#061a23', 0.5),
+              gapColor: css('#040c12', 0.5),
               dashLength: 28,
             }),
           },
@@ -123,7 +123,7 @@ export function createCustomPathsLayer(viewer, site) {
             arcType: Cesium.ArcType.NONE,
             material: new Cesium.PolylineDashMaterialProperty({
               color: css('#eff7f3', 0.45),
-              gapColor: css('#061a23', 0),
+              gapColor: css('#040c12', 0),
               dashLength: 10,
             }),
           },
@@ -151,7 +151,7 @@ export function createCustomPathsLayer(viewer, site) {
           position: at(p, 5),
           point: {
             pixelSize: end ? 9 : 14,
-            color: end ? css('#3b82f6') : css('#061a23'),
+            color: end ? css('#3b82f6') : css('#040c12'),
             outlineColor: css('#eff7f3'),
             outlineWidth: 2,
             disableDepthTestDistance: Number.POSITIVE_INFINITY,

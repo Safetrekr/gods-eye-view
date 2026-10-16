@@ -1,0 +1,529 @@
+/* Trip Twin · Instrument skin (phase 11, decided by Jesse 16 Oct 2026).
+   Steel and white on teal-black; a dot grid on the walls; Manrope light
+   numerals and headings, Inter body, Intel One Mono readouts; glass panels
+   with one standing light. Loaded after tripTwin.css: tokens first, then
+   the components the audit named, then the three motion tiers (Live ·
+   Event · Cinematic) that twinMotion.js switches with body classes.
+   Meaning colours are untouched: green = approved places, blue = paths,
+   red = incidents, amber = attention. */
+:root {
+  --tt-field: #040c12;
+  --tt-card: #0a1a22;
+  --tt-glass: rgba(8, 22, 30, 0.72);
+  --tt-glass-solid: rgba(8, 22, 30, 0.94);
+  --tt-border: rgba(184, 195, 199, 0.22);
+  --tt-hair: rgba(184, 195, 199, 0.12);
+  --tt-edge-ctl: rgba(184, 195, 199, 0.4);
+  --tt-muted: #15303c;
+  --tt-ring: #2a4a59;
+  --tt-text: #eef5f3;
+  --tt-text-2: #b8c3c7;
+  --tt-text-dim: #7f949b;
+  --tt-display: Manrope, Inter, ui-sans-serif, system-ui, sans-serif;
+  --tt-light: rgba(203, 228, 238, 0.06);
+  --tt-glow: 0 0 24px rgba(184, 195, 199, 0.07);
+  --tt-blur: 16px;
+  --tt-radius: 6px;
+  --fog-in: cubic-bezier(0.33, 0, 0.18, 1);
+  --fog-out: cubic-bezier(0.45, 0.05, 0.6, 1);
+  --press: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ---------- material: glass, hairlines, one light ---------- */
+.tt-panel {
+  background: var(--tt-glass);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius);
+  backdrop-filter: blur(var(--tt-blur)) saturate(1.15);
+  -webkit-backdrop-filter: blur(var(--tt-blur)) saturate(1.15);
+  box-shadow:
+    var(--tt-glow),
+    inset 0 1px 0 var(--tt-light);
+}
+.tt-bar {
+  background: rgba(4, 12, 18, 0.72);
+  border-bottom: 1px solid var(--tt-hair);
+  backdrop-filter: blur(var(--tt-blur)) saturate(1.15);
+  -webkit-backdrop-filter: blur(var(--tt-blur)) saturate(1.15);
+}
+.tt-toolbar {
+  background: var(--tt-glass);
+  border: 1px solid var(--tt-border);
+  border-radius: 8px;
+  padding: 5px;
+  backdrop-filter: blur(var(--tt-blur)) saturate(1.15);
+  -webkit-backdrop-filter: blur(var(--tt-blur)) saturate(1.15);
+  box-shadow:
+    var(--tt-glow),
+    inset 0 1px 0 var(--tt-light);
+}
+.tt-pop {
+  border-radius: 8px;
+}
+.tt-status {
+  border-radius: var(--tt-radius);
+  background: var(--tt-glass-solid);
+}
+.tt-rail-head,
+.tt-rail-fixed,
+.tt-rowbtn,
+details.tt-disclose {
+  border-bottom-color: var(--tt-hair);
+}
+.tt-btn,
+.tt-tb {
+  border-radius: var(--tt-radius);
+  border-color: var(--tt-border);
+  transition:
+    background 0.18s ease-out,
+    border-color 0.18s ease-out,
+    color 0.18s ease-out,
+    transform 0.12s var(--press);
+}
+.tt-btn:hover,
+.tt-tb:hover {
+  background: rgba(184, 195, 199, 0.08);
+}
+.tt-btn:active,
+.tt-tb:active,
+.tt-rowbtn:active {
+  transform: translateY(1px);
+}
+.tt-toolbar .tt-tb.on,
+.tt-toolbar .tt-tb[aria-expanded='true'] {
+  background: rgba(238, 245, 243, 0.1);
+  color: var(--tt-text);
+  box-shadow: inset 0 0 0 1px rgba(238, 245, 243, 0.28);
+}
+.tt-rowbtn:hover,
+.tt-rowbtn.on,
+.tt-find-list button:hover,
+.tt-find-list button.on {
+  background: rgba(184, 195, 199, 0.08);
+}
+.tt-chip {
+  background: rgba(4, 12, 18, 0.72);
+  border-radius: var(--tt-radius);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.tt-kicker {
+  letter-spacing: 0.14em;
+}
+input,
+select,
+textarea {
+  border-radius: var(--tt-radius);
+}
+
+/* ---------- type: display numerals, body, readouts ---------- */
+.tt-roster .cnt {
+  position: relative;
+  font: 300 22px/24px var(--tt-display);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.tt-hero .n {
+  font: 200 44px/44px var(--tt-display);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.tt-card-name {
+  font: 500 16px/20px var(--tt-font);
+}
+.tt-inc-title {
+  font: 400 18px/22px var(--tt-display);
+}
+.tt-entry-choice .t,
+.tt-trip .t {
+  font-family: var(--tt-display);
+}
+
+/* ---------- All in one at 2560 and up: the chrome steps up ---------- */
+@media (min-width: 2300px) {
+  body.tt-body:not([data-view='screen']) .tt-bar,
+  body.tt-body:not([data-view='screen']) .tt-rail,
+  body.tt-body:not([data-view='screen']) .tt-rcol,
+  body.tt-body:not([data-view='screen']) .tt-toolbar,
+  body.tt-body:not([data-view='screen']) .tt-pop,
+  body.tt-body:not([data-view='screen']) .tt-chips,
+  body.tt-body:not([data-view='screen']) .tt-sources,
+  body.tt-body:not([data-view='screen']) .tt-compass,
+  body.tt-body:not([data-view='screen']) .tt-status,
+  body.tt-body:not([data-view='screen']) .tt-wxtl,
+  body.tt-body:not([data-view='screen']) .tt-entry-card {
+    zoom: 1.2;
+  }
+}
+
+/* ---------- walls ---------- */
+body[data-view='screen'] {
+  background-color: var(--tt-field);
+  background-image: radial-gradient(
+    rgba(184, 195, 199, 0.2) 1.3px,
+    transparent 1.6px
+  );
+  background-size: 44px 44px;
+}
+.tt-wall-head {
+  background: linear-gradient(rgba(4, 12, 18, 0.9), rgba(4, 12, 18, 0.2));
+  border-bottom: 1px solid var(--tt-hair);
+}
+.tt-wall-kicker {
+  font: 600 30px var(--tt-mono);
+  letter-spacing: 0.14em;
+}
+.tt-wall-where {
+  font: 400 22px var(--tt-font);
+}
+.tt-wall-badge {
+  font: 600 28px var(--tt-mono);
+  letter-spacing: 0.18em;
+  border-width: 1.5px;
+  border-radius: var(--tt-radius);
+  padding: 8px 20px;
+  display: inline-flex;
+  align-items: center;
+}
+.tt-wall-right {
+  font-size: 22px;
+}
+.tt-wall-panel {
+  border-radius: var(--tt-radius);
+}
+.tt-wall-line {
+  border-bottom-color: var(--tt-hair);
+}
+.tt-wall-stale {
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(245, 158, 11, 0.16) 0 12px,
+    rgba(4, 12, 18, 0.86) 12px 24px
+  );
+}
+.tt-wall-banner {
+  background: rgba(4, 12, 18, 0.94);
+  backdrop-filter: blur(var(--tt-blur));
+  -webkit-backdrop-filter: blur(var(--tt-blur));
+  font: 400 30px var(--tt-display);
+}
+.tt-wall-banner strong {
+  font-weight: 600;
+}
+/* Headcounts are the largest thing on People and Incident walls. Sizes
+   are before the wall scale (×1.5–2), so 34 px reads as 56–68 px. */
+body[data-view='screen'] .tt-roster {
+  row-gap: 0;
+}
+body[data-view='screen'] .tt-roster .cnt {
+  font-size: 34px;
+  line-height: 40px;
+  font-weight: 200;
+}
+body[data-view='screen'] .tt-roster .lbl {
+  font-size: 15px;
+  line-height: 40px;
+}
+body[data-view='screen'] .tt-topline {
+  font-size: 15px;
+  line-height: 20px;
+}
+body[data-view='screen'] .tt-rowbtn .who {
+  font-size: 14px;
+}
+body[data-view='screen'] .tt-rowbtn .why {
+  font-size: 12px;
+}
+body[data-view='screen'] .tt-hero .n {
+  font-size: 72px;
+  line-height: 72px;
+}
+body[data-view='screen'] .tt-sources {
+  font-size: 12px;
+  color: var(--tt-text-dim);
+}
+body[data-view='screen'] .tt-compass {
+  zoom: 1.4;
+}
+/* S6 · Trips on watch: a board that fills the wall; local time largest. */
+body[data-view='screen'][data-role='trips'] .tt-wall-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 18px 20px;
+}
+body[data-view='screen'][data-role='trips'] .tt-trips {
+  flex: 1 1 auto;
+  min-height: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
+  gap: 16px;
+  margin-top: 12px;
+}
+.tt-trip {
+  padding: 20px 22px;
+  border-radius: var(--tt-radius);
+  background: var(--tt-glass);
+  border: 1px solid var(--tt-border);
+  box-shadow: inset 0 1px 0 var(--tt-light);
+  grid-template-rows: auto auto auto 1fr auto auto;
+  gap: 8px;
+}
+.tt-trip .t {
+  font: 300 30px/1.1 var(--tt-display);
+  letter-spacing: -0.01em;
+}
+.tt-trip .o {
+  font-size: 13px;
+}
+.tt-trip .clock {
+  font: 200 64px/1 var(--tt-display);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  margin: 6px 0;
+}
+.tt-trip .clock small {
+  font: 500 11px var(--tt-mono);
+  letter-spacing: 0.16em;
+  color: var(--tt-text-dim);
+  margin-left: 10px;
+  vertical-align: middle;
+}
+.tt-trip .i {
+  font: 500 15px var(--tt-mono);
+  letter-spacing: 0.04em;
+}
+.tt-trip .n,
+.tt-trip .x {
+  font-size: 15px;
+  align-self: end;
+}
+.tt-trip .d {
+  font: 400 12px var(--tt-mono);
+}
+.tt-trip.focus {
+  border-color: rgba(238, 245, 243, 0.7);
+  box-shadow:
+    0 0 0 1px rgba(238, 245, 243, 0.4),
+    var(--tt-glow),
+    inset 0 1px 0 var(--tt-light);
+}
+.tt-trip.incident {
+  border: 1px solid var(--tt-hazard);
+  box-shadow: 0 0 0 1px var(--tt-hazard);
+}
+/* S4 · Weather: the bands read from across the room. */
+body[data-view='screen'][data-role='weather'] .tt-wall-line {
+  font-size: 15px;
+  padding: 9px 0;
+}
+body[data-view='screen'][data-role='weather'] .tt-wall-panel .tt-kicker {
+  margin-top: 16px;
+}
+body[data-view='screen'] .tt-wxtl {
+  zoom: 1.6;
+}
+/* Pairing and identify follow the material. */
+.tt-wall-pair .code {
+  font: 200 200px var(--tt-display);
+  letter-spacing: 0.12em;
+}
+.tt-wall-ident {
+  font: 200 40vh var(--tt-display);
+  background: rgba(4, 12, 18, 0.6);
+  backdrop-filter: blur(8px);
+}
+
+/* ---------- entry: the start of a session ---------- */
+.tt-entry {
+  background: rgba(4, 12, 18, 0.82);
+  backdrop-filter: blur(10px) saturate(0.9);
+  -webkit-backdrop-filter: blur(10px) saturate(0.9);
+}
+.tt-entry-card {
+  padding: 28px 32px 26px;
+  border-radius: 10px;
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.6),
+    var(--tt-glow),
+    inset 0 1px 0 var(--tt-light);
+}
+.tt-entry-card > .tt-kicker:first-child {
+  font-size: 12px;
+  letter-spacing: 0.2em;
+  color: var(--tt-text-dim);
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+}
+.tt-entry-card > .tt-kicker:first-child::before {
+  content: 'SAFETREKR';
+  color: var(--tt-text);
+  font-weight: 600;
+}
+.tt-entry-choice {
+  min-height: 168px;
+  border-radius: 8px;
+  background: rgba(4, 12, 18, 0.5);
+  border-color: var(--tt-border);
+  box-shadow: inset 0 1px 0 var(--tt-light);
+}
+.tt-entry-choice .n {
+  font: 200 40px var(--tt-display);
+  color: rgba(184, 195, 199, 0.32);
+  top: 8px;
+  right: 16px;
+  letter-spacing: -0.02em;
+}
+.tt-entry-choice .t {
+  font: 300 26px var(--tt-display);
+}
+.tt-entry-choice .s {
+  font-size: 13px;
+}
+.tt-entry-choice:hover,
+.tt-entry-choice:focus-visible {
+  border-color: rgba(238, 245, 243, 0.6);
+}
+.tt-entry-count .tt-tb {
+  border-radius: var(--tt-radius);
+  font: 300 20px var(--tt-display);
+}
+.tt-entry-step {
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--tt-hair);
+}
+.tt-entry-qr {
+  border-radius: var(--tt-radius);
+}
+
+/* ---------- motion tiers (twinMotion.js sets the body classes) ---------- */
+/* Live: the live dot breathes (4.6 s, far below any flash threshold). */
+.tt-livedot {
+  display: inline-block;
+  width: 0.42em;
+  height: 0.42em;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 0.5em;
+  box-shadow: 0 0 0.5em rgba(238, 245, 243, 0.55);
+  opacity: 0.9;
+}
+.tt-m-live .tt-livedot {
+  animation: ttBreath 4.6s ease-in-out infinite;
+}
+@keyframes ttBreath {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+/* Event: a changed count flashes once and fades (05 §5.4). */
+.tt-roster .cnt::after {
+  content: '';
+  position: absolute;
+  inset: -2px -6px;
+  border-radius: 4px;
+  background: rgba(238, 245, 243, 0.22);
+  opacity: 0;
+  pointer-events: none;
+}
+.tt-m-event .tt-roster .cnt.tt-changed::after {
+  animation: ttHl 1.2s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@keyframes ttHl {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+/* Event: the incident band enters from its slot. */
+.tt-m-event .tt-wall-banner:not([hidden]) {
+  animation: ttBand 0.62s var(--fog-in) both;
+}
+@keyframes ttBand {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* Cinematic: panels fog in the way podium's cards do. */
+@keyframes ttFog {
+  0% {
+    opacity: 0;
+    filter: blur(6px) brightness(0.7);
+    transform: translateY(6px);
+  }
+  55% {
+    opacity: 0.85;
+    filter: blur(2px) brightness(0.88);
+    transform: translateY(2px);
+  }
+  100% {
+    opacity: 1;
+    filter: none;
+    transform: none;
+  }
+}
+.tt-m-cine .tt-pop:not([hidden]) {
+  animation: ttFog 0.32s var(--fog-in) both;
+}
+.tt-m-cine .tt-card:not([hidden]),
+.tt-m-cine .tt-incident:not([hidden]) {
+  animation: ttFog 0.42s var(--fog-in) both;
+}
+.tt-m-cine .tt-entry-card {
+  animation: ttFog 0.62s var(--fog-in) both;
+}
+.tt-m-cine .tt-wall-head,
+.tt-m-cine .tt-wall-panel:not([hidden]),
+.tt-m-cine .tt-rail,
+.tt-m-cine .tt-rcol {
+  animation: ttFog 0.8s var(--fog-in) both;
+}
+/* A drifting Site wall says so. */
+body[data-view='screen'].tt-drifting .tt-wall-chip::after {
+  content: '';
+}
+/* Reduce motion wins over every tier. */
+.tt-m-reduced *,
+.tt-m-reduced *::before,
+.tt-m-reduced *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* S3 · Incident & attention, idle: the board owns the right half (what
+   changed, what is next, what is official); the floors ladder stays on S1.
+   With a report open, the board shrinks and the incident card follows. */
+body[data-view='screen'][data-role='incident'] #tt-card {
+  display: none !important;
+}
+body[data-view='screen'][data-role='incident']:not(.tt-incident-open)
+  .tt-wall-panel {
+  max-height: none;
+  bottom: calc(40px / var(--wall-scale));
+}
+body[data-view='screen'][data-role='incident'] .tt-wall-panel .tt-wall-line {
+  font-size: 15px;
+  padding: 9px 0;
+}
+body[data-view='screen'][data-role='incident'] .tt-wall-panel .tt-kicker {
+  margin-top: 18px;
+}
+body[data-view='screen'][data-role='incident']
+  .tt-wall-panel
+  .tt-kicker:first-child {
+  margin-top: 0;
+}

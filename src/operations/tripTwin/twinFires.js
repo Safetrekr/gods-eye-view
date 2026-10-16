@@ -150,7 +150,7 @@ export function drawFires(viewer, site, records, now = Date.now()) {
         font: '11px Inter, ui-sans-serif, sans-serif',
         fillColor: css('#f299a6'),
         showBackground: true,
-        backgroundColor: css('#061a23', 0.92),
+        backgroundColor: css('#040c12', 0.92),
         backgroundPadding: new Cesium.Cartesian2(5, 3),
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
         distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 6000),

@@ -1,0 +1,179 @@
+/* Trip Twin remote · Instrument skin (phase 11). Same material as the
+   walls: steel and white on teal-black, glass with one light, Manrope
+   headings, Intel One Mono readouts. Loaded after remote.css. The rail's
+   tiles arrive as a wavefront on a station change (podium 697–823) when
+   this remote's animation is on and the system does not ask for reduced
+   motion. */
+:root {
+  --rm-bg: #02070b;
+  --rm-field: #040c12;
+  --rm-panel: rgba(8, 22, 30, 0.72);
+  --rm-well: rgba(2, 7, 11, 0.45);
+  --rm-line: rgba(184, 195, 199, 0.22);
+  --rm-line-2: rgba(184, 195, 199, 0.34);
+  --rm-hair: rgba(184, 195, 199, 0.12);
+  --rm-dim: #7f949b;
+  --rm-display: Manrope, Inter, ui-sans-serif, system-ui, sans-serif;
+  --rm-light: rgba(203, 228, 238, 0.06);
+  --rm-glow: 0 0 24px rgba(184, 195, 199, 0.07);
+}
+.rm-body {
+  background:
+    radial-gradient(120% 90% at 20% 0%, #0a1d27 0%, transparent 60%),
+    linear-gradient(var(--rm-field), var(--rm-bg));
+}
+.rm-head,
+.rm-content,
+.rm-preview,
+.rm-bar,
+.rm-rail {
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
+  box-shadow:
+    var(--rm-glow),
+    inset 0 1px 0 var(--rm-light);
+}
+.rm-head,
+.rm-content,
+.rm-preview,
+.rm-bar {
+  border-radius: 8px;
+}
+.rm-rail {
+  border-radius: 14px;
+  border-color: var(--rm-line);
+  background: var(--rm-panel);
+  box-shadow:
+    0 20px 44px rgba(0, 0, 0, 0.48),
+    inset 0 1px 0 var(--rm-light);
+}
+.rm-target,
+.rm-btn,
+.rm-row,
+.rm-screen,
+.rm-tile,
+.rm-input,
+.rm-seg,
+.r-active {
+  border-radius: 6px;
+}
+.rm-screen img,
+.rm-screen .ph,
+.rm-preview img,
+.rm-preview .ph {
+  border-radius: 4px;
+}
+/* type */
+.rm-title {
+  font: 300 28px/1.1 var(--rm-display);
+  letter-spacing: -0.01em;
+}
+.r-active .v {
+  font: 300 20px var(--rm-display);
+}
+.rm-k,
+.rm-sub,
+.r-head,
+.rm-preview .k,
+.rm-targets .k,
+.rm-tile .lab,
+.rm-tile .num,
+.r-active .k {
+  font-size: 11px;
+}
+.rm-row .t {
+  font-size: 15px;
+}
+.rm-row .s {
+  font-size: 13px;
+}
+.rm-tile {
+  height: 92px;
+}
+.rm-tile svg {
+  width: 22px;
+  height: 22px;
+}
+/* preview: wider, with the role drawn over the snapshot */
+.rm-stage {
+  grid-template-columns: minmax(300px, 420px) 1fr;
+}
+@media (max-width: 1279px) {
+  .rm-stage {
+    grid-template-columns: minmax(260px, 340px) 1fr;
+  }
+}
+.rm-preview {
+  position: relative;
+}
+.rm-preview .sum {
+  font-size: 12px;
+}
+/* rail: the level-2 list fills the middle; an empty one takes no room */
+.r-context:empty {
+  display: none;
+}
+.r-fill {
+  flex: 1 1 auto;
+}
+/* press down, never up */
+.rm-row,
+.rm-screen,
+.rm-tile,
+.rm-btn,
+.rm-target {
+  transition:
+    border-color 0.3s,
+    background 0.2s,
+    transform 0.12s var(--press);
+}
+.rm-btn:active,
+.rm-row:active,
+.rm-screen:active,
+.rm-target:active,
+.rm-tile:active {
+  transform: translateY(1px);
+}
+.rm-seg button {
+  transition:
+    background 0.18s ease-out,
+    color 0.18s ease-out;
+}
+/* wavefront on a station change */
+.rm-m-cine .rm-rail.rm-wave .rm-tile {
+  animation: rmTile 0.52s var(--fog-in) var(--rd, 0s) both;
+}
+@keyframes rmTile {
+  0% {
+    opacity: 0;
+    transform: translateX(14px);
+    filter: blur(5px) brightness(0.75);
+  }
+  55% {
+    opacity: 0.85;
+    transform: translateX(4px);
+    filter: blur(2px) brightness(0.88);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+.rm-m-cine .rm-bar:not([hidden]) {
+  animation: rmIn 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+/* the station swap and the rail entrance only run with animation on */
+body:not(.rm-m-cine) .rm-content.sw-out,
+body:not(.rm-m-cine) .rm-content.sw-in,
+body:not(.rm-m-cine) .rm-rail {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rm-tile,
+  .rm-bar,
+  .rm-rail,
+  .rm-content {
+    animation: none !important;
+  }
+}

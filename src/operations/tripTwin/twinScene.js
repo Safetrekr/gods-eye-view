@@ -7,7 +7,7 @@ import { haversineM } from './twinData.js';
 const css = (hex, a = 1) => Cesium.Color.fromCssColorString(hex).withAlpha(a);
 
 export const TWIN_PALETTE = Object.freeze({
-  field: '#061a23',
+  field: '#040c12',
   glass: ['#415e6b', 0.12],
   glassApprox: ['#415e6b', 0.06],
   rim: ['#80959b', 0.3],

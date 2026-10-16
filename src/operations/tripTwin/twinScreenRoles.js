@@ -29,7 +29,7 @@ export const ROLES = Object.freeze({
     kicker: 'PEOPLE',
     sub: 'Where everyone is now',
     canvas: true,
-    scale: 'city',
+    scale: 'neighborhood',
   },
   incident: {
     key: 'incident',

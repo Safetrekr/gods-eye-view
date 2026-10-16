@@ -427,3 +427,61 @@ test('a restart keeps the wall: devices rejoin with their tokens (R18)', () => {
     'remote',
   );
 });
+
+// ---- phase 11: motion tiers ----
+import { motionClasses, mergeTiers, MOTION_DEFAULTS } from './twinMotion.js';
+
+test('motion: a per-screen field, merged like layers, skipped on pins', () => {
+  const s0 = createSession({ count: 3 });
+  assert.deepEqual(s0.screens[1].motion, {
+    live: true,
+    event: true,
+    cine: true,
+  });
+  const r1 = applyCommand(s0, {
+    type: 'screens',
+    target: 2,
+    patch: { motion: { cine: false } },
+  });
+  assert.deepEqual(r1.state.screens[2].motion, {
+    live: true,
+    event: true,
+    cine: false,
+  });
+  assert.deepEqual(r1.state.screens[1].motion.cine, true);
+  const pinned = applyCommand(r1.state, {
+    type: 'screens',
+    target: 3,
+    patch: { pinned: true },
+  }).state;
+  const r2 = applyCommand(pinned, {
+    type: 'screens',
+    target: 'all',
+    patch: { motion: { live: false } },
+  });
+  assert.deepEqual(r2.skipped, [3]);
+  assert.equal(r2.state.screens[1].motion.live, false);
+  assert.equal(r2.state.screens[2].motion.cine, false, 'merge keeps cine');
+  assert.equal(r2.state.screens[3].motion.live, true, 'pinned unchanged');
+  // Undo restores only the motion field.
+  const back = applyUndo(r2.state, r2.undo);
+  assert.equal(back.screens[1].motion.live, true);
+});
+
+test('motion classes: tiers map to body classes; reduced wins', () => {
+  assert.deepEqual(motionClasses(MOTION_DEFAULTS.wall), [
+    'tt-m-live',
+    'tt-m-event',
+    'tt-m-cine',
+  ]);
+  assert.deepEqual(motionClasses(MOTION_DEFAULTS.all), [
+    'tt-m-live',
+    'tt-m-event',
+  ]);
+  assert.deepEqual(motionClasses(MOTION_DEFAULTS.wall, true), ['tt-m-reduced']);
+  assert.deepEqual(mergeTiers(MOTION_DEFAULTS.wall, { cine: false, x: 1 }), {
+    live: true,
+    event: true,
+    cine: false,
+  });
+});

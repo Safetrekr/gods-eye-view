@@ -189,7 +189,7 @@ function glyphs() {
     g.translate(16, 16);
     g.rotate(Math.PI / 4);
     g.fillStyle = '#eff7f3';
-    g.strokeStyle = '#061a23';
+    g.strokeStyle = '#040c12';
     g.lineWidth = 3;
     g.fillRect(-7, -7, 14, 14);
     g.strokeRect(-7, -7, 14, 14);
@@ -303,7 +303,7 @@ export function createStreetsLayer(viewer, site) {
           1,
         ),
         showBackground: true,
-        backgroundColor: css('#061a23', 0.82),
+        backgroundColor: css('#040c12', 0.82),
         backgroundPadding: new Cesium.Cartesian2(4, 2),
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
         distanceDisplayCondition: new Cesium.DistanceDisplayCondition(
@@ -351,7 +351,7 @@ export function createStreetsLayer(viewer, site) {
               font: '500 11px Inter, sans-serif',
               fillColor: css('#eff7f3', 1),
               showBackground: true,
-              backgroundColor: css('#061a23', 0.88),
+              backgroundColor: css('#040c12', 0.88),
               pixelOffset: new Cesium.Cartesian2(0, -16),
               disableDepthTestDistance: Number.POSITIVE_INFINITY,
               distanceDisplayCondition: new Cesium.DistanceDisplayCondition(

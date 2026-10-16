@@ -131,7 +131,7 @@ export function createPeopleLayer(viewer, site, twin) {
       },
       point: {
         pixelSize: style.hollow ? 6 : 5,
-        color: style.hollow ? css('#061a23', 0.9) : css(style.color),
+        color: style.hollow ? css('#040c12', 0.9) : css(style.color),
         outlineColor: css(style.color),
         outlineWidth: style.hollow ? 1.5 : 0,
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
@@ -229,7 +229,7 @@ export function createPeopleLayer(viewer, site, twin) {
             showBackground: true,
             backgroundColor: isReported
               ? css('#3a1219', 0.95)
-              : css('#061a23', 0.92),
+              : css('#040c12', 0.92),
             backgroundPadding: new Cesium.Cartesian2(4, 2),
             horizontalOrigin: Cesium.HorizontalOrigin.RIGHT,
             disableDepthTestDistance: Number.POSITIVE_INFINITY,
@@ -302,7 +302,7 @@ export function createPeopleLayer(viewer, site, twin) {
           font: '600 10px Inter, ui-sans-serif, sans-serif',
           fillColor: css(color, 1),
           showBackground: true,
-          backgroundColor: css('#061a23', 0.92),
+          backgroundColor: css('#040c12', 0.92),
           backgroundPadding: new Cesium.Cartesian2(3, 2),
           verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
           // Right of the lane (floor numbers sit left of the ruler) and

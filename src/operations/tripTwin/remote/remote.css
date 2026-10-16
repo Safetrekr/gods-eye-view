@@ -3,8 +3,8 @@
    tarva.network's two-level menu; colours are SafeTrekr's: the active
    station is the selection white, amber only means attention. */
 :root {
-  --rm-bg: #04090c;
-  --rm-field: #061a23;
+  --rm-bg: #02070b;
+  --rm-field: #040c12;
   --rm-panel: rgba(8, 24, 32, 0.86);
   --rm-well: rgba(4, 12, 17, 0.45);
   --rm-line: #1e404f;

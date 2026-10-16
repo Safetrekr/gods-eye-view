@@ -248,7 +248,7 @@ export function drawPaths(
           positions: under,
           width: (primary ? 7 : 4) + 4,
           arcType: Cesium.ArcType.NONE,
-          material: css('#061a23', 0.85 * k),
+          material: css('#040c12', 0.85 * k),
         },
       });
       hoverCasings.set(
@@ -270,7 +270,7 @@ export function drawPaths(
           positions: under,
           width: 22,
           arcType: Cesium.ArcType.NONE,
-          material: css('#061a23', 0.01),
+          material: css('#040c12', 0.01),
         },
       });
     }
@@ -292,7 +292,7 @@ export function drawPaths(
               })
             : new Cesium.PolylineDashMaterialProperty({
                 color: css('#3b82f6', 0.9 * k),
-                gapColor: css('#061a23', 0.85 * k),
+                gapColor: css('#040c12', 0.85 * k),
                 dashLength: 18,
               }),
       },

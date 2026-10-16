@@ -3,6 +3,8 @@
 // the page chrome wiring. Edits none of Justin's files.
 import * as Cesium from 'cesium';
 import './tripTwin.css';
+import './tripTwin.instrument.css';
+import { createMotion, MOTION_DEFAULTS } from './twinMotion.js';
 import { createStandaloneScene } from '../../standalone/scene.js';
 import { createTripTwin, flightMs } from './tripTwin.js';
 import { TWIN_CITIES } from './twinCities.js';
@@ -159,6 +161,24 @@ const save = (k, v) => {
     /* per-viewer convenience only */
   }
 };
+// Motion tiers (phase 11): Live · Event · Cinematic, each with a switch.
+// A wall takes its tiers from the session; the All-in-one from Display.
+// Reduce motion (the system or the setting) wins over all three.
+const reducedMotion = () =>
+  pref('reduceMotion', '0') === '1' ||
+  matchMedia('(prefers-reduced-motion: reduce)').matches;
+const motion = createMotion({
+  reduced: reducedMotion,
+  tiers:
+    params.get('view') === 'screen'
+      ? MOTION_DEFAULTS.wall
+      : {
+          live: pref('motionLive', '1') === '1',
+          event: pref('motionEvent', '1') === '1',
+          cine:
+            pref('motionCine', MOTION_DEFAULTS.all.cine ? '1' : '0') === '1',
+        },
+});
 
 // ---- popovers: one open at a time; Esc closes them before anything else ----
 const POPS = {
@@ -252,6 +272,47 @@ async function main() {
   let lastFeed = Date.now();
   let lastCtx = null;
   let lastA = null;
+  // Change log (phase 11): what moved, for the S3 idle board. Counts and
+  // attention-group membership are compared on every data tick.
+  const changeLog = [];
+  let prevLogCounts = null;
+  let prevGroups = null;
+  function logChanges(a, m, clock) {
+    const now = Date.now();
+    if (prevLogCounts)
+      for (const [k, v] of Object.entries(a.counts || {}))
+        if (prevLogCounts[k] !== undefined && prevLogCounts[k] !== v)
+          changeLog.unshift({
+            at: now,
+            clock,
+            text: `${k === 'Away' ? 'Away from this site' : k} · ${prevLogCounts[k]} → ${v}`,
+            warn: k === 'Not current' || k === 'Not located',
+          });
+    prevLogCounts = { ...(a.counts || {}) };
+    const groups = new Map(
+      (m?.groups || []).map((g) => [
+        g.key,
+        {
+          label: g.label,
+          ids: new Map(g.rows.map((r) => [r.person.id, r.person.name])),
+        },
+      ]),
+    );
+    if (prevGroups)
+      for (const [key, g] of groups) {
+        const before = prevGroups.get(key)?.ids || new Map();
+        for (const [id, name] of g.ids)
+          if (!before.has(id))
+            changeLog.unshift({
+              at: now,
+              clock,
+              text: `${shortName(name)} · ${g.label.toLowerCase()}`,
+              warn: true,
+            });
+      }
+    prevGroups = groups;
+    if (changeLog.length > 30) changeLog.length = 30;
+  }
   let selection = null;
   const open = {
     safety: false,
@@ -900,6 +961,7 @@ async function main() {
           : [...incidentChips, ...wxChips, ...placeChips],
       );
       lastA = a;
+      logChanges(a, mode, sampleClock(snap));
       lastCtx = {
         mode,
         numbering,
@@ -4661,9 +4723,23 @@ async function main() {
     twin.refresh?.();
   });
   $('tt-reduce-motion').checked = pref('reduceMotion', '0') === '1';
-  $('tt-reduce-motion').addEventListener('change', (e) =>
-    save('reduceMotion', e.target.checked ? '1' : '0'),
-  );
+  $('tt-reduce-motion').addEventListener('change', (e) => {
+    save('reduceMotion', e.target.checked ? '1' : '0');
+    motion.apply();
+  });
+  for (const [tier, id, key] of [
+    ['live', 'tt-motion-live', 'motionLive'],
+    ['event', 'tt-motion-event', 'motionEvent'],
+    ['cine', 'tt-motion-cine', 'motionCine'],
+  ]) {
+    const box = $(id);
+    if (!box) continue;
+    box.checked = motion.tiers[tier] !== false;
+    box.addEventListener('change', (e) => {
+      save(key, e.target.checked ? '1' : '0');
+      motion.set({ [tier]: e.target.checked });
+    });
+  }
 
   // ---- toolbar, popovers, report form ----
   for (const [pop, btn] of Object.entries(POPS))
@@ -5042,6 +5118,7 @@ async function main() {
   const focusTrip = tripForCity(cityKey);
   let lastSessionReport = null; // the remote's report this wall shows
   /** What a wall screen can ask of this page (twinScreen.js). */
+  let driftOff = null;
   const screenApi = {
     cityKey,
     tripCity: (id) => tripById(id).city,
@@ -5100,6 +5177,43 @@ async function main() {
         applyGround();
       } else setViewLayer(key, on);
     },
+    /** Motion tiers for this wall, from the session (phase 11). */
+    setMotion(tiers) {
+      motion.set(tiers || {});
+    },
+    motionOn: (tier) => motion.on(tier),
+    /**
+     * Idle drift (Cinematic): the camera orbits the site slowly, one turn
+     * in about 12 minutes. Only while the screen module asks for it; any
+     * input stops it at once. Never rolls, never changes pitch.
+     */
+    drift(on) {
+      if (!on) {
+        driftOff?.();
+        driftOff = null;
+        return;
+      }
+      if (driftOff || twin.state !== 'ready' || !twin.site?.center) return;
+      const c = twin.site.center;
+      const center = Cesium.Cartesian3.fromDegrees(
+        c.lon ?? c.lng,
+        c.lat,
+        twin.scene?.hotelBase || 0,
+      );
+      const frame = Cesium.Transforms.eastNorthUpToFixedFrame(center);
+      const RATE = Cesium.Math.toRadians(0.5); // degrees per second
+      let last = performance.now();
+      const off = viewer.scene.preRender.addEventListener(() => {
+        const now = performance.now();
+        const dt = Math.min(0.1, (now - last) / 1000);
+        last = now;
+        const cam = viewer.camera;
+        cam.lookAtTransform(frame);
+        cam.rotateRight(RATE * dt);
+        cam.lookAtTransform(Cesium.Matrix4.IDENTITY);
+      });
+      driftOff = () => off();
+    },
     applyRoleDefaults(role) {
       // Roles look different from across the room (review R7): weather
       // over the area with heat detections; people from straight above.
@@ -5115,11 +5229,15 @@ async function main() {
       if (subject?.kind === 'clear') twin.select(null);
       else if (subject?.kind === 'topdown') {
         const c = twin.site.center;
+        // Height follows the scale: people read at neighbourhood height.
+        const sc = document.querySelector('.tt-tb.on[data-scale]')?.dataset
+          .scale;
+        const up = sc === 'building' ? 520 : sc === 'city' ? 2400 : 880;
         viewer.camera.flyTo({
           destination: Cesium.Cartesian3.fromDegrees(
             c.lon ?? c.lng,
             c.lat,
-            twin.scene.hotelBase + 2400,
+            twin.scene.hotelBase + up,
           ),
           orientation: {
             heading: 0,
@@ -5201,6 +5319,75 @@ async function main() {
       return m?.mode === 'incident'
         ? `${focusTrip.title} · ${m.topLine.split(' — ')[0]}`
         : '';
+    },
+    /** S3 idle: what changed, what is next, what is official. */
+    idlePanel(node) {
+      const add = (cls, t) => {
+        const n = document.createElement('div');
+        n.className = cls;
+        n.textContent = t;
+        node.append(n);
+      };
+      node.replaceChildren();
+      add('tt-kicker', 'NO INCIDENT OPEN');
+      add(
+        'tt-wall-note',
+        'A reported floor opens the board here · needs attention is on the left',
+      );
+      add('tt-kicker', 'CHANGED · LAST 10 MIN');
+      const recent = changeLog.filter((e) => Date.now() - e.at < 600000);
+      if (!recent.length)
+        add(
+          'tt-wall-line',
+          `Nothing changed in the last 10 min · data every 5 s · ${lastCtx?.snapshot ? sampleClock(lastCtx.snapshot) : ''}`,
+        );
+      for (const e of recent.slice(0, 8))
+        add(
+          `tt-wall-line${e.warn ? ' warn' : ''}`,
+          `${e.clock || ''} · ${e.text}`,
+        );
+      add('tt-kicker', 'NEXT ON THE PLAN');
+      const now = Date.now();
+      const next = advEvents()
+        .filter((e) => Number.isFinite(e.epoch) && e.epoch > now)
+        .slice(0, 3);
+      if (!next.length) add('tt-wall-line', 'Nothing further on the plan');
+      for (const e of next) {
+        const site = SITES.find((x) => x.key === e.siteKey);
+        add(
+          'tt-wall-line',
+          `Day ${e.day} · ${e.start} · ${e.title}${site ? ` · ${site.short || site.label || ''}` : ''}`,
+        );
+      }
+      add(
+        'tt-kicker',
+        `OFFICIAL · ${WX.warnings === 'nws' ? 'NWS' : 'MeteoAlarm'}`,
+      );
+      if (wx.warningsStatus === 'unavailable')
+        add(
+          'tt-wall-line warn',
+          'Official warnings unavailable right now — not checked',
+        );
+      else if (!wx.warnings.length)
+        add(
+          'tt-wall-line',
+          `Checked ${wx.warningsAt ? hhmm(new Date(wx.warningsAt).toISOString()) : 'at load'}: no active alerts returned for this point`,
+        );
+      else
+        for (const w of wx.warnings)
+          add('tt-wall-line official', warningLine(w, city.timezone));
+      try {
+        const c = city.anchors?.inside || city.center;
+        const today = new Date().toISOString().slice(0, 10);
+        const { set } = sunTimes(today, c.lat, c.lon ?? c.lng);
+        if (set)
+          add(
+            'tt-wall-note',
+            `Sunset ${new Date(set).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: city.timezone })} local`,
+          );
+      } catch {
+        /* no sunset line */
+      }
     },
     /** Weather & alerts: official first, then sensed, then now (S4). */
     weatherPanel(node) {
@@ -5299,7 +5486,14 @@ async function main() {
           c.append(n);
         };
         line('t', t.title);
-        line('o', `${t.org} · ${t.city} · ${t.localTime || ''} local`);
+        line('o', `${t.org} · ${t.city}`);
+        const ck = document.createElement('div');
+        ck.className = 'clock';
+        ck.textContent = t.localTime || '—';
+        const sm = document.createElement('small');
+        sm.textContent = 'LOCAL';
+        ck.append(sm);
+        c.append(ck);
         if (t.incident) line('i', t.incident);
         if (!t.noData)
           line(

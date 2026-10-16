@@ -280,6 +280,7 @@ export function createHud({
     return d;
   }
 
+  const prevCounts = new Map();
   function renderRail(a, ctx) {
     const m = ctx.mode;
     // The top line reads in two lines: the state, then who / what first.
@@ -320,6 +321,15 @@ export function createHud({
         b === 'Inside (likely)' && ctx.hotelApproximate ? '—' : a.counts[b];
       const zero = n === 0;
       const warn = !zero && (b === 'Not current' || b === 'Not located');
+      const cnt = el(
+        'span',
+        `cnt${zero ? ' zero' : ''}${warn ? ' warn' : ''}`,
+        String(n),
+      );
+      // A changed count announces itself once (Event tier, phase 11).
+      if (prevCounts.has(b) && prevCounts.get(b) !== n)
+        cnt.classList.add('tt-changed');
+      prevCounts.set(b, n);
       roster.append(
         el(
           'span',
@@ -328,11 +338,7 @@ export function createHud({
             ? 'Away from this site'
             : b.replace('hotel', ctx.siteNoun || 'hotel'),
         ),
-        el(
-          'span',
-          `cnt${zero ? ' zero' : ''}${warn ? ' warn' : ''}`,
-          String(n),
-        ),
+        cnt,
       );
     }
     zone.textContent = a.zone.text;

@@ -26,6 +26,7 @@ const SCREEN_FIELDS = new Set([
   'pinned',
   'layers', // {[layer]: bool}, merged
   'frame', // one-shot camera intent {subject, nonce}; never a copied camera
+  'motion', // {live, event, cine}: this wall's motion tiers (phase 11)
 ]);
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
@@ -41,6 +42,7 @@ export function screenDefaults(role) {
     pinned: false,
     layers: {},
     frame: null,
+    motion: { live: true, event: true, cine: true },
     meta: {},
   };
 }
@@ -142,7 +144,8 @@ export function applyCommand(
             s.merged = [];
           } else {
             keepField(slot, k);
-            if (k === 'layers') s.layers = { ...s.layers, ...v };
+            if (k === 'layers' || k === 'motion')
+              s[k] = { ...(s[k] || {}), ...v };
             else s[k] = v;
           }
           mark(s, k, all ? 'all' : 'override');

@@ -50,7 +50,7 @@ export function pinCanvas(
   // Halo for contrast on any background (04 --tt-halo).
   g.beginPath();
   g.arc(cx, cy, r + 3, 0, Math.PI * 2);
-  g.fillStyle = '#061a23';
+  g.fillStyle = '#040c12';
   g.fill();
   // Disc.
   g.beginPath();
@@ -78,7 +78,7 @@ export function pinCanvas(
     g.fillRect(cx + 3, cy - r - 2, 4, 8);
   }
   // Role badge.
-  g.fillStyle = '#061a23';
+  g.fillStyle = '#040c12';
   g.fillRect(cx + 12, cy + 12, 18, 16);
   g.strokeStyle = '#80959b';
   g.lineWidth = 1.5;

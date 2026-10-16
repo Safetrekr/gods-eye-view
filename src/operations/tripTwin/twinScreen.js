@@ -81,7 +81,10 @@ export function createScreenMode({ api, slot = null, setup = null }) {
   const HANDS_MS = 20000;
   const IDLE_CURSOR_MS = 3000;
   let lastInput = 0;
+  let lastActivity = Date.now(); // the drift clock: input or a camera change
   let dragging = false;
+  let drifting = false;
+  const DRIFT_AFTER_MS = 60000;
   let pendingCamera = [];
   let sentLocal = '';
   let remoteGoneAt = null; // when the controlling remote went away
@@ -133,16 +136,17 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     else if (role === 'incident') {
       // Idle: say so plainly; the board fills when a floor is reported.
       const open = api.incidentOpen();
-      panel.replaceChildren(
-        el('div', 'tt-kicker', open ? 'INCIDENT OPEN' : 'NO INCIDENT OPEN'),
-        el(
-          'div',
-          'tt-wall-note',
-          open
-            ? 'Reported, not verified · the board below follows the report'
-            : 'Needs attention and the people roster are on the left · a reported floor opens the board here',
-        ),
-      );
+      document.body.classList.toggle('tt-incident-open', open);
+      if (open)
+        panel.replaceChildren(
+          el('div', 'tt-kicker', 'INCIDENT OPEN'),
+          el(
+            'div',
+            'tt-wall-note',
+            'Reported, not verified · the board below follows the report',
+          ),
+        );
+      else api.idlePanel(panel);
     }
   }
 
@@ -205,6 +209,12 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       for (const [k, v] of Object.entries(s.layers || {}))
         if (applied.layers?.[k] !== v) api.setLayer(k, v);
       applied.layers = { ...(s.layers || {}) };
+      // Motion tiers are this wall's own (phase 11).
+      const mkey = JSON.stringify(s.motion || {});
+      if (mkey !== applied.motionKey) {
+        api.setMotion?.(s.motion || {});
+        applied.motionKey = mkey;
+      }
       // Camera changes never yank a view someone is dragging: they wait
       // for the mouse to be released.
       const camera = (fn) => (dragging ? pendingCamera.push(fn) : fn());
@@ -212,12 +222,14 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         const sc = s.scale;
         camera(() => api.scale(sc));
         applied.scaleRev = s.meta.scale.rev;
+        lastActivity = Date.now(); // a camera change restarts the drift clock
       }
       // Camera intent: only an operator's explicit request, once.
       if (s.frame?.nonce && s.frame.nonce !== applied.frameNonce) {
         const subject = s.frame.subject;
         camera(() => api.frame(subject));
         applied.frameNonce = s.frame.nonce;
+        lastActivity = Date.now();
       }
     }
     if (JSON.stringify(ss.report) !== JSON.stringify(applied.report))
@@ -259,17 +271,25 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     const advance = s?.mode === 'advance';
     const dayPlan = s?.role === 'day';
     // The day plan in Live shows today's plan: say so, not "Advance".
-    badge.textContent = advance
+    const badgeText = advance
       ? `ADVANCE · ${api.dayLabel()}`
       : dayPlan
         ? `TODAY'S PLAN · ${api.dayLabel()}`
         : 'LIVE';
+    if (badge.dataset.text !== badgeText) {
+      badge.dataset.text = badgeText;
+      // The live dot breathes under the Live tier (phase 11).
+      badge.replaceChildren(
+        ...(badgeText === 'LIVE' ? [el('span', 'tt-livedot')] : []),
+        badgeText,
+      );
+    }
     badge.classList.toggle('adv', advance || dayPlan);
     document.body.classList.toggle('tt-dayplan-live', dayPlan && !advance);
     time.textContent = api.clockText();
     visitorMark.hidden = !ss.visitor;
     const ctl = presence?.remotes?.find((r) => r.controller);
-    const hands = handsOn() ? ' · hands-on' : '';
+    const hands = handsOn() ? ' · hands-on' : drifting ? ' · drifting' : '';
     const changed = lastChangeAt || welcomeAt;
     if (!sync?.online) {
       chip.textContent = `S${mySlot ?? '?'} · not connected${hands}`;
@@ -322,6 +342,12 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     if (e.type === 'pointermove') return;
     if (e.type === 'pointerdown') dragging = true;
     lastInput = Date.now();
+    lastActivity = Date.now();
+    if (drifting) {
+      drifting = false;
+      api.drift?.(false);
+      b.classList.remove('tt-drifting');
+    }
     if (!b.classList.contains('tt-hands-on')) {
       b.classList.add('tt-hands-on');
       paint();
@@ -351,6 +377,26 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     if (!handsOn() && b.classList.contains('tt-hands-on')) {
       b.classList.remove('tt-hands-on');
       paint();
+    }
+    // Idle drift (Cinematic tier, Jesse 16 Oct): only the Site wall, only
+    // after 60 s with no hands on, never during an incident, never while a
+    // camera change is pending. The wall says so in its chip.
+    const s = me();
+    const wantDrift = Boolean(
+      s &&
+      s.role === 'site' &&
+      s.motion?.cine !== false &&
+      api.motionOn?.('cine') &&
+      !handsOn() &&
+      !dragging &&
+      !pendingCamera.length &&
+      now - lastActivity > DRIFT_AFTER_MS &&
+      !api.incidentOpen(),
+    );
+    if (wantDrift !== drifting) {
+      drifting = wantDrift;
+      api.drift?.(drifting);
+      b.classList.toggle('tt-drifting', drifting);
     }
     const text = handsOn()
       ? ['hands-on', api.selectionText?.()].filter(Boolean).join(' · ')
@@ -389,7 +435,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       c.width = W;
       c.height = H;
       const g = c.getContext('2d');
-      g.fillStyle = '#061a23';
+      g.fillStyle = '#040c12';
       g.fillRect(0, 0, W, H);
       const frame = ROLES[me()?.role]?.canvas
         ? await api.captureCanvas()

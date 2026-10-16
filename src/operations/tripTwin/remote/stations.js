@@ -11,6 +11,7 @@ import {
 } from '../twinScreenRoles.js';
 import { DEMO_TRIPS, tripById } from '../demoTrips.js';
 import { formatAge, positionState } from '../twinData.js';
+import { MOTION_TIERS } from '../twinMotion.js';
 
 const ICON = {
   screens:
@@ -604,6 +605,19 @@ function screens(ctx) {
     ),
   );
   out.push(w);
+  out.push(kick('This remote'));
+  const rm = el('div', 'rm-actions');
+  const on = ctx.remoteMotion?.() !== false;
+  rm.append(
+    btn(
+      `rm-btn${on ? ' on' : ''}`,
+      on ? 'Remote animation on · turn off' : 'Remote animation off · turn on',
+      () => ctx.setRemoteMotion?.(!on),
+      { 'aria-pressed': String(on) },
+    ),
+    el('span', 'rm-note', 'Wall motion is set per screen under 06 Layers.'),
+  );
+  out.push(rm);
   out.push(kick('Number of screens', WALL));
   const cnt = el('div', 'rm-actions');
   for (let n = 1; n <= 6; n++)
@@ -650,6 +664,46 @@ function layers(ctx) {
       ),
     );
   out.push(sc);
+  // Motion tiers (phase 11): each has its own switch, per wall or for all.
+  out.push(kick('Motion', scopeOf(target)));
+  const mvalue = (key) => {
+    const vals = slots.map((s) => state.screens[s]?.motion?.[key] !== false);
+    return vals.every((v) => v === vals[0]) ? vals[0] : null;
+  };
+  for (const T of MOTION_TIERS) {
+    const v = mvalue(T.key);
+    const r = el('div', 'rm-layer');
+    const lab = el('div', 'lab', T.label);
+    lab.append(el('small', '', v === null ? 'differs between screens' : T.sub));
+    const seg = el('div', 'rm-seg');
+    seg.setAttribute('role', 'group');
+    seg.setAttribute('aria-label', `${T.label} motion`);
+    for (const [on, tx] of [
+      [true, 'On'],
+      [false, 'Off'],
+    ])
+      seg.append(
+        btn(
+          '',
+          tx,
+          () =>
+            ctx.send(
+              { type: 'screens', target, patch: { motion: { [T.key]: on } } },
+              `${T.label} motion ${on ? 'on' : 'off'}`,
+            ),
+          { 'aria-pressed': String(v === on) },
+        ),
+      );
+    r.append(lab, seg);
+    out.push(r);
+  }
+  out.push(
+    el(
+      'div',
+      'rm-note',
+      'A wall whose system asks for reduced motion stays still whatever these say.',
+    ),
+  );
   for (const g of LAYER_CATALOG) {
     out.push(kick(g.group, scopeOf(target)));
     for (const L of g.layers) {

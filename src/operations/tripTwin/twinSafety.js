@@ -43,7 +43,7 @@ function glyph(category, draft) {
   const g = c.getContext('2d');
   g.beginPath();
   g.arc(24, 24, 21, 0, Math.PI * 2);
-  g.fillStyle = '#061a23';
+  g.fillStyle = '#040c12';
   g.fill();
   g.beginPath();
   g.arc(24, 24, 17, 0, Math.PI * 2);
@@ -168,7 +168,7 @@ export function createSafetyLayer(viewer, site) {
               ? css('#eff7f3')
               : css(draft ? '#9aa8ac' : '#81bf95'),
             showBackground: true,
-            backgroundColor: sel ? css('#0d2d3a', 0.98) : css('#061a23', 0.92),
+            backgroundColor: sel ? css('#0d2d3a', 0.98) : css('#040c12', 0.92),
             backgroundPadding: new Cesium.Cartesian2(5, 3),
             // Overlaps are resolved on screen by the declutter (phase 5b).
             pixelOffset: new Cesium.Cartesian2(0, sel ? -28 : -22),
