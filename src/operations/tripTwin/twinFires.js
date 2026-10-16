@@ -8,6 +8,7 @@ import {
   bearingLabel,
   formatAge,
   formatDistance,
+  formatRadius,
   haversineM,
   makeProjector,
 } from './twinData.js';
@@ -82,7 +83,7 @@ export function fireSummary(center, records, now = Date.now()) {
   if (!near.length)
     return {
       count: 0,
-      text: `Heat detections within ${NEAR_KM} km: 0 (not an all-clear)`,
+      text: `Heat detections within ${formatRadius(NEAR_KM * 1000)}: 0 (not an all-clear)`,
     };
   const newest = Math.min(...near.map((r) => (now - r.acqMs) / 1000));
   const n = near[0];

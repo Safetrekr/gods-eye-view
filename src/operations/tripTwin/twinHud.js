@@ -2,7 +2,14 @@
 // one top line per mode, roster + find fixed, Needs attention grouped and
 // capped, safety/hazards/sources one click away; incident panel with names,
 // copy, official slot and paths; selection card only re-renders on change.
-import { ROSTER_BUCKETS, bearingLabel, formatDistance } from './twinData.js';
+import {
+  ROSTER_BUCKETS,
+  bearingLabel,
+  formatDistance,
+  formatRadius,
+  formatShort,
+  spokenAges,
+} from './twinData.js';
 import { UNKNOWN_TEXT, floorText, initialsOf } from './twinPeople.js';
 import { arriveBy, HAZARD_NEAR_M } from './twinPaths.js';
 import { ringKind } from './twinPins.js';
@@ -116,10 +123,12 @@ export function pathCards(
     ];
     if (heat)
       lines.push(
-        `Within 1 km of a ${simulated ? 'SIMULATED ' : ''}heat detection (${formatDistance(p.hazard.distanceM)} ${bearingLabel(p.geometry[p.hazard.index], p.hazard.hazard)}) — check before use`,
+        `Within ${formatRadius(1000)} of a ${simulated ? 'SIMULATED ' : ''}heat detection (${formatDistance(p.hazard.distanceM)} ${bearingLabel(p.geometry[p.hazard.index], p.hazard.hazard)}) — check before use`,
       );
     if (p.kind === 'alternate' && p.sharedStartM > 40)
-      lines.push(`Shares the first ${p.sharedStartM} m with the primary path`);
+      lines.push(
+        `Shares the first ${formatShort(p.sharedStartM)} with the primary path`,
+      );
     if (entered?.length)
       lines.push(
         `Enters avoid-area: ${entered.map((a) => a.reason).join(', ')} — plan your own path to go around it`,
@@ -684,8 +693,12 @@ export function createHud({
     render(a, ctx) {
       last = { a, ctx };
       renderRail(a, ctx);
-      // Do not rebuild the incident panel while the operator is mid-dismiss.
-      renderIncident(a, ctx);
+      // Do not rebuild the incident panel while the operator is mid-dismiss,
+      // or while typing in it (Go to floor, review/phase5b).
+      const typing =
+        incident.contains(document.activeElement) &&
+        document.activeElement.matches('input, select, textarea');
+      if (!typing) renderIncident(a, ctx);
       if (document.activeElement === findInput) renderFind();
     },
     focusFind() {
@@ -725,7 +738,7 @@ export function responderText(ctx) {
     '',
     'Source: SafeTrekr Trip Twin (sample data, fictional people). Floor estimates are phone-barometer estimates, not verified.',
   );
-  return lines.join('\n');
+  return spokenAges(lines.join('\n'));
 }
 
 /** Selection card: re-renders only when its text changes (no re-announce churn). */
@@ -777,7 +790,7 @@ export function createCard(card, { onClose }) {
         ? row.pos.label
         : `${row.pos.chip} · ${row.pos.label}`;
       const acc = Number.isFinite(p.accuracy_m)
-        ? ` · ±${Math.round(p.accuracy_m)} m`
+        ? ` · ±${formatShort(p.accuracy_m)}`
         : row.pos.located
           ? ' · Accuracy unknown'
           : '';
@@ -950,6 +963,7 @@ export function createCard(card, { onClose }) {
         ),
       );
       card.replaceChildren(...body);
+      card.classList.remove('compact');
       card.classList.add('floor-view');
       card.hidden = false;
     },
@@ -959,9 +973,9 @@ export function createCard(card, { onClose }) {
         [
           '',
           b.source === 'height'
-            ? `Height ${Math.round(b.heightM)} m (mapped)`
+            ? `Height ${formatShort(b.heightM)} (mapped)`
             : b.source === 'levels'
-              ? `Height ~${Math.round(b.heightM)} m · from ${b.levels} mapped levels`
+              ? `Height ~${formatShort(b.heightM)} · from ${b.levels} mapped levels`
               : 'Height not mapped · drawn approximate',
         ],
       ];

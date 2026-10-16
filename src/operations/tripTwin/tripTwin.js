@@ -1,6 +1,7 @@
 // Trip Twin controller: lifecycle, data loading, solo mode and the entry /
 // exit sequences (03 §5.1, §5.4; 05 §3.1, §3.5). Idempotent open/close/dispose.
 import * as Cesium from 'cesium';
+import { createDeclutter } from './twinDeclutter.js';
 import { resolveEllipsoidalGround } from '../../data/terrainHeights.js';
 import {
   TWIN_RADIUS_M,
@@ -153,6 +154,7 @@ export function createTripTwin({
   let dragHandler = null;
   let dragging = false;
   let swallowClick = false;
+  let safeArea = null; // () => {left, right, top, bottom} px covered by panels
   let editingPath = false;
 
   /** Screen point → ground {lat, lon} on the site's ground plane. */
@@ -186,6 +188,8 @@ export function createTripTwin({
   let style = glowStyle;
   let people = null;
   let safety = null;
+  let declutterer = null;
+  let selectedPlaceId = null;
   let chips = [];
   let peopleInfo = { beyond: 0 };
   let paths = null; // { paths: [...] } once planned
@@ -482,6 +486,18 @@ export function createTripTwin({
       people.dataSource.show = !peopleHidden;
       refreshFires();
       safety = createSafetyLayer(viewer, site);
+      safety.setSelected(selectedPlaceId);
+      // Labels stay inside the area the panels leave free.
+      declutterer = createDeclutter(viewer, {
+        bounds: () => {
+          const a = safeArea?.();
+          if (!a) return null;
+          return {
+            left: a.left + 4,
+            right: scene.canvas.clientWidth - a.right - 4,
+          };
+        },
+      });
       handler = new Cesium.ScreenSpaceEventHandler(scene.canvas);
       handler.setInputAction((click) => {
         // The click that closed a popover does nothing else (review/phase5 J7).
@@ -621,6 +637,61 @@ export function createTripTwin({
     });
   }
 
+  /**
+   * Fly so the target sits in the middle of the panel-free area, not the
+   * middle of the canvas (phase 1 / phase 3 deferred). fit: widen the range
+   * so a large target fits the free width. Operator actions only.
+   */
+  function flySafe(sphere, { heading, pitch, range, fit = false, duration }) {
+    const a = safeArea?.();
+    const canvas = viewer.scene.canvas;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    let center = sphere.center;
+    let r = range;
+    if (a && w && h) {
+      const freeW = Math.max(240, w - a.left - a.right);
+      const freeH = Math.max(200, h - a.top - a.bottom);
+      if (fit) r = range * Math.min(2.4, Math.max(1, w / freeW, h / freeH));
+      const fov = viewer.camera.frustum.fov || Math.PI / 3;
+      const mpp = (2 * r * Math.tan(fov / 2)) / Math.max(w, h);
+      const dx = ((a.left - a.right) / 2) * mpp;
+      const dy = ((a.top - a.bottom) / 2) * mpp;
+      const sh = Math.sin(heading);
+      const ch = Math.cos(heading);
+      const sp = Math.sin(pitch);
+      const cp = Math.cos(pitch);
+      // Camera right and up in east-north-up at the target.
+      const right = new Cesium.Cartesian3(ch, -sh, 0);
+      const up = new Cesium.Cartesian3(-sh * sp, -ch * sp, cp);
+      const enu = Cesium.Transforms.eastNorthUpToFixedFrame(center);
+      const shift = Cesium.Cartesian3.add(
+        Cesium.Cartesian3.multiplyByScalar(right, -dx, new Cesium.Cartesian3()),
+        Cesium.Cartesian3.multiplyByScalar(up, dy, new Cesium.Cartesian3()),
+        new Cesium.Cartesian3(),
+      );
+      center = Cesium.Cartesian3.add(
+        center,
+        Cesium.Matrix4.multiplyByPointAsVector(
+          enu,
+          shift,
+          new Cesium.Cartesian3(),
+        ),
+        new Cesium.Cartesian3(),
+      );
+    }
+    const d = Cesium.Cartesian3.distance(viewer.camera.positionWC, center);
+    viewer.camera.flyToBoundingSphere(
+      new Cesium.BoundingSphere(center, sphere.radius),
+      {
+        offset: new Cesium.HeadingPitchRange(heading, pitch, r),
+        duration:
+          duration ?? (reducedMotion() ? 0 : flightMs(Math.abs(d - r)) / 1000),
+        easingFunction: Cesium.EasingFunction.QUARTIC_IN_OUT,
+      },
+    );
+  }
+
   /** Camera on one hotel floor, slightly above it, looking across the slab. */
   function frameFloor(label) {
     if (!twin || !people || !Number.isFinite(label)) return;
@@ -637,19 +708,10 @@ export function createTripTwin({
       Cesium.Cartesian3.fromDegrees(p.lon, p.lat, (z0 + z1) / 2),
     );
     const sphere = Cesium.BoundingSphere.fromPoints(pts);
-    const range = Math.max(180, sphere.radius * 4.4);
-    const d = Cesium.Cartesian3.distance(
-      viewer.camera.positionWC,
-      sphere.center,
-    );
-    viewer.camera.flyToBoundingSphere(sphere, {
-      offset: new Cesium.HeadingPitchRange(
-        viewer.camera.heading,
-        Cesium.Math.toRadians(-8),
-        range,
-      ),
-      duration: reducedMotion() ? 0 : flightMs(Math.abs(d - range)) / 1000,
-      easingFunction: Cesium.EasingFunction.QUARTIC_IN_OUT,
+    flySafe(sphere, {
+      heading: viewer.camera.heading,
+      pitch: Cesium.Math.toRadians(-8),
+      range: Math.max(180, sphere.radius * 4.4),
     });
   }
 
@@ -747,18 +809,10 @@ export function createTripTwin({
       sphere.radius = Math.max(sphere.radius, geom.building.heightM / 2);
       range = Math.max(150, sphere.radius * 3.2);
     } else return;
-    const d = Cesium.Cartesian3.distance(
-      viewer.camera.positionWC,
-      sphere.center,
-    );
-    viewer.camera.flyToBoundingSphere(sphere, {
-      offset: new Cesium.HeadingPitchRange(
-        viewer.camera.heading,
-        Cesium.Math.toRadians(-30),
-        range,
-      ),
-      duration: reducedMotion() ? 0 : flightMs(Math.abs(d - range)) / 1000,
-      easingFunction: Cesium.EasingFunction.QUARTIC_IN_OUT,
+    flySafe(sphere, {
+      heading: viewer.camera.heading,
+      pitch: Cesium.Math.toRadians(-30),
+      range,
     });
   }
 
@@ -830,7 +884,7 @@ export function createTripTwin({
           ...chips,
           {
             label: `${simulatedFires ? 'SIMULATED ' : ''}Heat detection`,
-            distance: `${(fsum.nearest.d / 1000).toFixed(1)} km`,
+            distance: formatDistance(fsum.nearest.d),
             bearing: bearingLabel(site.center, fsum.nearest),
             hazard: true,
           },
@@ -965,6 +1019,8 @@ export function createTripTwin({
     savedView = null;
     stats.floorFocus = null;
     safety?.dispose();
+    declutterer?.dispose();
+    declutterer = null;
     disposePaths?.();
     disposePaths = null;
     paths = null;
@@ -1195,12 +1251,11 @@ export function createTripTwin({
           Cesium.Cartesian3.fromDegrees(p.lon, p.lat, site.field.at(0, 0)),
         ),
       );
-      viewer.camera.flyToBoundingSphere(sphere, {
-        offset: new Cesium.HeadingPitchRange(
-          viewer.camera.heading,
-          Cesium.Math.toRadians(-55),
-          sphere.radius * 3.2,
-        ),
+      flySafe(sphere, {
+        heading: viewer.camera.heading,
+        pitch: Cesium.Math.toRadians(-55),
+        range: Math.max(200, sphere.radius * 3.2),
+        fit: true,
         duration: reducedMotion() ? 0 : 1.2,
       });
     },
@@ -1210,6 +1265,15 @@ export function createTripTwin({
     restoreView,
     viewFromSide,
     /** Phase 4: route map clicks to the path editor (null restores). */
+    /** The place whose card is open glows on the map (phase 5b). */
+    setSelectedPlace(id) {
+      selectedPlaceId = id || null;
+      safety?.setSelected(selectedPlaceId);
+    },
+    /** Panel insets for framing (phase 5b): () => {left, right, top, bottom}. */
+    setSafeArea(fn) {
+      safeArea = fn || null;
+    },
     /** The next map click only closed a popover (review/phase5 J7). */
     swallowNextClick(on) {
       swallowClick = Boolean(on);

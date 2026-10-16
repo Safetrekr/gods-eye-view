@@ -121,6 +121,24 @@ export function createCutaway({ compact = false, onPick = () => {} } = {}) {
     const flaggedLabels = new Set(
       occ.floors.filter((f) => f.state !== 'quiet').map((f) => f.label),
     );
+    // Axis numbers never overprint: flagged first, then the top floor, then
+    // every 5th, each at least 12 px from one already shown (review/phase5b).
+    const yOf = new Map();
+    let yAcc = 0;
+    for (const f of occ.floors) {
+      const hgt = f.state !== 'quiet' ? tall : quiet;
+      yOf.set(f.label, yAcc + hgt / 2);
+      yAcc += hgt;
+    }
+    const axis = new Set();
+    const tryShow = (l) => {
+      const y = yOf.get(l);
+      if ([...axis].every((k) => Math.abs(yOf.get(k) - y) >= 12)) axis.add(l);
+    };
+    for (const l of flaggedLabels) axis.add(l);
+    if (occ.floors[0]) tryShow(occ.floors[0].label);
+    if (!compact)
+      for (const f of occ.floors) if (f.label % 5 === 0) tryShow(f.label);
     const prevFocus = buttons.find((b) => b === document.activeElement)?.dataset
       .label;
     buttons = occ.floors.map((f) => {
@@ -138,12 +156,7 @@ export function createCutaway({ compact = false, onPick = () => {} } = {}) {
           '--fill',
           String(Math.min(0.28, 0.14 + 0.05 * f.likely.length)),
         );
-      const near = (l) => flaggedLabels.has(l - 1) || flaggedLabels.has(l + 1);
-      const isTop = f === occ.floors[0];
-      const showNum =
-        isFlagged ||
-        (isTop && !near(f.label)) ||
-        (!compact && f.label % 5 === 0 && quiet >= 3 && !near(f.label));
+      const showNum = axis.has(f.label);
       if (!isFlagged) b.classList.add('quiet');
       b.append(
         el('span', 'g num', showNum ? String(f.label) : ''),

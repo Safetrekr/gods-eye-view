@@ -2659,3 +2659,105 @@ body.tt-editing .tt-edit-chip {
   content: '✓';
   margin-right: 4px;
 }
+/* Phase 5b: grid / elevation options under their layer rows */
+.tt-layer-opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: -2px 0 8px 30px;
+  padding-left: 8px;
+  border-left: 1px solid var(--tt-border);
+  font-size: 12px;
+  color: var(--tt-text-2);
+}
+.tt-layer-opt select {
+  height: 28px;
+  min-width: 120px;
+}
+.tt-gofloor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 8px;
+}
+.tt-gofloor label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--tt-text-2);
+}
+.tt-gofloor input {
+  width: 72px;
+  height: 28px;
+}
+.tt-gofloor .tt-note {
+  flex-basis: 100%;
+  margin: 0;
+}
+.tt-gofloor .tt-note:empty {
+  display: none;
+}
+.tt-gofloor[hidden] {
+  display: none;
+}
+.tt-toast .tt-btn {
+  white-space: nowrap;
+  flex: none;
+}
+/* Phase 5b: the selected place's chip glows like its map marker */
+.tt-chip.on {
+  color: var(--tt-text);
+  background: var(--tt-sel-bg);
+  border-color: var(--tt-text);
+  box-shadow: 0 0 10px rgba(239, 247, 243, 0.35);
+}
+.tt-layer-opt-note {
+  margin: -4px 0 8px 38px;
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--tt-text-dim);
+}
+.tt-layer-opt,
+.tt-pop .tt-key {
+  border-left-color: var(--tt-edge-ctl);
+}
+.tt-units-link {
+  font-size: 11px;
+  margin-left: 6px;
+}
+/* Phase 5b review: questions sit at the top centre, clear of the compass */
+.tt-toast {
+  bottom: auto;
+  top: calc(var(--bar) + var(--g) + 36px);
+  width: max-content;
+  border-left: 3px solid var(--tt-attention);
+}
+.tt-toast .tt-btn {
+  height: 36px;
+}
+/* Card titles stay visible while a long card scrolls */
+.tt-card .tt-card-head {
+  position: sticky;
+  top: -14px;
+  z-index: 2;
+  margin: -14px -16px 0;
+  padding: 14px 16px 2px;
+  background: var(--tt-glass);
+}
+/* Go to floor: an invalid number is marked, in amber */
+.tt-gofloor input[aria-invalid='true'] {
+  border-color: var(--tt-attention);
+}
+.tt-gofloor-msg {
+  color: var(--tt-attention);
+}
+.tt-docked-box .tt-gofloor {
+  margin-top: 0;
+}
+.tt-card .tt-card-head {
+  background: var(--tt-card);
+  border-bottom: 1px solid transparent;
+}

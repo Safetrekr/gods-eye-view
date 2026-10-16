@@ -4,7 +4,12 @@
 // Precipitation and cloud are neutral grey, never blue (blue = paths).
 // Lightning glyphs are static (no flashing; WCAG 2.3.1).
 import * as Cesium from 'cesium';
-import { bearingLabel, formatDistance, haversineM } from './twinData.js';
+import {
+  bearingLabel,
+  formatDistance,
+  formatRadius,
+  haversineM,
+} from './twinData.js';
 
 export const LIGHTNING_WATCH_KM = 10;
 export const GATHERING_RADIUS_M = 75;
@@ -634,7 +639,7 @@ export function createWeatherLayer(viewer, site) {
           };
           plate(
             Cesium.Cartesian3.fromDegrees(edge.lon, edge.lat, base + 6),
-            `${LIGHTNING_WATCH_KM} km lightning watch · ${labels.lightning || ''}`,
+            `${formatRadius(LIGHTNING_WATCH_KM * 1000)} lightning watch · ${labels.lightning || ''}`,
             pink,
           );
         }
@@ -703,7 +708,7 @@ export function createWeatherLayer(viewer, site) {
           ds.entities.add({
             position: Cesium.Cartesian3.fromDegrees(edge.lon, edge.lat, h),
             label: {
-              text: `${name} ${Math.round(cover)}% · ~${km} km`,
+              text: `${name} ${Math.round(cover)}% · ~${formatRadius(km * 1000)}`,
               font: '500 11px Inter, sans-serif',
               fillColor: grey,
               showBackground: true,

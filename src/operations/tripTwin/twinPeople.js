@@ -204,20 +204,32 @@ export function createPeopleLayer(viewer, site, twin) {
         },
       });
       const lbl = numbering ? l + groundLabel : l;
+      const nearReported =
+        Number.isFinite(reportedLevel) &&
+        l !== reportedLevel &&
+        Math.abs(l - reportedLevel) <= 1;
+      const isReported = l === reportedLevel;
       if (
         l === 0 ||
-        (l + (numbering ? groundLabel : 0)) % 5 === 0 ||
-        l === reportedLevel ||
+        ((l + (numbering ? groundLabel : 0)) % 5 === 0 && !nearReported) ||
+        isReported ||
         l === top - 1
       )
         ds.entities.add({
+          // The ruler never moves; other labels slide around it (declutter).
+          declutterFixed: true,
           position: toCart(rulerAt(-4), z + fh / 2),
           label: {
             text: String(lbl),
-            font: '11px ui-monospace, Menlo, monospace',
-            fillColor: css('#e3e7e9', 0.9),
+            font: isReported
+              ? '600 11px ui-monospace, Menlo, monospace'
+              : '11px ui-monospace, Menlo, monospace',
+            // The reported floor's tag is the incident's (red).
+            fillColor: isReported ? css('#f299a6', 1) : css('#e3e7e9', 0.9),
             showBackground: true,
-            backgroundColor: css('#061a23', 0.92),
+            backgroundColor: isReported
+              ? css('#3a1219', 0.95)
+              : css('#061a23', 0.92),
             backgroundPadding: new Cesium.Cartesian2(4, 2),
             horizontalOrigin: Cesium.HorizontalOrigin.RIGHT,
             disableDepthTestDistance: Number.POSITIVE_INFINITY,
@@ -282,9 +294,11 @@ export function createPeopleLayer(viewer, site, twin) {
       }
       ds.entities.add({
         id: `twin-bracket-label:${r.person.id}`,
+        // Tied to a floor: slides sideways only (review/phase5b).
+        declutterAxis: 'x',
         position: toCart(at, z1 + 1.2),
         label: {
-          text: `${initialsOf(r.person.name)}${e.moving === 'descending' ? ' ↓' : e.moving === 'ascending' ? ' ↑' : ''}`,
+          text: `${initialsOf(r.person.name).replace(/\./g, '')}${e.moving === 'descending' ? ' ↓' : e.moving === 'ascending' ? ' ↑' : ''}`,
           font: '600 10px Inter, ui-sans-serif, sans-serif',
           fillColor: css(color, 1),
           showBackground: true,
@@ -397,6 +411,7 @@ export function createPeopleLayer(viewer, site, twin) {
         const away = projector.toLL(cx - ux * (len + 14), cy - uy * (len + 14));
         if (label !== null)
           focusDs.entities.add({
+            declutterFixed: true,
             position: toCart(away, (z0 + z1) / 2),
             label: {
               text: `Floor ${label}`,

@@ -67,6 +67,9 @@ import {
   footerLine,
   formatAge,
   formatDistance,
+  formatRadius,
+  formatShort,
+  setDistanceUnit,
   haversineM,
   bearingLabel,
 } from './twinData.js';
@@ -313,13 +316,68 @@ async function main() {
     cutHead.textContent = `Floors ${cutawayOpen ? '▾' : '▸'}`;
     cutHead.setAttribute('aria-expanded', String(cutawayOpen));
     cutaway.el.hidden = !cutawayOpen;
+    goFloor.hidden = !cutawayOpen;
   }
   cutHead.addEventListener('click', () => {
     cutawayOpen = !cutawayOpen;
     save('cutawayOpen', String(cutawayOpen));
     setCutHead();
   });
-  cutBox.append(cutHead, cutaway.el);
+  // Go to floor (phase 2 deferred): type the number as the hotel shows it.
+  // One on the hotel card and one over the incident panel's floor list.
+  function makeGoFloor(idSuffix) {
+    const form = document.createElement('form');
+    form.className = 'tt-gofloor';
+    const lab = document.createElement('label');
+    lab.textContent = 'Go to floor';
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.inputMode = 'numeric';
+    input.setAttribute('aria-label', 'Go to floor (as the hotel numbers it)');
+    lab.append(input);
+    const go = document.createElement('button');
+    go.type = 'submit';
+    go.className = 'tt-btn sm';
+    go.textContent = 'Go';
+    const msg = document.createElement('div');
+    msg.className = 'tt-note tt-gofloor-msg';
+    msg.id = `tt-gofloor-msg-${idSuffix}`;
+    msg.setAttribute('role', 'status');
+    input.setAttribute('aria-describedby', msg.id);
+    form.append(lab, go, msg);
+    const clear = () => {
+      msg.textContent = '';
+      input.removeAttribute('aria-invalid');
+    };
+    input.addEventListener('input', clear);
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const n = Number(input.value);
+      const labels = (lastOcc?.floors || []).map((f) => f.label);
+      if (input.value === '' || !Number.isFinite(n)) return;
+      if (!Number.isInteger(n)) {
+        input.setAttribute('aria-invalid', 'true');
+        msg.textContent = 'Enter a whole floor number, as on the lift buttons';
+        return;
+      }
+      if (!labels.includes(n)) {
+        input.setAttribute('aria-invalid', 'true');
+        msg.textContent = labels.length
+          ? `Floor ${n} is outside this building's floors (${Math.min(...labels)}–${Math.max(...labels)})`
+          : 'Floors are not available for this building';
+        return;
+      }
+      clear();
+      input.value = '';
+      focusFloor(n);
+    });
+    return form;
+  }
+  const goFloor = makeGoFloor('card');
+  const dockedBox = document.createElement('div');
+  dockedBox.className = 'tt-docked-box';
+  dockedBox.append(makeGoFloor('incident'), docked.el);
+  cutBox.append(cutHead, goFloor, cutaway.el);
   setCutHead();
   // During an incident the floors sit in the incident panel; one copy only.
   const cutPointer = document.createElement('div');
@@ -501,15 +559,26 @@ async function main() {
       });
   }
 
+  /** The place whose card is open glows on the map and in the chips. */
+  function syncPlaceHighlight() {
+    twin.setSelectedPlace(
+      selection?.kind === 'place' ? selection.place.id : null,
+    );
+    renderChips(lastChips);
+  }
+  let lastChips = [];
   function renderChips(chips) {
+    lastChips = chips;
     const max = 4;
+    const selId = selection?.kind === 'place' ? selection.place.id : null;
     const list = chips.slice(0, max).map((c) => {
       const b = document.createElement(c.onClick ? 'button' : 'span');
       if (c.onClick) {
         b.type = 'button';
         b.addEventListener('click', c.onClick);
       }
-      b.className = `tt-chip${c.draft || c.missing ? ' draft' : ''}${c.hazard ? ' hazard' : ''}${c.people ? ' people' : ''}${c.site ? ' site' : ''}`;
+      b.className = `tt-chip${c.draft || c.missing ? ' draft' : ''}${c.hazard ? ' hazard' : ''}${c.people ? ' people' : ''}${c.site ? ' site' : ''}${c.id && c.id === selId ? ' on' : ''}`;
+      if (c.id && c.id === selId) b.setAttribute('aria-current', 'true');
       b.textContent =
         c.missing || c.people
           ? c.label
@@ -556,6 +625,7 @@ async function main() {
     },
     onSelect: (sel) => {
       selection = sel;
+      if (!placeSelecting) syncPlaceHighlight();
       if (!sel) {
         if (!placeSelecting) {
           releaseCard();
@@ -793,7 +863,7 @@ async function main() {
         lastOcc.available &&
         twin.floorFocus === null &&
         lastOcc.floors.some((f) => f.state === 'reported')
-          ? docked.el
+          ? dockedBox
           : null;
       renderCutaways();
       hud.render(a, lastCtx);
@@ -917,9 +987,21 @@ async function main() {
     });
   }
   /** Fly out, rebuild for another site, fly in. Trip-wide state is kept. */
-  async function switchSite(key) {
+  /** A live incident at the site on screen (any mode: it is live data). */
+  const liveIncidentHere = () => lastCtx?.mode?.mode === 'incident';
+  async function switchSite(key, { confirmed = false } = {}) {
     if (key === siteKey || !siteConfig(key)) return;
     if (pathEditor.blockIfDirty('switch site')) return;
+    // Leaving the site of a live incident asks once (phase 3 deferred).
+    if (!confirmed && liveIncidentHere()) {
+      closePops();
+      return confirmToast(
+        `Incident at ${city.short} — switch to ${siteConfig(key).short}? The incident stays on screen with a way back.`,
+        `Switch to ${siteConfig(key).short}`,
+        () => switchSite(key, { confirmed: true }),
+        `Stay at ${city.short}`,
+      );
+    }
     clearFloorFocus();
     clearRoute();
     floorReturn = null;
@@ -943,6 +1025,30 @@ async function main() {
     for (const k of ['precip', 'totals']) if (wx.layers[k]) ensureImage(k);
   }
 
+  // Framing lands in the area the panels leave free (phase 5b).
+  const visibleBox = (id) => {
+    const e = $(id);
+    // Fixed panels have no offsetParent; client rects tell if it is laid out.
+    if (!e || e.hidden || !e.getClientRects().length) return null;
+    const r = e.getBoundingClientRect();
+    return r.width && r.height ? r : null;
+  };
+  twin.setSafeArea(() => {
+    const left = visibleBox('tt-rail') || visibleBox('tt-advance');
+    const right = ['tt-editor', 'tt-incident', 'tt-card']
+      .map(visibleBox)
+      .filter(Boolean);
+    const bar = $('tt-bar').getBoundingClientRect();
+    const tools = $('tt-toolbar').getBoundingClientRect();
+    return {
+      left: left ? left.right : 0,
+      right: right.length
+        ? innerWidth - Math.min(...right.map((r) => r.left))
+        : 0,
+      top: bar.bottom + 40,
+      bottom: innerHeight - tools.top,
+    };
+  });
   /** Any simulated feed on (review/phase5 J9). */
   function simulationOn() {
     return (
@@ -1045,7 +1151,7 @@ async function main() {
         hosp && {
           key: 'hospital',
           label: 'Nearest listed hospital',
-          meta: `${hosp.p.name} · ${formatDistance(hosp.d)}`,
+          meta: `${hosp.p.name} · ${formatDistance(hosp.d)} straight line`,
           title: `Nearest in a straight line of ${hospitals.length} hospital${hospitals.length > 1 ? 's' : ''} on file`,
           to: llOf(hosp.p),
           toLabel: hosp.p.name || 'the hospital',
@@ -1056,7 +1162,7 @@ async function main() {
           label: city.short,
           meta: atSite
             ? `${who} is here (likely)`
-            : formatDistance(haversineM(from, sitePoint())),
+            : `${formatDistance(haversineM(from, sitePoint()))} straight line`,
           disabled: atSite,
           title: atSite ? `${who} is at ${city.short} (likely)` : '',
           to: sitePoint(),
@@ -1066,7 +1172,7 @@ async function main() {
         city.key !== hotel.key && {
           key: 'hotel',
           label: hotel.short,
-          meta: formatDistance(haversineM(from, hotel.anchors.inside)),
+          meta: `${formatDistance(haversineM(from, hotel.anchors.inside))} straight line`,
           to: { lat: hotel.anchors.inside.lat, lon: hotel.anchors.inside.lon },
           toLabel: hotel.short,
         },
@@ -1077,7 +1183,7 @@ async function main() {
               ? 'Rally point (primary)'
               : 'Rally point (secondary)',
           tag: r.approval_status !== 'active' ? 'not approved' : '',
-          meta: formatDistance(haversineM(from, llOf(r))),
+          meta: `${formatDistance(haversineM(from, llOf(r)))} straight line`,
           to: llOf(r),
           toLabel: r.name || 'the rally point',
         })),
@@ -1090,7 +1196,7 @@ async function main() {
       {
         key: 'site',
         label: city.short,
-        meta: formatDistance(haversineM(sitePoint(), routeTarget.point)),
+        meta: `${formatDistance(haversineM(sitePoint(), routeTarget.point))} straight line`,
         from: sitePoint(),
         fromLabel: city.short,
       },
@@ -1304,6 +1410,7 @@ async function main() {
       profile,
       status: 'loading',
       reason,
+      straightM: straight,
       stale: '',
     };
     drawRouteSection();
@@ -1334,6 +1441,9 @@ async function main() {
         ...routeModel,
         status: 'ready',
         cards,
+        paths,
+        req: { profile, toLabel, fromLabel },
+        est: est ? { ...est, profile: other } : null,
         fix: ep.fix,
         times: {
           [profile]: modeTime(cards[0]),
@@ -1370,6 +1480,36 @@ async function main() {
         .querySelector('.tt-route-out')
         ?.scrollIntoView({ block: 'nearest' });
     }
+    renderPill();
+  }
+  /** Rebuild the path texts in the current units (Display › Units). */
+  function rebuildRouteText(m) {
+    if (!m?.paths) return m;
+    const cards = routeCards(m.paths, m.req, {
+      areas: pathStore.areas,
+      pace: m.req.profile === 'foot' ? lastCtx?.weather?.pace : null,
+      simulatedFires: lastCtx?.fires?.simulated,
+    });
+    return {
+      ...m,
+      cards,
+      reason: m.reason ? defaultMode(m.straightM).reason : '',
+      other: m.est?.range
+        ? {
+            verb: MODES[m.est.profile].verb,
+            text: `${formatDistance(m.est.distanceM)} · ${m.est.range[0]}–${m.est.range[1]} min`,
+          }
+        : null,
+    };
+  }
+  function refreshRouteUnits() {
+    if (routeModel) routeModel = rebuildRouteText(routeModel);
+    if (drawn) {
+      drawn.model = rebuildRouteText(drawn.model);
+      const c = drawn.model.cards[0];
+      drawn.pill = `${c.route.replace(/ \(.*?\)/, '')} · ${MODES[drawn.model.req.profile].verb} ${c.metric}`;
+    }
+    drawRouteSection();
     renderPill();
   }
   /** Copy path summary (J5): no coordinates; a traveler as first name + initial. */
@@ -1481,6 +1621,7 @@ async function main() {
       [routeNode],
     );
     $('tt-crumb-focus').textContent = `› ${p.name || label}`;
+    syncPlaceHighlight();
   }
 
   // ---- advance mode (phase 3 Part B; review/phase3 G6–G9) ----
@@ -1541,7 +1682,11 @@ async function main() {
       alertsStatus: wx.warningsStatus,
       numbering: { mapped: site.levels != null, operator: op },
       useF,
-      route: drawn ? adv.pathText[ev.key] : null,
+      route: drawn
+        ? typeof adv.pathText[ev.key] === 'function'
+          ? adv.pathText[ev.key]()
+          : adv.pathText[ev.key]
+        : null,
       routeChecked: drawn,
       timeZone: city.timezone,
     });
@@ -1591,7 +1736,8 @@ async function main() {
         toLabel: site.short,
       });
       const p = paths[0];
-      adv.pathText[ev.key] =
+      // Built at render so it follows Display › Units.
+      adv.pathText[ev.key] = () =>
         `Walking path from ${SITES[0].short}: ${formatDistance(p.distanceM)} · ${p.walk[0]}–${p.walk[1]} min (group pace) · shown on the map · suggested, unverified`;
     } catch (error) {
       adv.pathText[ev.key] = `Path unavailable (${error?.message || error})`;
@@ -1907,9 +2053,17 @@ async function main() {
       renderAdvance();
     }
   }
-  function setAppMode(next) {
+  function setAppMode(next, { confirmed = false } = {}) {
     if (next === appMode) return;
     if (pathEditor.blockIfDirty('switch to ' + next)) return;
+    // Advance clears paths and selections: ask during a live incident (5b).
+    if (next === 'advance' && !confirmed && liveIncidentHere())
+      return confirmToast(
+        `Incident at ${city.short} — switch to Advance planning? Paths and the selection here are cleared; the incident stays in the Live strip.`,
+        'Switch to Advance',
+        () => setAppMode('advance', { confirmed: true }),
+        'Stay in Live',
+      );
     appMode = next;
     const q = new URLSearchParams(location.search);
     if (appMode === 'advance') q.set('mode', 'advance');
@@ -1959,8 +2113,46 @@ async function main() {
   toast.hidden = true;
   document.body.append(toast);
   let toastTimer = null;
+  /** A one-line question with an action and Stay (no modal). */
+  let toastReturn = null;
+  function dismissToast() {
+    clearTimeout(toastTimer);
+    toast.hidden = true;
+    delete toast.dataset.ask;
+    toast.setAttribute('role', 'status');
+    toast.removeAttribute('aria-label');
+    if (toast.contains(document.activeElement)) toastReturn?.focus?.();
+  }
+  function confirmToast(text, okLabel, onOk, stayLabel = 'Stay') {
+    clearTimeout(toastTimer);
+    toastReturn = document.activeElement;
+    toast.dataset.ask = '1';
+    toast.setAttribute('role', 'alertdialog');
+    toast.setAttribute('aria-label', text);
+    const t = document.createElement('span');
+    t.textContent = text;
+    const ok = document.createElement('button');
+    ok.type = 'button';
+    ok.className = 'tt-btn';
+    ok.textContent = okLabel;
+    ok.addEventListener('click', () => {
+      dismissToast();
+      onOk();
+    });
+    const stay = document.createElement('button');
+    stay.type = 'button';
+    stay.className = 'tt-btn primary';
+    stay.textContent = stayLabel;
+    stay.addEventListener('click', dismissToast);
+    toast.replaceChildren(t, stay, ok);
+    toast.hidden = false;
+    stay.focus();
+    // No answer in 15 s counts as Stay.
+    toastTimer = setTimeout(dismissToast, 15000);
+  }
   function offerUndo(text, undo) {
     clearTimeout(toastTimer);
+    delete toast.dataset.ask;
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'tt-btn';
@@ -2185,6 +2377,7 @@ async function main() {
     placeSelecting = false;
     releaseCard();
     selection = { kind: 'saved', id };
+    syncPlaceHighlight();
     selectedSavedId = id;
     renderCustom();
     const flags = checksFor(p);
@@ -2356,6 +2549,7 @@ async function main() {
     placeSelecting = false;
     releaseCard();
     selection = { kind: 'area', id };
+    syncPlaceHighlight();
     const used = pathStore.paths.filter((p) => p.areaIds.includes(id));
     const acts = document.createElement('div');
     acts.className = 'tt-actions';
@@ -2457,7 +2651,8 @@ async function main() {
   }
   $('tt-display').prepend(popHead('Display', 'D'));
   // ---- Layers: the five groups (06 §2.2); each row that is on shows its key ----
-  const KEY = {
+  // A function so legend distances follow Display › Units (phase 5b).
+  const keys = () => ({
     people: [
       ['', '#eff7f3', 'Live / stopped · current'],
       ['dash', '#f59e0b', 'Aging'],
@@ -2468,6 +2663,7 @@ async function main() {
       ['dash', '#eff7f3', 'Rough range'],
       ['', '#ee7789', 'Reported floor'],
     ],
+    // Sensor resolution stays as the source publishes it (review/phase5b IA F1).
     fires: [['', '#ee7789', 'Heat detection (375 m pixel)']],
     safety: [
       ['', '#4ba467', 'Approved place'],
@@ -2476,10 +2672,10 @@ async function main() {
     paths: [
       ['', '#3b82f6', 'Suggested path'],
       ['dash', '#3b82f6', 'Alternate'],
-      ['dash', '#f59e0b', 'Within 1 km of a heat detection'],
+      ['dash', '#f59e0b', `Within ${formatRadius(1000)} of a heat detection`],
     ],
     buildings: [['', '#80959b', 'Mapped height · fainter = approximate']],
-    grid: [['note', '', 'Spacing and units in Display (D)']],
+    grid: [],
     savedPaths: [
       ['dash', '#93bafa', 'Saved path (long dash)'],
       ['note', '', 'Planned by an operator · Advance shows the selected day'],
@@ -2487,11 +2683,8 @@ async function main() {
     avoidAreas: [
       ['', '#f59e0b', 'Avoid-area · applies to every path on this trip'],
     ],
-    elevation: [
-      ['', '#80959b', 'Contour · relative to hotel street level'],
-      ['note', '', 'Interval in Display (D)'],
-    ],
-  };
+    elevation: [['', '#80959b', 'Contour · relative to hotel street level']],
+  });
   const GROUPS = [
     [
       'People',
@@ -2522,7 +2715,7 @@ async function main() {
         ['hotel', 'Hotel', true],
         ['buildings', 'Surrounding buildings', false],
         ['grid', 'Scale grid', false],
-        ['elevation', 'Elevation (terrain contours)', false],
+        ['elevation', 'Elevation contours', false],
       ],
     ],
   ];
@@ -2575,6 +2768,7 @@ async function main() {
         }
         g.append(row);
         // Legends hang under their toggle; notes come after them (J8).
+        const KEY = keys();
         if (on && KEY[key]) {
           const k = document.createElement('div');
           k.className = 'tt-key';
@@ -2599,9 +2793,20 @@ async function main() {
           }
           g.append(k);
         }
+        if (on && (key === 'grid' || key === 'elevation'))
+          g.append(groundOption(key));
       }
       if (group === 'Hazards') g.append(weatherGroup());
       if (group === 'Paths') g.append(savedIndex());
+      if (group === 'Site') {
+        // One pointer to the global units (review/phase5b IA F8).
+        const u = document.createElement('button');
+        u.type = 'button';
+        u.className = 'tt-link tt-units-link';
+        u.textContent = `Units: ${{ m: 'meters and kilometers', ft: 'feet and miles', yd: 'yards and miles' }[ground.unit]} · change in Display (D)`;
+        u.addEventListener('click', () => openPop('tt-display'));
+        g.append(u);
+      }
       root.append(g);
     }
     root.scrollTop = scroll;
@@ -2668,7 +2873,8 @@ async function main() {
 
   // ---- Weather (phase 2): free / open sources, off by default ----
   const region = city.timezone.startsWith('America') ? 'us' : 'eu';
-  const useF = region === 'us';
+  // Temperature unit: Display › Units › Temperature; default by region.
+  let useF = pref('tempUnit', region === 'us' ? 'F' : 'C') === 'F';
   const WX = weatherSources(region);
   let wxBox = boxAround(city.center);
   // Lightning is fetched over the 10 km watch distance plus one grid cell, so
@@ -2868,7 +3074,7 @@ async function main() {
         : 'Weather unavailable';
     if (!WX[key]) return 'Not available here (radar licence not verified)';
     if (key === 'lightning' && wx.sim.lightning)
-      return 'SIMULATED lightning (prototype) · 10 km watch ring';
+      return `SIMULATED lightning (prototype) · ${formatRadius(LIGHTNING_WATCH_KM * 1000)} watch ring`;
     if (wx.images[key]?.noData)
       return `${WX[key].label} · no data in this area right now`;
     if (key === 'precip' && wx.sim.rain) return 'SIMULATED rain (prototype)';
@@ -2981,6 +3187,8 @@ async function main() {
     grid: m === 'grid' || m === 'both',
     contours: m === 'terrain' || m === 'both',
   });
+  // US trips default to feet and miles, like °F (review/phase5b).
+  const defaultUnit = city.timezone.startsWith('America') ? 'ft' : 'm';
   const ground = {
     ...(legacyMode && params.get('ground')
       ? fromMode(legacyMode)
@@ -2997,7 +3205,7 @@ async function main() {
               ),
             ) === 'true',
         }),
-    unit: params.get('units') || pref('units', 'm'),
+    unit: params.get('units') || pref('units', defaultUnit),
   };
   if (!UNIT[ground.unit]) ground.unit = 'm';
   ground.spacing = Number(
@@ -3010,14 +3218,6 @@ async function main() {
     const u = UNIT[ground.unit];
     if (!u.grid.includes(ground.spacing)) ground.spacing = u.gridDefault;
     if (!u.contour.includes(ground.contour)) ground.contour = u.contourDefault;
-    $('tt-spacing').replaceChildren(
-      ...u.grid.map((v) => new Option(`${v} ${u.label}`, v)),
-    );
-    $('tt-contour').replaceChildren(
-      ...u.contour.map((v) => new Option(`${v} ${u.label}`, v)),
-    );
-    $('tt-spacing').value = ground.spacing;
-    $('tt-contour').value = ground.contour;
     $('tt-units').value = ground.unit;
   }
   function applyGround() {
@@ -3029,9 +3229,12 @@ async function main() {
       contourM: ground.contour * u.toM,
     });
     $('tt-ground-line').textContent = groundLine(ground);
+    // The drawn terrain's range lives under Layers › Site › Elevation (5b IA F2).
+    const sign = (v) =>
+      formatLength(v, ground.unit, { signed: true }).replace(/^-/, '−');
     if (st?.relief)
-      $('tt-relief').textContent =
-        `Ground in this view: ${formatLength(st.relief.low, ground.unit, { signed: true })} to ${formatLength(st.relief.high, ground.unit, { signed: true })} vs hotel street level`;
+      reliefText = `Ground in view: ${sign(st.relief.low)} to ${sign(st.relief.high)} relative to hotel street level`;
+    renderLayers();
     save('groundGrid', ground.grid);
     save('groundElevation', ground.contours);
     save('units', ground.unit);
@@ -3039,9 +3242,27 @@ async function main() {
     save(`contour.${ground.unit}`, ground.contour);
   }
   fillOptions();
+  setDistanceUnit(ground.unit);
   $('tt-ground-line').textContent = groundLine(ground);
+  function refreshUnitsEverywhere() {
+    refreshRouteUnits();
+    twin.refresh?.();
+    if (selection?.kind === 'place') selectPlace(selection.place);
+    else if (selection?.kind === 'saved') selectSaved(selection.id);
+    else if (selection?.kind === 'area') selectArea(selection.id);
+    else if (selection?.kind === 'building' && !isHotelSel())
+      showBuilding(selection.geom);
+    else if (isHotelSel()) showBuilding(selection.geom);
+    pathEditor.refresh?.();
+    adv.sig = '';
+    renderAdvance();
+    renderWeather();
+    renderLayers();
+  }
   $('tt-units').addEventListener('change', (e) => {
     ground.unit = e.target.value;
+    // Units apply to every distance on screen, not only the grid (phase 5b).
+    setDistanceUnit(ground.unit);
     ground.spacing = Number(
       pref(`spacing.${ground.unit}`, UNIT[ground.unit].gridDefault),
     );
@@ -3050,14 +3271,43 @@ async function main() {
     );
     fillOptions();
     applyGround();
+    refreshUnitsEverywhere();
   });
-  $('tt-spacing').addEventListener('change', (e) => {
-    ground.spacing = Number(e.target.value);
-    applyGround();
-  });
-  $('tt-contour').addEventListener('change', (e) => {
-    ground.contour = Number(e.target.value);
-    applyGround();
+  let reliefText = '';
+  // Grid spacing and contour interval live under their layers (phase 5b,
+  // review/phase5 IA F11): Layers › Site › Scale grid / Elevation.
+  function groundOption(kind) {
+    const u = UNIT[ground.unit];
+    const row = document.createElement('label');
+    row.className = 'tt-layer-opt';
+    row.append(kind === 'grid' ? 'Spacing' : 'Interval');
+    const sel = document.createElement('select');
+    for (const v of kind === 'grid' ? u.grid : u.contour)
+      sel.append(new Option(`${v} ${u.label}`, v));
+    sel.value = kind === 'grid' ? ground.spacing : ground.contour;
+    sel.addEventListener('change', () => {
+      ground[kind === 'grid' ? 'spacing' : 'contour'] = Number(sel.value);
+      applyGround();
+    });
+    row.append(sel);
+    if (kind !== 'grid' && reliefText) {
+      const wrap = document.createElement('div');
+      const n = document.createElement('div');
+      n.className = 'tt-layer-opt-note';
+      n.textContent = reliefText;
+      wrap.append(row, n);
+      return wrap;
+    }
+    return row;
+  }
+  $('tt-temp').value = useF ? 'F' : 'C';
+  $('tt-temp').addEventListener('change', (e) => {
+    useF = e.target.value === 'F';
+    save('tempUnit', e.target.value);
+    renderWeather();
+    adv.sig = '';
+    renderAdvance();
+    twin.refresh?.();
   });
   $('tt-reduce-motion').checked = pref('reduceMotion', '0') === '1';
   $('tt-reduce-motion').addEventListener('change', (e) =>
@@ -3187,6 +3437,16 @@ async function main() {
   const flatNeeds = () => (lastCtx?.mode.groups || []).flatMap((g) => g.rows);
   window.addEventListener('keydown', (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
+    // Esc answers an open question with Stay (review/phase5b supervision F4).
+    if (
+      e.key === 'Escape' &&
+      !$('tt-toast')?.hidden &&
+      $('tt-toast')?.dataset.ask
+    ) {
+      e.preventDefault();
+      dismissToast();
+      return;
+    }
     // Esc closes an open popover first, also from inside its fields, and
     // returns focus to its trigger (review/phase5 J7). A typed report floor
     // asks once.
@@ -3220,6 +3480,7 @@ async function main() {
       if (selection?.kind === 'place') {
         releaseCard();
         selection = null;
+        syncPlaceHighlight();
         card.hide();
         $('tt-crumb-focus').textContent = '';
         return;
@@ -3345,11 +3606,18 @@ async function main() {
     () => clearInterval(feedTimer),
     () => clearInterval(ageTimer),
   );
-  $('tt-exit').addEventListener('click', async () => {
+  async function exitTwin({ confirmed = false } = {}) {
     if (twin.state === 'ready' || twin.state === 'degraded') {
+      if (pathEditor.blockIfDirty('exit')) return;
+      if (!confirmed && liveIncidentHere())
+        return confirmToast(
+          `Incident at ${city.short} — exit Trip Twin? The incident stays in World View.`,
+          'Exit Trip Twin',
+          () => exitTwin({ confirmed: true }),
+          `Stay at ${city.short}`,
+        );
       wxLayer?.dispose();
       wxLayer = null;
-      if (pathEditor.blockIfDirty('exit')) return;
       beacons?.dispose();
       beacons = null;
       customLayer?.dispose();
@@ -3360,7 +3628,8 @@ async function main() {
       $('tt-exit').textContent = 'Exit Trip Twin';
       await twin.open(siteKey, { osmMode });
     }
-  });
+  }
+  $('tt-exit').addEventListener('click', () => exitTwin());
   void lastA;
   await twin.open(siteKey, { osmMode });
 }

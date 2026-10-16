@@ -2,7 +2,7 @@
 // the camera never moves by itself; every reroute follows a click. Typing in
 // a field is never taken over by shortcuts; nothing is discarded or saved
 // without a deliberate step.
-import { formatDistance } from './twinData.js';
+import { formatDistance, formatShort } from './twinData.js';
 import {
   AVOID_RADII,
   AVOID_REASONS,
@@ -548,7 +548,8 @@ export function createPathEditor(deps) {
     const f = el('div', 'tt-edit-area');
     const r = el('select');
     r.dataset.focusKey = 'area-r';
-    for (const m of AVOID_RADII) r.append(new Option(`${m} m`, String(m)));
+    for (const m of AVOID_RADII)
+      r.append(new Option(formatShort(m), String(m)));
     r.value = areaDraft.radius;
     r.addEventListener('change', () => {
       areaDraft.radius = r.value;
@@ -751,6 +752,10 @@ export function createPathEditor(deps) {
     },
     get dirty() {
       return Boolean(edit) && dirty;
+    },
+    /** Re-render in place (units changed). */
+    refresh() {
+      if (edit) render();
     },
     /** Tell the operator why an action waits (switch mode/site, exit). */
     blockIfDirty(what) {

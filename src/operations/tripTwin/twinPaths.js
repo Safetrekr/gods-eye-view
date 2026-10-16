@@ -7,6 +7,7 @@ import * as Cesium from 'cesium';
 import {
   bearingLabel,
   formatDistance,
+  formatShort,
   haversineM,
   makeProjector,
 } from './twinData.js';
@@ -176,7 +177,9 @@ export function pathCardText(p, { night = false, incident = false } = {}) {
   );
   lines.push('Suggested path (unverified)');
   if (p.kind === 'alternate' && p.sharedStartM > 40)
-    lines.push(`Shares the first ${p.sharedStartM} m with the primary path`);
+    lines.push(
+      `Shares the first ${formatShort(p.sharedStartM)} with the primary path`,
+    );
   if (p.hazard?.hazard && p.hazard.distanceM <= HAZARD_NEAR_M)
     lines.push(
       `Passes within ${formatDistance(p.hazard.distanceM)} of a satellite heat detection (${bearingLabel(p.geometry[p.hazard.index], p.hazard.hazard)})`,

@@ -692,10 +692,44 @@ export function formatAge(seconds) {
   return m % 60 ? `${h}h ${m % 60}m` : `${h}h`;
 }
 
-export function formatDistance(m) {
+// Display units for every distance on screen (Display › Units; phase 5b).
+// Meters by default; feet or yards switch to miles from 1,000.
+let distanceUnit = 'm';
+export function setDistanceUnit(unit) {
+  distanceUnit = ['m', 'ft', 'yd'].includes(unit) ? unit : 'm';
+}
+export const getDistanceUnit = () => distanceUnit;
+
+export function formatDistance(m, unit = distanceUnit) {
+  if (unit === 'ft' || unit === 'yd') {
+    const v = m / (unit === 'ft' ? 0.3048 : 0.9144);
+    // Feet up to 1,500 ft (0.3 mi reads too coarse for a walk); yards to 1,000.
+    return v < (unit === 'ft' ? 1500 : 1000)
+      ? `${(Math.round(v / 10) * 10).toLocaleString('en-US')} ${unit}`
+      : `${(m / 1609.344).toFixed(1)} mi`;
+  }
   return m < 1000
     ? `${Math.round(m / 10) * 10} m`
     : `${(m / 1000).toFixed(1)} km`;
+}
+
+/** Rule distances ("within 1 km", "10 km watch") without a trailing ".0". */
+export function formatRadius(m, unit = distanceUnit) {
+  if (unit === 'ft' || unit === 'yd') {
+    const v = m / (unit === 'ft' ? 0.3048 : 0.9144);
+    // Two decimals under a mile so a rule reads true (1 km = 0.62 mi).
+    const mi = m / 1609.344;
+    return v < 1000
+      ? `${Math.round(v).toLocaleString('en-US')} ${unit}`
+      : `${+mi.toFixed(mi < 1 ? 2 : 1)} mi`;
+  }
+  return m < 1000 ? `${Math.round(m)} m` : `${+(m / 1000).toFixed(1)} km`;
+}
+
+/** Short lengths (accuracy, radii, heights) in the display unit, no rounding to 10. */
+export function formatShort(m, unit = distanceUnit) {
+  const per = unit === 'ft' ? 0.3048 : unit === 'yd' ? 0.9144 : 1;
+  return `${Math.round(m / per)} ${unit === 'ft' || unit === 'yd' ? unit : 'm'}`;
 }
 
 /** 06 §3.11 words never to use on screen (case-insensitive whole words). */
@@ -1264,4 +1298,15 @@ export function withTripIncidents(mode, ctx) {
     total: mode.total + rows.length,
     elsewhere: { placeId: r.place_id, where, floor: r.floor_label },
   };
+}
+
+/**
+ * Copied text is read aloud: "22m" could be meters. Spell out time units
+ * next to ages (phase 5b supervision F2): "22m ago" → "22 min ago".
+ */
+export function spokenAges(text) {
+  return String(text)
+    .replace(/\b(\d+)h (\d+)m\b/g, '$1 h $2 min')
+    .replace(/\b(\d+)m\b(?= ago| old|,|\)| ·)/g, '$1 min')
+    .replace(/\b(\d+)s\b(?= ago| old)/g, '$1 s');
 }

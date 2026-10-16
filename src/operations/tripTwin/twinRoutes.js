@@ -2,7 +2,14 @@
 // route set visible at a time, never computed without an operator action.
 // Same wording and checks as the rally-point path: primary + alternate,
 // 1 km heat-detection check, "Suggested · unverified".
-import { formatDistance, haversineM, makeProjector } from './twinData.js';
+import {
+  formatDistance,
+  formatRadius,
+  formatShort,
+  haversineM,
+  makeProjector,
+  spokenAges,
+} from './twinData.js';
 import { avoidCrossings } from './twinCustomPaths.js';
 import {
   fetchRoute,
@@ -123,7 +130,7 @@ export function routeCards(
       );
     if (flagged)
       lines.push(
-        `Within 1 km of a ${simulatedFires ? 'SIMULATED ' : ''}heat detection (${formatDistance(p.hazard.distanceM)}) — check before use`,
+        `Within ${formatRadius(1000)} of a ${simulatedFires ? 'SIMULATED ' : ''}heat detection (${formatDistance(p.hazard.distanceM)}) — check before use`,
       );
     // Every drawn path is checked against the trip's avoid-areas (phase 4 H3).
     const entered = avoidCrossings(p.geometry || [], areas);
@@ -132,7 +139,9 @@ export function routeCards(
         `Enters avoid-area: ${entered.map((a) => a.reason).join(', ')} — plan your own path to go around it`,
       );
     if (p.kind === 'alternate' && p.sharedStartM > 40)
-      lines.push(`Shares the first ${p.sharedStartM} m with the primary path`);
+      lines.push(
+        `Shares the first ${formatShort(p.sharedStartM)} with the primary path`,
+      );
     if (pace && mode.key === 'foot')
       lines.push(
         `${pace.simulated ? 'SIMULATED ' : ''}${pace.band} rain: allow +${pace.pct}% walking time → ${Math.ceil(p.walk[0] * pace.factor)}–${Math.ceil(p.walk[1] * pace.factor)} min`.replace(
@@ -142,7 +151,7 @@ export function routeCards(
       );
     // Structured for the card's result block (review/phase5 J3): warnings
     // sit above the caveats, never inside them.
-    const warnings = lines.filter((l) => /^(Within 1 km|Enters avoid)/.test(l));
+    const warnings = lines.filter((l) => /^(Within |Enters avoid)/.test(l));
     const notes = lines.filter((l) => !warnings.includes(l));
     const range =
       mode.key === 'foot'
@@ -199,16 +208,18 @@ export const shortName = (name = '') => {
  */
 export function pathSummaryText(s) {
   const c = s.shown;
-  return [
-    `${s.simulated ? '[SIMULATED DATA IN USE — training only] ' : ''}${s.title} — suggested, unverified (Trip Twin, ${s.stamp})`,
-    `From: ${s.from}`,
-    `To: ${s.to}`,
-    ...(s.toExtra || []).map((l) => `    ${l}`),
-    `${c.kicker.replace(/^Suggested /, '').replace(/^./, (m) => m.toUpperCase())}: ${c.metric} (${c.metricNote})`,
-    ...(s.other ? [`${s.other.verb}: ${s.other.text}`] : []),
-    ...(c.warnings.length
-      ? c.warnings.map((w) => `Flag: ${w}`)
-      : ['Flags: none raised (not a verification)']),
-    'Not checked for closures, crowds or lighting.',
-  ].join('\n');
+  return spokenAges(
+    [
+      `${s.simulated ? '[SIMULATED DATA IN USE — training only] ' : ''}${s.title} — suggested, unverified (Trip Twin, ${s.stamp})`,
+      `From: ${s.from}`,
+      `To: ${s.to}`,
+      ...(s.toExtra || []).map((l) => `    ${l}`),
+      `${c.kicker.replace(/^Suggested /, '').replace(/^./, (m) => m.toUpperCase())}: ${c.metric} (${c.metricNote})`,
+      ...(s.other ? [`${s.other.verb}: ${s.other.text}`] : []),
+      ...(c.warnings.length
+        ? c.warnings.map((w) => `Flag: ${w}`)
+        : ['Flags: none raised (not a verification)']),
+      'Not checked for closures, crowds or lighting.',
+    ].join('\n'),
+  );
 }

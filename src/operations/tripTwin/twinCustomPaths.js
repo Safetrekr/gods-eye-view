@@ -1,7 +1,12 @@
 // Custom paths (phase 4, PHASE-4-PLAN): operator waypoints, avoid-areas,
 // saved paths per trip and day. Pure model + requests; drawing lives in
 // twinCustomPathsLayer.js and the editor UI in twinPathEditor.js.
-import { formatDistance, haversineM, makeProjector } from './twinData.js';
+import {
+  formatDistance,
+  formatShort,
+  haversineM,
+  makeProjector,
+} from './twinData.js';
 import { HAZARD_NEAR_M, hazardProximity, walkMinutes } from './twinPaths.js';
 import { driveMinutes } from './twinRoutes.js';
 
@@ -409,7 +414,7 @@ export function loadStore(raw) {
 }
 
 export const areaLabel = (a) =>
-  `${reasonLabel(a.reason)}${a.note ? ` · ${a.note}` : ''} · ${a.radiusM} m`;
+  `${reasonLabel(a.reason)}${a.note ? ` · ${a.note}` : ''} · ${formatShort(a.radiusM)}`;
 
 /** What a review covers: the avoid-area outcome and the flags at that time. */
 export function reviewSignature(p, areas, flags = []) {

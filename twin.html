@@ -206,25 +206,27 @@
       aria-label="Display"
       hidden
     >
-      <div class="tt-kicker tt-pop-group">GRID &amp; ELEVATION</div>
+      <div class="tt-kicker tt-pop-group">UNITS</div>
       <label class="tt-row"
-        >Units
+        >Distances
         <select id="tt-units">
-          <option value="m">Meters</option>
-          <option value="ft">Feet</option>
-          <option value="yd">Yards</option>
+          <option value="m">Meters and kilometers (m, km)</option>
+          <option value="ft">Feet and miles (ft, mi)</option>
+          <option value="yd">Yards and miles (yd, mi)</option>
         </select>
       </label>
       <label class="tt-row"
-        >Grid spacing
-        <select id="tt-spacing"></select
-      ></label>
-      <label class="tt-row"
-        >Contour interval
-        <select id="tt-contour"></select
-      ></label>
-      <p class="tt-note" id="tt-relief"></p>
-      <p class="tt-note">Show or hide them in Layers › Site (G · E).</p>
+        >Temperature
+        <select id="tt-temp">
+          <option value="F">Fahrenheit (°F)</option>
+          <option value="C">Celsius (°C)</option>
+        </select>
+      </label>
+      <p class="tt-note">
+        Every distance and temperature on screen, and in copied text. Sensor
+        resolutions (e.g. 375 m pixel) stay as published. Grid spacing and
+        contour interval: Layers › Site. Saved in this browser.
+      </p>
       <div class="tt-kicker tt-pop-group">MOTION</div>
       <label class="tt-check"
         ><input type="checkbox" id="tt-reduce-motion" /> Reduce motion</label
@@ -331,7 +333,10 @@
       <div class="tt-kicker">KEYBOARD</div>
       <dl class="tt-keys">
         <dt>F / Z</dt>
-        <dd>Frame the selection</dd>
+        <dd>
+          Frame the selected person, building or floor (paths: Frame path on the
+          path card)
+        </dd>
         <dt>, · .</dt>
         <dd>Turn the view 90° left / right (compass)</dd>
         <dt>N</dt>
@@ -351,17 +356,19 @@
         <dt>V</dt>
         <dd>Live / Advance (planning)</dd>
         <dt>H</dt>
-        <dd>The site on screen and its Floors</dd>
+        <dd>
+          The site on screen and its Floors · type a number in Go to floor
+        </dd>
         <dt>↑ · ↓ · Enter</dt>
         <dd>Move between floors · open a floor card</dd>
         <dt>L</dt>
         <dd>Layers</dd>
         <dt>D</dt>
-        <dd>Display (units, spacing, motion)</dd>
+        <dd>Display (distance and temperature units, motion)</dd>
         <dt>G</dt>
-        <dd>Scale grid on / off</dd>
+        <dd>Scale grid on / off (spacing: Layers › Site)</dd>
         <dt>E</dt>
-        <dd>Elevation contours on / off</dd>
+        <dd>Elevation contours on / off (interval: Layers › Site)</dd>
         <dt>R</dt>
         <dd>Add reported floor</dd>
         <dt>Esc</dt>
