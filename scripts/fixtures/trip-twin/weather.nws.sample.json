@@ -1,0 +1,187 @@
+{
+    "@context": [
+        "https://geojson.org/geojson-ld/geojson-context.jsonld",
+        {
+            "@version": "1.1",
+            "wx": "https://api.weather.gov/ontology#",
+            "@vocab": "https://api.weather.gov/ontology#"
+        }
+    ],
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.f3ac143c6bd275d39bf37402bab7595846a1461f.001.1",
+            "type": "Feature",
+            "geometry": null,
+            "properties": {
+                "@id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.f3ac143c6bd275d39bf37402bab7595846a1461f.001.1",
+                "@type": "wx:Alert",
+                "id": "urn:oid:2.49.0.1.840.0.f3ac143c6bd275d39bf37402bab7595846a1461f.001.1",
+                "areaDesc": "Llano; Burnet; Williamson; Val Verde; Edwards; Real; Kerr; Bandera; Gillespie; Kendall; Blanco; Hays; Travis; Bastrop; Lee; Kinney; Uvalde; Medina; Bexar; Comal; Guadalupe; Caldwell; Fayette; Maverick; Zavala; Frio; Atascosa; Wilson; Karnes; Gonzales; De Witt; Lavaca; Dimmit",
+                "geocode": {
+                    "SAME": [
+                        "048299",
+                        "048053",
+                        "048491",
+                        "048465",
+                        "048137",
+                        "048385",
+                        "048265",
+                        "048019",
+                        "048171",
+                        "048259",
+                        "048031",
+                        "048209",
+                        "048453",
+                        "048021",
+                        "048287",
+                        "048271",
+                        "048463",
+                        "048325",
+                        "048029",
+                        "048091",
+                        "048187",
+                        "048055",
+                        "048149",
+                        "048323",
+                        "048507",
+                        "048163",
+                        "048013",
+                        "048493",
+                        "048255",
+                        "048177",
+                        "048123",
+                        "048285",
+                        "048127"
+                    ],
+                    "UGC": [
+                        "TXZ171",
+                        "TXZ172",
+                        "TXZ173",
+                        "TXZ183",
+                        "TXZ184",
+                        "TXZ185",
+                        "TXZ186",
+                        "TXZ187",
+                        "TXZ188",
+                        "TXZ189",
+                        "TXZ190",
+                        "TXZ191",
+                        "TXZ192",
+                        "TXZ193",
+                        "TXZ194",
+                        "TXZ202",
+                        "TXZ203",
+                        "TXZ204",
+                        "TXZ205",
+                        "TXZ206",
+                        "TXZ207",
+                        "TXZ208",
+                        "TXZ209",
+                        "TXZ217",
+                        "TXZ218",
+                        "TXZ219",
+                        "TXZ220",
+                        "TXZ221",
+                        "TXZ222",
+                        "TXZ223",
+                        "TXZ224",
+                        "TXZ225",
+                        "TXZ228"
+                    ]
+                },
+                "affectedZones": [
+                    "https://api.weather.gov/zones/forecast/TXZ171",
+                    "https://api.weather.gov/zones/forecast/TXZ172",
+                    "https://api.weather.gov/zones/forecast/TXZ173",
+                    "https://api.weather.gov/zones/forecast/TXZ183",
+                    "https://api.weather.gov/zones/forecast/TXZ184",
+                    "https://api.weather.gov/zones/forecast/TXZ185",
+                    "https://api.weather.gov/zones/forecast/TXZ186",
+                    "https://api.weather.gov/zones/forecast/TXZ187",
+                    "https://api.weather.gov/zones/forecast/TXZ188",
+                    "https://api.weather.gov/zones/forecast/TXZ189",
+                    "https://api.weather.gov/zones/forecast/TXZ190",
+                    "https://api.weather.gov/zones/forecast/TXZ191",
+                    "https://api.weather.gov/zones/forecast/TXZ192",
+                    "https://api.weather.gov/zones/forecast/TXZ193",
+                    "https://api.weather.gov/zones/forecast/TXZ194",
+                    "https://api.weather.gov/zones/forecast/TXZ202",
+                    "https://api.weather.gov/zones/forecast/TXZ203",
+                    "https://api.weather.gov/zones/forecast/TXZ204",
+                    "https://api.weather.gov/zones/forecast/TXZ205",
+                    "https://api.weather.gov/zones/forecast/TXZ206",
+                    "https://api.weather.gov/zones/forecast/TXZ207",
+                    "https://api.weather.gov/zones/forecast/TXZ208",
+                    "https://api.weather.gov/zones/forecast/TXZ209",
+                    "https://api.weather.gov/zones/forecast/TXZ217",
+                    "https://api.weather.gov/zones/forecast/TXZ218",
+                    "https://api.weather.gov/zones/forecast/TXZ219",
+                    "https://api.weather.gov/zones/forecast/TXZ220",
+                    "https://api.weather.gov/zones/forecast/TXZ221",
+                    "https://api.weather.gov/zones/forecast/TXZ222",
+                    "https://api.weather.gov/zones/forecast/TXZ223",
+                    "https://api.weather.gov/zones/forecast/TXZ224",
+                    "https://api.weather.gov/zones/forecast/TXZ225",
+                    "https://api.weather.gov/zones/forecast/TXZ228"
+                ],
+                "references": [],
+                "sent": "2026-10-15T11:10:00-05:00",
+                "effective": "2026-10-15T11:10:00-05:00",
+                "onset": "2026-10-16T04:00:00-05:00",
+                "expires": "2026-10-16T04:00:00-05:00",
+                "ends": "2026-10-16T19:00:00-05:00",
+                "status": "Actual",
+                "messageType": "Alert",
+                "category": "Met",
+                "severity": "Moderate",
+                "certainty": "Likely",
+                "urgency": "Expected",
+                "event": "Wind Advisory",
+                "sender": "w-nws.webmaster@noaa.gov",
+                "senderName": "NWS Austin/San Antonio TX",
+                "headline": "Wind Advisory issued October 15 at 11:10AM CDT until October 16 at 7:00PM CDT by NWS Austin/San Antonio TX",
+                "description": "* WHAT...North winds 25 to 30 mph with gusts of 40-50 mph expected.\n\n* WHERE...All of South Central Texas.\n\n* WHEN...From 4 AM to 7 PM CDT Friday.\n\n* IMPACTS...Gusty winds will blow around unsecured objects. Tree\nlimbs could be blown down.",
+                "instruction": "Winds this strong can make driving difficult, especially for high\nprofile vehicles. Use extra caution.\n\nSecure outdoor objects.",
+                "response": "Execute",
+                "note": null,
+                "parameters": {
+                    "AWIPSidentifier": [
+                        "NPWEWX"
+                    ],
+                    "WMOidentifier": [
+                        "WWUS74 KEWX 151610"
+                    ],
+                    "NWSheadline": [
+                        "WIND ADVISORY IN EFFECT FROM 4 AM TO 7 PM CDT FRIDAY"
+                    ],
+                    "BLOCKCHANNEL": [
+                        "EAS",
+                        "NWEM",
+                        "CMAS"
+                    ],
+                    "VTEC": [
+                        "/O.NEW.KEWX.WI.Y.0002.261016T0900Z-261017T0000Z/"
+                    ],
+                    "eventEndingTime": [
+                        "2026-10-16T19:00:00-05:00"
+                    ]
+                },
+                "scope": "Public",
+                "code": "IPAWSv1.0",
+                "language": "en-US",
+                "web": "http://www.weather.gov",
+                "eventCode": {
+                    "SAME": [
+                        "NWS"
+                    ],
+                    "NationalWeatherService": [
+                        "WIY"
+                    ]
+                }
+            }
+        }
+    ],
+    "title": "Current watches, warnings, and advisories for 30.27 N, 97.74 W",
+    "updated": "2026-10-16T01:00:34+00:00"
+}

@@ -1,0 +1,210 @@
+[
+ {
+  "name": "level 9 of 37, US labels (hand: z=32.4, 2\u03c3\u22484.0 \u2192 levels 8-10 \u2192 floors 9-11)",
+  "input": {
+   "now": 600,
+   "samples": [
+    {
+     "t": 580,
+     "pressure_hpa": 996.16597
+    },
+    {
+     "t": 590,
+     "pressure_hpa": 996.16597
+    },
+    {
+     "t": 600,
+     "pressure_hpa": 996.16597
+    }
+   ],
+   "anchor": {
+    "t": 0,
+    "pressure_hpa": 1000,
+    "ground_m": 0
+   },
+   "entrance_ground_m": 0,
+   "barometer": "available",
+   "building": {
+    "levels_above_ground": 37,
+    "floor_height_m": 3.3,
+    "ground_floor_label": 1
+   },
+   "place_id": "p"
+  },
+  "expect": {
+   "status": "estimated",
+   "level_likely": 9,
+   "level_low": 8,
+   "level_high": 10,
+   "label_likely": 10,
+   "label_low": 9,
+   "label_high": 11,
+   "confidence": "high"
+  }
+ },
+ {
+  "name": "lobby, no known basements (hand: z=1.5 \u2192 band -2.5..5.5 \u2192 levels 0..1, basement clamped)",
+  "input": {
+   "now": 600,
+   "samples": [
+    {
+     "t": 600,
+     "pressure_hpa": 999.82217
+    }
+   ],
+   "anchor": {
+    "t": 0,
+    "pressure_hpa": 1000,
+    "ground_m": 0
+   },
+   "barometer": "available",
+   "building": {
+    "levels_above_ground": 37,
+    "floor_height_m": 3.3,
+    "ground_floor_label": 1
+   }
+  },
+  "expect": {
+   "level_likely": 0,
+   "level_low": 0,
+   "level_high": 1,
+   "label_likely": 1,
+   "confidence": "high"
+  }
+ },
+ {
+  "name": "no barometer",
+  "input": {
+   "now": 600,
+   "samples": [],
+   "anchor": {
+    "t": 0,
+    "pressure_hpa": 1000,
+    "ground_m": 0
+   },
+   "barometer": "missing",
+   "building": {
+    "levels_above_ground": 37,
+    "floor_height_m": 3.3,
+    "ground_floor_label": 1
+   }
+  },
+  "expect": {
+   "status": "unknown",
+   "unknown_reason": "no_barometer"
+  }
+ },
+ {
+  "name": "anchor older than 4 h",
+  "input": {
+   "now": 15000,
+   "samples": [
+    {
+     "t": 15000,
+     "pressure_hpa": 998.81509
+    }
+   ],
+   "anchor": {
+    "t": 0,
+    "pressure_hpa": 1000,
+    "ground_m": 0
+   },
+   "barometer": "available",
+   "building": {
+    "levels_above_ground": 37,
+    "floor_height_m": 3.3,
+    "ground_floor_label": 1
+   }
+  },
+  "expect": {
+   "status": "unknown",
+   "unknown_reason": "anchor_too_old"
+  }
+ },
+ {
+  "name": "consent off",
+  "input": {
+   "now": 60,
+   "samples": [
+    {
+     "t": 60,
+     "pressure_hpa": 998.81509
+    }
+   ],
+   "anchor": {
+    "t": 0,
+    "pressure_hpa": 1000,
+    "ground_m": 0
+   },
+   "barometer": "available",
+   "consent": false,
+   "building": {
+    "levels_above_ground": 37,
+    "floor_height_m": 3.3,
+    "ground_floor_label": 1
+   }
+  },
+  "expect": {
+   "status": "unknown",
+   "unknown_reason": "consent_off"
+  }
+ },
+ {
+  "name": "London: no level count, ground floor 0 (hand: z=10.0 \u2192 levels 1-3, medium)",
+  "input": {
+   "now": 600,
+   "samples": [
+    {
+     "t": 600,
+     "pressure_hpa": 998.81509
+    }
+   ],
+   "anchor": {
+    "t": 0,
+    "pressure_hpa": 1000,
+    "ground_m": 0
+   },
+   "barometer": "available",
+   "building": {
+    "ground_floor_label": 0
+   }
+  },
+  "expect": {
+   "level_likely": 2,
+   "level_low": 1,
+   "level_high": 3,
+   "label_likely": 2,
+   "label_low": 1,
+   "label_high": 3,
+   "confidence": "medium",
+   "levels_basis": "unknown"
+  }
+ },
+ {
+  "name": "reading above the roof of a 5-level building",
+  "input": {
+   "now": 600,
+   "samples": [
+    {
+     "t": 600,
+     "pressure_hpa": 992.91154
+    }
+   ],
+   "anchor": {
+    "t": 0,
+    "pressure_hpa": 1000,
+    "ground_m": 0
+   },
+   "barometer": "available",
+   "building": {
+    "levels_above_ground": 5,
+    "floor_height_m": 3.3,
+    "ground_floor_label": 1
+   }
+  },
+  "expect": {
+   "status": "unknown",
+   "unknown_reason": "inconsistent_with_building"
+  }
+ }
+]

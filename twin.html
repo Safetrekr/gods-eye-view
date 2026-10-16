@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Intel+One+Mono:wght@400;500;600&display=swap"
+    />
+    <title>Trip Twin · SafeTrekr World View (prototype)</title>
+  </head>
+  <body class="tt-body">
+    <div id="cesiumContainer" aria-label="Trip Twin 3D view"></div>
+    <div id="tt-veil" aria-hidden="true"></div>
+
+    <!-- R1: top bar -->
+    <header id="tt-bar" class="tt-bar">
+      <button id="tt-exit" class="tt-btn ghost" type="button">
+        Exit Trip Twin
+      </button>
+      <span class="tt-kicker">TRIP TWIN</span>
+      <!-- One trail: World View › Trip › Hotel › Floor › Person. The hotel
+           segment becomes the phase-3 site switcher (#tt-site slot). -->
+      <nav class="tt-crumbs" aria-label="Location">
+        <span class="tt-crumb-wv">World View ›</span>
+        <span id="tt-crumb-trip" class="tt-crumb-trip">Trip</span> ›
+        <button
+          id="tt-hotel"
+          class="tt-bar-hotel"
+          type="button"
+          title="Sites on this trip (S)"
+        >
+          —
+        </button>
+        <span id="tt-site" class="tt-site" hidden></span>
+        <span id="tt-crumb-focus" class="tt-crumb-focus"></span>
+      </nav>
+      <span class="tt-spacer"></span>
+      <div
+        id="tt-appmode"
+        class="tt-appmode"
+        role="group"
+        aria-label="Live or advance planning"
+      >
+        <button type="button" data-mode="live" aria-pressed="true">Live</button>
+        <button type="button" data-mode="advance" aria-pressed="false">
+          Advance
+        </button>
+      </div>
+      <span id="tt-mode" class="tt-mode" role="status">—</span>
+      <span id="tt-edit-chip" class="tt-edit-chip">EDITING PATH</span>
+      <button id="tt-live-alert" class="tt-live-alert" type="button" hidden>
+        INCIDENT · switch to Live
+      </button>
+      <span
+        id="tt-age"
+        class="tt-age num"
+        title="Age of the traveler data"
+      ></span>
+      <span id="tt-clock" class="tt-clock num"></span>
+      <span
+        id="tt-wx"
+        class="tt-wx"
+        title="Weather now at the hotel · layers in Layers › Hazards › Weather"
+      ></span>
+      <button
+        id="tt-proto-btn"
+        class="tt-pill"
+        type="button"
+        aria-expanded="false"
+        aria-controls="tt-proto"
+        title="Prototype controls (`)"
+      >
+        Prototype ▾
+      </button>
+      <button
+        id="tt-help-btn"
+        class="tt-btn icon"
+        type="button"
+        aria-label="Keyboard shortcuts"
+        title="Keyboard shortcuts (?)"
+      >
+        ?
+      </button>
+    </header>
+
+    <!-- R2: rail (left) -->
+    <aside
+      id="tt-rail"
+      class="tt-rail tt-panel"
+      aria-label="Group status"
+    ></aside>
+
+    <!-- Phase 3: advance (planning) panel, in the rail's place -->
+    <aside
+      id="tt-advance"
+      class="tt-rail tt-panel tt-advance"
+      aria-label="Advance planning"
+      hidden
+    ></aside>
+
+    <!-- R-col: incident + selection, one stack so nothing overlaps -->
+    <div id="tt-rcol" class="tt-rcol">
+      <!-- Phase 4: path editor (operator-drawn paths) -->
+      <section
+        id="tt-editor"
+        class="tt-editor tt-panel"
+        aria-label="Path editor"
+        hidden
+      ></section>
+      <section
+        id="tt-incident"
+        class="tt-incident tt-panel"
+        aria-label="Reported incident"
+        hidden
+      ></section>
+      <aside
+        id="tt-card"
+        class="tt-card tt-panel"
+        aria-label="Selection"
+        hidden
+      ></aside>
+    </div>
+
+    <!-- R3 safe-area furniture -->
+    <div id="tt-chips" class="tt-chips" aria-label="Outside this view"></div>
+    <div id="tt-edit-banner" class="tt-edit-banner" role="status" hidden></div>
+    <div id="tt-status" class="tt-status" role="status" aria-live="polite">
+      Starting…
+    </div>
+    <nav id="tt-toolbar" class="tt-toolbar" aria-label="View">
+      <div class="tt-seg" role="group" aria-label="Scale">
+        <button
+          class="tt-tb"
+          data-scale="building"
+          type="button"
+          title="Building (1)"
+        >
+          Building
+        </button>
+        <button
+          class="tt-tb on"
+          data-scale="neighborhood"
+          type="button"
+          title="Neighborhood (2)"
+        >
+          Neighborhood
+        </button>
+        <button class="tt-tb" data-scale="city" type="button" title="City (3)">
+          City
+        </button>
+      </div>
+      <span class="tt-sep"></span>
+      <button
+        class="tt-tb"
+        id="tt-layers-btn"
+        type="button"
+        aria-expanded="false"
+        aria-controls="tt-layers"
+        title="Layers (L)"
+      >
+        Layers
+      </button>
+      <button
+        class="tt-tb"
+        id="tt-display-btn"
+        type="button"
+        aria-expanded="false"
+        aria-controls="tt-display"
+        title="Display (D)"
+      >
+        Display
+      </button>
+      <span class="tt-sep"></span>
+      <button
+        class="tt-tb accent"
+        id="tt-report-btn"
+        type="button"
+        aria-expanded="false"
+        aria-controls="tt-report"
+      >
+        Add reported floor
+      </button>
+    </nav>
+
+    <!-- R9 popovers -->
+    <section
+      id="tt-layers"
+      class="tt-pop tt-panel"
+      aria-label="Layers"
+      hidden
+    ></section>
+    <section
+      id="tt-sites"
+      class="tt-pop tt-panel tt-sites"
+      aria-label="Sites on this trip"
+      hidden
+    ></section>
+    <section
+      id="tt-display"
+      class="tt-pop tt-panel"
+      aria-label="Display"
+      hidden
+    >
+      <div class="tt-kicker">GRID &amp; ELEVATION</div>
+      <p class="tt-note">Turn them on or off in Layers › Site (G · E).</p>
+      <label class="tt-row"
+        >Units
+        <select id="tt-units">
+          <option value="m">Meters</option>
+          <option value="ft">Feet</option>
+          <option value="yd">Yards</option>
+        </select>
+      </label>
+      <label class="tt-row"
+        >Grid spacing
+        <select id="tt-spacing"></select
+      ></label>
+      <label class="tt-row"
+        >Contour interval
+        <select id="tt-contour"></select
+      ></label>
+      <p class="tt-note" id="tt-relief"></p>
+      <div class="tt-kicker">MOTION</div>
+      <label class="tt-check"
+        ><input type="checkbox" id="tt-reduce-motion" /> Reduce motion</label
+      >
+      <button class="tt-link" type="button" id="tt-help-link">
+        Keyboard shortcuts
+      </button>
+    </section>
+    <section
+      id="tt-report"
+      class="tt-pop tt-panel"
+      aria-label="Report a floor"
+      hidden
+    >
+      <div class="tt-kicker">REPORTED FLOOR</div>
+      <form id="tt-report-form" class="tt-report">
+        <label class="tt-row"
+          >Floor (as the hotel numbers it)
+          <input
+            id="tt-report-floor"
+            type="number"
+            min="-3"
+            max="200"
+            inputmode="numeric"
+          />
+        </label>
+        <label class="tt-row"
+          >What was reported
+          <select id="tt-report-kind">
+            <option value="smoke">Smoke</option>
+            <option value="fire">Fire</option>
+            <option value="alarm">Alarm</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+        <div class="tt-actions">
+          <button class="tt-btn primary" type="submit">Show on twin</button>
+          <button class="tt-btn" type="button" id="tt-report-cancel">
+            Cancel
+          </button>
+        </div>
+        <p class="tt-note">
+          Session only · not sent to anyone · marks the floor and lists who may
+          be at or above it.
+        </p>
+      </form>
+    </section>
+    <section
+      id="tt-proto"
+      class="tt-pop tt-panel tt-proto"
+      aria-label="Prototype controls"
+      hidden
+    >
+      <div class="tt-kicker">PROTOTYPE · NOT OPERATOR CONTROLS</div>
+      <label class="tt-row"
+        >Scenario
+        <select id="tt-scenario">
+          <option value="baseline">Evening at the hotel</option>
+          <option value="a">Hotel fire alarm (Demo A)</option>
+        </select>
+      </label>
+      <label class="tt-row"
+        >City
+        <select id="tt-city">
+          <option value="austin">Austin</option>
+          <option value="dc">Washington DC</option>
+          <option value="london">London</option>
+        </select>
+      </label>
+      <label class="tt-row"
+        >Selection glow
+        <select id="tt-glow"></select
+      ></label>
+      <label class="tt-check"
+        ><input type="checkbox" id="tt-simfire" /> Simulated heat
+        detections</label
+      >
+      <label class="tt-check"
+        ><input type="checkbox" id="tt-simlightning" /> Simulated
+        lightning</label
+      >
+      <label class="tt-check"
+        ><input type="checkbox" id="tt-simrain" /> Simulated rain</label
+      >
+      <label class="tt-check"
+        ><input type="checkbox" id="tt-osmids" /> Show OpenStreetMap ids</label
+      >
+      <p class="tt-note" id="tt-proto-note"></p>
+    </section>
+    <section
+      id="tt-help"
+      class="tt-help tt-panel"
+      aria-label="Keyboard shortcuts"
+      hidden
+    >
+      <div class="tt-kicker">KEYBOARD</div>
+      <dl class="tt-keys">
+        <dt>F / Z</dt>
+        <dd>Frame the selection</dd>
+        <dt>, · .</dt>
+        <dd>Turn the view 90° left / right (compass)</dd>
+        <dt>N</dt>
+        <dd>North up (view from the south side, looking north)</dd>
+        <dt>1 · 2 · 3</dt>
+        <dd>Building · Neighborhood · City</dd>
+        <dt>A</dt>
+        <dd>Go to the first item that needs attention</dd>
+        <dt>[ · ]</dt>
+        <dd>Previous / next item that needs attention</dd>
+        <dt>/</dt>
+        <dd>Find a person</dd>
+        <dt>S</dt>
+        <dd>Sites on this trip (hotel and venues)</dd>
+        <dt>X</dt>
+        <dd>While editing a path: place an avoid-area</dd>
+        <dt>V</dt>
+        <dd>Live / Advance (planning)</dd>
+        <dt>H</dt>
+        <dd>The site on screen and its Floors</dd>
+        <dt>↑ · ↓ · Enter</dt>
+        <dd>Move between floors · open a floor card</dd>
+        <dt>L</dt>
+        <dd>Layers</dd>
+        <dt>D</dt>
+        <dd>Display (units, spacing, motion)</dd>
+        <dt>G</dt>
+        <dd>Scale grid on / off</dd>
+        <dt>E</dt>
+        <dd>Elevation contours on / off</dd>
+        <dt>R</dt>
+        <dd>Add reported floor</dd>
+        <dt>Esc</dt>
+        <dd>
+          Close panel, then the path, then step back (place or person › floor
+          card › site), then clear the selection (never exits)
+        </dd>
+        <dt>`</dt>
+        <dd>Prototype controls</dd>
+        <dt>?</dt>
+        <dd>This help</dd>
+      </dl>
+      <p class="tt-note">No key sends a message or dismisses a report.</p>
+      <button class="tt-btn" type="button" id="tt-help-close">Close</button>
+    </section>
+
+    <!-- R7: source line (credits sit inside, right) -->
+    <footer id="tt-sources" class="tt-sources">
+      <span>Sample trip · fictional people</span>
+      <span>Map data © OpenStreetMap contributors (ODbL)</span>
+      <span>Terrain: Re:Earth (CC BY 4.0)</span>
+      <span id="tt-wx-credit">Weather: MET Norway (CC BY 4.0)</span>
+      <span id="tt-osm-source"></span>
+      <span id="tt-ground-line"></span>
+      <span id="tt-credits-slot" class="tt-credits-slot"></span>
+    </footer>
+    <script type="module" src="/src/operations/tripTwin/page.js"></script>
+  </body>
+</html>
