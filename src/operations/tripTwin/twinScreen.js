@@ -153,8 +153,32 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     state = next;
     const s = me();
     const ss = next.session;
-    // A trip in another city needs that city's twin: reload into it.
+    // A trip in another city needs that city's twin: reload into it —
+    // only on live state from the relay. A cached state may name the old
+    // trip; acting on it bounced walls between cities (Jesse, 16 Oct).
     if (ss.tripId && api.tripCity(ss.tripId) !== api.cityKey) {
+      if (info.cached) return;
+      // Remember the new state first, so the reloaded page starts there.
+      try {
+        localStorage.setItem(
+          `tripTwin.soc.lastState.${mySlot}`,
+          JSON.stringify({ state: next, at: Date.now() }),
+        );
+      } catch {
+        /* ignore */
+      }
+      // Never reload twice for the same trip within a few seconds.
+      const key = `tripTwin.soc.reloadFor.${mySlot}`;
+      try {
+        const last = JSON.parse(sessionStorage.getItem(key) || 'null');
+        if (last?.trip === ss.tripId && Date.now() - last.at < 8000) return;
+        sessionStorage.setItem(
+          key,
+          JSON.stringify({ trip: ss.tripId, at: Date.now() }),
+        );
+      } catch {
+        /* ignore */
+      }
       const q = new URLSearchParams(location.search);
       q.set('city', api.tripCity(ss.tripId));
       q.set('scenario', api.tripScenario(ss.tripId));
@@ -163,8 +187,9 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       return;
     }
     if (ss.epochMs && ss.epochMs !== applied.epochMs) api.setEpoch(ss.epochMs);
-    if (ss.siteKey && ss.siteKey !== applied.siteKey)
-      api.switchSite(ss.siteKey);
+    // No site chosen (e.g. just after a trip switch): the trip's hotel.
+    const site = ss.siteKey || api.cityKey;
+    if (site !== applied.siteKey) api.switchSite(site);
     setNameStyle(
       ss.visitor ? (n) => wallName(n, { visitor: true }) : (n) => wallName(n),
     );
@@ -204,7 +229,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       ...applied,
       rev: next.rev,
       epochMs: ss.epochMs,
-      siteKey: ss.siteKey,
+      siteKey: ss.siteKey || api.cityKey,
       report: ss.report,
       spotlight: ss.spotlight,
       wxAt: ss.wxAt,
@@ -460,7 +485,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       : null;
     if (last?.state) {
       restoredAt = last.at || null;
-      applyState(last.state, { force: true });
+      applyState(last.state, { force: true, cached: true });
     }
   } catch {
     /* ignore */
