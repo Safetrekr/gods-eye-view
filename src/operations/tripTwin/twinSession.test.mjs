@@ -485,3 +485,21 @@ test('motion classes: tiers map to body classes; reduced wins', () => {
     cine: false,
   });
 });
+
+test('phase 12: demo storm asks first and Return all ends it', () => {
+  assert.equal(
+    needsConfirm({ type: 'session', patch: { simStorm: Date.now() } }),
+    true,
+  );
+  assert.equal(
+    needsConfirm({ type: 'session', patch: { simStorm: null } }),
+    false,
+  );
+  let s = applyCommand(createSession({ count: 4 }), {
+    type: 'session',
+    patch: { simStorm: 123 },
+  }).state;
+  assert.equal(s.session.simStorm, 123);
+  s = applyCommand(s, { type: 'returnLive' }).state;
+  assert.equal(s.session.simStorm, null);
+});

@@ -982,3 +982,17 @@ Three tiers, each with its own switch (remote: 06 Layers › Motion, per wall or
 
 ### 19.6 Names superseded in §18
 `Travelers` → `People`, `The day` → `Day plan` (review/phase10 R16). "No incident open" → "No incident reported · {trip}" (review/phase11 F10).
+
+## 20. Phase 12 vocabulary — see it coming (16 Oct 2026, review/phase12)
+| Term | Use | Never |
+|---|---|---|
+| Storm approach · radar track | The kicker for the nowcast on every surface | "forecast", "prediction" |
+| Rain core | An area of 40 dBZ or more, present in two frames: moderate, heavy (50), intense (60) | "storm cell" without a value |
+| within 6 mi (10 km) | The lead distance: lightning and gusts arrive before the rain core | "nearby" without a figure |
+| in 10–20 min | Arrival as a range, counted from now | a single exact minute; "will arrive" |
+| on its current track | Every arrival claim | "will" |
+| Projection on the current track, not a forecast model | The lens past now, up to 60 min | "forecast" for the projection |
+| Storm shells (3D) | The traced 30–60 dBZ outlines with height from echo tops | "radar blocks", "columns" |
+| SIMULATED (demo) · LIVE · DEMO STORM | Everything the demo draws, and the wall badge while it runs | unlabelled demo content |
+| Outdoors now | People in "Outside, nearby" with their walk time | "exposed", "at risk" |
+| NWS checked 21:10 CDT, 3 min ago: no active alerts returned for this point | No alerts | "all clear", "safe" |

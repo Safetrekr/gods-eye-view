@@ -3,6 +3,14 @@
 // screen readers for free) over a track shaded by the kind of data.
 import { relText } from './twinWeatherTime.js';
 
+/** Offset from the real now, rounded to 5 min like the wall strip. */
+function lensRel(t) {
+  const m = Math.round((t - Date.now()) / 60e3);
+  return Math.abs(m) >= 10
+    ? `${m > 0 ? '+' : '−'}${Math.round(Math.abs(m) / 5) * 5} min`
+    : relText(t, Date.now());
+}
+
 const el = (tag, cls, text) => {
   const n = document.createElement(tag);
   if (cls) n.className = cls;
@@ -162,7 +170,7 @@ export function createWeatherTimeline({ onChange, clock, tick = clock }) {
           el(
             'strong',
             'lead',
-            `WEATHER AT ${clock(t)} (${relText(t, m.now)}) · ${t > m.now ? (m.kindAt?.(t) === 'projected' ? 'projection on the current track' : 'forecast') : 'past'} — not live`,
+            `WEATHER AT ${clock(t)} (${lensRel(t)}) · ${t > m.now ? (m.kindAt?.(t) === 'projected' ? 'projection on the current track' : 'forecast') : 'past'} — not live`,
           ),
           ` · ${m.sourceAt(t)} · people and incidents are shown now (dimmed people)`,
         );

@@ -252,3 +252,15 @@ The prototype uses a dev-server WebSocket relay (`server/tripTwin/syncRelay.js`)
 | Change log for the S3 idle board (count and attention deltas from the data tick) | S3 idle board | None (the snapshot has no change feed) | Derived client-side | Core: a change feed per trip (counts, attention transitions) with server timestamps, so every wall shows the same log | M |
 | Idle drift on the Site wall | S1 under the Cinematic tier | None | Client only | None; a production SOC may disable the Cinematic tier by policy | — |
 | Fonts from Google Fonts (Inter, Manrope, Intel One Mono) | Every page | CDN | Prototype | Self-host the three faces in the app's static assets (offline SOC) | S |
+
+
+## Phase 12 — see it coming (16 Oct 2026)
+| Mocked or local behaviour | Used by | Production source today | Status | Change needed | Effort |
+|---|---|---|---|---|---|
+| Nowcast from two observed radar frames (IEM NEXRAD WMS-T; EUMETSAT H SAF in Europe), computed in each browser | Rail line, chip, wall strip, S4, remote 03 Weather | Public WMS, no SLA | Prototype | One server-side nowcast per trip site (a worker), cached and timestamped, so every wall and the remote read the same result; a licensed radar feed with an SLA for production (and for Europe, OPERA radar instead of a satellite estimate) | M |
+| Single field motion vector, 60 min extrapolation | Approach line, time lens | None | Prototype method | Per-cell tracking (TITAN/SCIT-style) or a nowcast product (e.g. MRMS or a commercial nowcast API) with its own uncertainty | M–L |
+| Official alert areas from NWS zone polygons fetched in the browser | Alert walls, "the hotel is inside the area" | api.weather.gov | Live, no key | Server-side alert service per site with history (issued, updated, expired) and a log of when the room saw it | S |
+| Lightning nearest from the nowCOAST density grid | Lightning line and trend | Public WMS | Live, grid only | Strike points (GLM or a commercial network) with age, measured from the people outdoors, not the hotel | M |
+| Simulated storm (`simStorm` session field, start time) | Demos | None | Prototype only | Keep behind a demo flag; log start and stop with who | S |
+| Echo tops for shell height (IEM `eet`, palette index = kft) | Storm shells (3D) | Public WMS | Prototype | Height from a 3D radar mosaic (MRMS) or echo tops with an SLA; Europe has no echo tops in the prototype | M |
+| Radar decoded from rendered palette PNGs | Nowcast | IEM n0q tiles | Prototype | Read reflectivity values directly (MRMS GRIB2 or a radar API), not colours | M |

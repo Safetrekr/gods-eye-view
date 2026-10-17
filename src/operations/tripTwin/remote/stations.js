@@ -760,20 +760,32 @@ function weather(ctx) {
   const t = tripById(ss.tripId);
   const wx = ctx.ui.wx;
   const out = [...head('Weather', `${t.title} · see it coming`)];
-  out.push(kick('Approach', WALL));
+  out.push(
+    kick(`Storm approach · radar track${wx?.sim ? ' · simulated' : ''}`, WALL),
+  );
   if (!wx) {
     out.push(el('div', 'rm-note', 'Radar loading…'));
   } else {
-    out.push(el('div', `rm-wx-line ${wx.text.level || 'info'}`, wx.text.text));
+    const tiers = el('div', `rm-wx-tiers ${wx.text.level || 'info'}`);
+    if (wx.text.lead) tiers.append(el('div', 'lead', wx.text.lead));
+    tiers.append(el('div', 'claim', wx.text.claim || wx.text.text));
+    if (wx.text.detail) tiers.append(el('div', 'detail', wx.text.detail));
+    out.push(tiers);
+    if (wx.realText)
+      out.push(
+        el('div', 'rm-note', `Real radar under the demo: ${wx.realText.text}`),
+      );
     out.push(
       el(
         'div',
         'rm-note',
         wx.sim
-          ? 'SIMULATED storm (prototype) · every wall shows it labelled SIMULATED.'
-          : wx.motion
-            ? 'Observed motion from two radar frames 20 min apart. A track, not a forecast model.'
-            : 'Motion needs two frames with rain in them; until then only the position is known.',
+          ? 'SIMULATED storm (prototype) · every wall shows it labelled SIMULATED and badged DEMO STORM. It ends itself after 45 min, and Return all ends it.'
+          : wx.positionOnly
+            ? 'Satellite rain estimate, about 65 min behind · position only, no arrival time.'
+            : wx.motion && !wx.motion.unmeasured
+              ? 'Observed motion from two radar frames 20 min apart. A track, not a forecast model. Times count from now and are shown as a range.'
+              : 'Motion needs storm echo in both frames; until then only the position is known.',
       ),
     );
   }
@@ -785,10 +797,10 @@ function weather(ctx) {
   for (const [label, min] of [
     ['−30 min', -30],
     ['Now', null],
-    ['+15', 15],
-    ['+30', 30],
-    ['+45', 45],
-    ['+60', 60],
+    ['+15 min', 15],
+    ['+30 min', 30],
+    ['+45 min', 45],
+    ['+60 min', 60],
   ]) {
     const target = min == null ? null : now + min * 60e3;
     const on =
@@ -802,7 +814,7 @@ function weather(ctx) {
             { type: 'session', patch: { wxAt: target } },
             min == null
               ? 'Every wall: weather now'
-              : `Every wall: weather ${label} min`,
+              : `Every wall: weather ${label}`,
           ),
         { 'aria-pressed': String(on) },
       ),
@@ -820,7 +832,13 @@ function weather(ctx) {
   );
   out.push(kick('Official alerts', WALL));
   for (const l of wx?.lines || [])
-    out.push(el('div', `rm-wx-alert${l.sim ? ' sim' : ''}`, l.text));
+    out.push(
+      el(
+        'div',
+        `rm-wx-alert${l.sim ? ' sim' : l.official ? ' official' : l.warn ? ' warn' : ''}`,
+        l.text,
+      ),
+    );
   out.push(kick('Lightning', WALL));
   out.push(el('div', 'rm-note', wx?.ltgText || 'Lightning grid loading…'));
   out.push(kick('Demo', WALL));
@@ -830,7 +848,7 @@ function weather(ctx) {
       `rm-btn${ss.simStorm ? ' on' : ''}`,
       ss.simStorm
         ? 'Simulated storm on · stop'
-        : 'Simulated storm approaching · start',
+        : 'Simulated storm approaching · start (every wall)',
       () =>
         ctx.send(
           {
@@ -848,7 +866,10 @@ function weather(ctx) {
   out.push(demo);
   // Frame the storm on the Weather wall (an operator's camera request).
   const wxSlot = slotWithRole(state, 'weather');
-  if (wxSlot && ['arriving', 'over', 'passing'].includes(wx?.text?.status))
+  if (
+    wxSlot &&
+    ['arriving', 'near', 'over', 'passing'].includes(wx?.text?.status)
+  )
     out.splice(
       out.indexOf(lens) - 1,
       0,

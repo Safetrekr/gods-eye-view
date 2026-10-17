@@ -7,6 +7,7 @@ import {
   NOWCAST_BOX_KM,
   NOWCAST_PX,
   approach,
+  approachNow,
   boxKm,
   findCores,
   insideAny,
@@ -14,12 +15,14 @@ import {
   motionVector,
   nearestPoint,
   outerRings,
-  rgbaToIntensity,
+  persistent,
+  rgbaToDbz,
   simulatedMotion,
   simulatedStorm,
   simulatedStormStrikes,
   simulatedWarningRing,
 } from './twinNowcast.js';
+import { eetKft, n0qDbz } from './twinRadarPalette.js';
 
 const IEM = 'https://mesonet.agron.iastate.edu';
 const NOWCOAST = 'https://nowcoast.noaa.gov/geoserver/ows';
@@ -57,7 +60,8 @@ export function nowcastSource(region) {
       stepMin: 5,
       label: 'IEM NEXRAD',
       credit: 'Radar: Iowa Environmental Mesonet / NOAA NEXRAD',
-      /** Newest complete 5-min frame. */
+      decode: n0qDbz,
+      /** Newest complete 5-min frame: {t, quorum, fallback}. */
       async latest(now, signal) {
         try {
           const r = await fetch(
@@ -66,12 +70,21 @@ export function nowcastSource(region) {
           );
           const j = await r.json();
           const t = Date.parse(j?.meta?.valid ?? j?.valid);
-          if (Number.isFinite(t)) return floorTo(t, 5);
+          if (Number.isFinite(t))
+            return { t: floorTo(t, 5), quorum: j?.meta?.radar_quorum || null };
         } catch {
-          /* fall back to a frame safely in the past */
+          /* fall back to a frame safely in the past, and say so */
         }
-        return floorTo(now - 10 * MIN, 5);
+        return { t: floorTo(now - 10 * MIN, 5), quorum: null, fallback: true };
       },
+      topsUrl: (bbox, size) =>
+        wms(
+          `${IEM}/cgi-bin/wms/nexrad/eet.cgi`,
+          'nexrad-eet-900913',
+          bbox,
+          size,
+        ),
+      topsMeta: `${IEM}/data/gis/images/4326/USCOMP/eet_0.json`,
       url: (bbox, t, size) =>
         wms(
           `${IEM}/cgi-bin/wms/nexrad/n0q-t.cgi`,
@@ -89,9 +102,11 @@ export function nowcastSource(region) {
     stepMin: 10,
     label: 'EUMETSAT H SAF',
     credit: 'Rain rate: EUMETSAT H SAF (CC BY 4.0)',
+    decode: null, // satellite rain rate: hue rule, labelled an estimate
+    positionOnly: true, // ~65 min behind: no arrival time from it
     // About 65 min behind real time; say so in every line (frame time).
     async latest(now) {
-      return floorTo(now - 65 * MIN, 10);
+      return { t: floorTo(now - 65 * MIN, 10), quorum: null };
     },
     url: (bbox, t, size) =>
       wms(EUMETVIEW, 'mtg_fd:h40b', bbox, size, { TIME: iso(floorTo(t, 10)) }),
@@ -114,7 +129,10 @@ function loadImage(url, signal) {
 }
 
 /** One frame as an intensity grid (null when the image does not load). */
-export async function loadGrid(url, { bbox, t, size = NOWCAST_PX, signal }) {
+export async function loadGrid(
+  url,
+  { bbox, t, size = NOWCAST_PX, signal, decode = null, raw = false },
+) {
   const img = await loadImage(url, signal);
   const c = document.createElement('canvas');
   c.width = size;
@@ -122,7 +140,8 @@ export async function loadGrid(url, { bbox, t, size = NOWCAST_PX, signal }) {
   const g = c.getContext('2d', { willReadFrequently: true });
   g.drawImage(img, 0, 0, size, size);
   const px = g.getImageData(0, 0, size, size).data;
-  const data = rgbaToIntensity(px, size, size);
+  if (raw) return px;
+  const data = rgbaToDbz(px, size, size, decode);
   // A frame that is lit almost everywhere is a no-data tile, not rain.
   let lit = 0;
   for (let i = 0; i < data.length; i++) if (data[i] > 0) lit++;
@@ -140,44 +159,20 @@ export async function runNowcast({
   center,
   region,
   now = Date.now(),
-  simStart = null,
   signal,
   cache = new Map(),
 }) {
   const bbox = boxKm(center, NOWCAST_BOX_KM);
-  if (simStart) {
-    const latest = simulatedStorm({
-      center,
-      bbox,
-      w: NOWCAST_PX,
-      h: NOWCAST_PX,
-      tMs: now,
-      startMs: simStart,
-    });
-    const motion = simulatedMotion();
-    const cores = findCores(latest);
-    return {
-      status: 'live',
-      simulated: true,
-      latest,
-      older: null,
-      motion,
-      cores,
-      ap: approach({ cores, motion, site: center }),
-      frameAt: now,
-      source: 'simulated radar',
-      credit: 'SIMULATED storm (prototype)',
-      bbox,
-      strikes: simulatedStormStrikes(cores, now),
-    };
-  }
   const src = nowcastSource(region);
-  const t1 = await src.latest(now, signal);
+  const meta = await src.latest(now, signal);
+  const t1 = meta.t;
   const t0 = t1 - FRAME_GAP_MIN * MIN;
   const get = async (t) => {
     const url = src.url(bbox, t, NOWCAST_PX);
     if (cache.has(url)) return cache.get(url);
-    const p = loadGrid(url, { bbox, t, signal }).catch(() => null);
+    const p = loadGrid(url, { bbox, t, signal, decode: src.decode }).catch(
+      () => null,
+    );
     cache.set(url, p);
     if (cache.size > 40) cache.delete(cache.keys().next().value);
     return p;
@@ -190,23 +185,88 @@ export async function runNowcast({
       credit: src.credit,
       frameAt: t1,
       bbox,
+      region,
     };
-  const motion = older ? motionVector(older, latest) : null;
-  const cores = findCores(latest);
+  // Echo tops (US): the measured storm height, for the shells.
+  if (src.topsUrl) {
+    try {
+      const [px, tj] = await Promise.all([
+        loadGrid(src.topsUrl(bbox, NOWCAST_PX), {
+          bbox,
+          t: t1,
+          signal,
+          raw: true,
+        }),
+        fetch(src.topsMeta, { signal }).then((r) => r.json()),
+      ]);
+      const tops = new Float32Array(NOWCAST_PX * NOWCAST_PX);
+      for (let i = 0, j = 0; j < tops.length; i += 4, j++)
+        if (px[i + 3] > 40) tops[j] = eetKft(px[i], px[i + 1], px[i + 2]) || 0;
+      latest.tops = tops;
+      latest.topsAt = Date.parse(tj?.meta?.valid) || null;
+    } catch {
+      /* heights then come from intensity, and say so */
+    }
+  }
+  const motion = older
+    ? motionVector(older, latest)
+    : { unmeasured: 'one frame' };
+  // A core must be in both frames: specks and one-frame artefacts are not.
+  const cores = findCores(latest).filter(
+    (c) => !older || persistent(c, older, motion, latest),
+  );
+  const frameAgeMin = (now - t1) / 60e3;
+  // apFrame is at the frame time; ap is shifted to now (re-shift as it ages).
+  const apFrame = approach({ cores, motion, site: center, grid: latest });
   return {
     status: 'live',
     simulated: false,
+    region,
     latest,
     older,
     motion,
     cores,
-    ap: approach({ cores, motion, site: center }),
+    apFrame,
+    ap: approachNow(apFrame, frameAgeMin),
     frameAt: t1,
+    frameAgeMin,
+    quorum: meta.quorum,
+    fallback: Boolean(meta.fallback),
+    positionOnly: Boolean(src.positionOnly),
     source: src.source,
     credit: src.credit,
     bbox,
-    frameUrl: (t) => src.url(bbox, t, NOWCAST_PX),
     stepMin: src.stepMin,
+  };
+}
+
+/** The simulated storm (demo), drawn on top of real weather, never instead. */
+export function simNowcast({ center, now = Date.now(), simStart }) {
+  const bbox = boxKm(center, NOWCAST_BOX_KM);
+  const latest = simulatedStorm({
+    center,
+    bbox,
+    w: NOWCAST_PX,
+    h: NOWCAST_PX,
+    tMs: now,
+    startMs: simStart,
+  });
+  const motion = simulatedMotion();
+  const cores = findCores(latest);
+  return {
+    status: 'live',
+    simulated: true,
+    latest,
+    older: null,
+    motion,
+    cores,
+    ap: approach({ cores, motion, site: center, grid: latest }),
+    frameAt: now,
+    frameAgeMin: 0,
+    source: 'simulated radar',
+    credit: 'SIMULATED storm (prototype)',
+    bbox,
+    strikes: simulatedStormStrikes(cores, now),
   };
 }
 
@@ -217,7 +277,9 @@ export async function loadPastGrid({ region, center, t, signal, cache }) {
   const ft = floorTo(t, src.stepMin);
   const url = src.url(bbox, ft, NOWCAST_PX);
   if (cache?.has(url)) return cache.get(url);
-  const p = loadGrid(url, { bbox, t: ft, signal }).catch(() => null);
+  const p = loadGrid(url, { bbox, t: ft, signal, decode: src.decode }).catch(
+    () => null,
+  );
   cache?.set(url, p);
   return p;
 }
@@ -250,7 +312,7 @@ export async function loadAlertAreas(alerts, center, { signal } = {}) {
     let rings = outerRings(a.geometry);
     if (!rings.length && a.zones?.length) {
       const list = await Promise.all(
-        a.zones.slice(0, 8).map((z) => zoneRings(z, signal)),
+        a.zones.slice(0, 40).map((z) => zoneRings(z, signal)),
       );
       rings = list.flat();
     }

@@ -332,14 +332,48 @@ select.rm-input {
   color: var(--rm-attn);
   border-left-color: var(--rm-attn);
 }
+/* Lead figure, claim, detail: readable at arm's length (phase 12). */
+.rm-wx-tiers {
+  border-left: 2px solid var(--rm-line-2);
+  padding: 6px 0 6px 14px;
+  margin: 4px 0 8px;
+  display: grid;
+  gap: 4px;
+}
+.rm-wx-tiers .lead {
+  font: 200 44px/1 var(--rm-display);
+  font-variant-numeric: tabular-nums;
+  color: var(--rm-text);
+}
+.rm-wx-tiers .claim {
+  font: 400 20px/1.25 var(--rm-display);
+  color: var(--rm-text);
+}
+.rm-wx-tiers .detail {
+  font: 400 12px/1.4 var(--rm-mono, ui-monospace, monospace);
+  color: var(--rm-text-2, rgba(184, 195, 199, 0.85));
+}
+.rm-wx-tiers.attention {
+  border-left-color: var(--rm-attn);
+}
+.rm-wx-tiers.attention .lead,
+.rm-wx-tiers.attention .claim {
+  color: var(--rm-attn);
+}
 .rm-wx-alert {
   font-size: 14px;
-  color: var(--rm-attn);
+  color: var(--rm-text);
   padding: 6px 0;
   border-bottom: 1px solid var(--rm-hair);
 }
+.rm-wx-alert.official,
+.rm-wx-alert.warn {
+  color: var(--rm-attn);
+}
 .rm-wx-alert.sim {
-  border-bottom-style: dashed;
+  color: var(--rm-text-2, rgba(184, 195, 199, 0.85));
+  border-left: 2px dashed currentColor;
+  padding-left: 8px;
 }
 .rm-tile .pill.attn {
   background: var(--rm-attn);

@@ -797,44 +797,142 @@ textarea {
 .tt-wall-line.tt-wx-approach.attention {
   color: var(--tt-attention);
 }
-/* Wall strip under the header: the approach and the lens, every wall. */
+/* Wall strip under the header: the approach and the lens, every wall.
+   A big lead figure ("~25 min"), the claim, then the detail (phase 12). */
 .tt-wall-wx {
   position: fixed;
   top: 96px;
   left: 0;
   right: 0;
   z-index: 20;
-  min-height: 52px;
+  min-height: 84px;
   display: flex;
-  align-items: center;
-  padding: 0 28px;
-  font: 400 24px var(--tt-display);
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px 28px;
   color: var(--tt-text);
-  background: rgba(4, 12, 18, 0.88);
+  background: rgba(4, 12, 18, 0.9);
   border-bottom: 1px solid var(--tt-border);
   backdrop-filter: blur(var(--tt-blur));
   -webkit-backdrop-filter: blur(var(--tt-blur));
+  overflow: hidden;
+}
+.tt-wall-wx.attention {
+  border-bottom: 2px solid var(--tt-attention);
+}
+.tt-wx-tiers {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  min-width: 0;
+}
+.tt-wx-lead {
+  flex: none;
+  font: 200 56px/1 var(--tt-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  color: var(--tt-text);
+}
+.attention > .tt-wx-tiers .tt-wx-lead,
+.tt-wx-tiers.attention .tt-wx-lead {
+  color: var(--tt-attention);
+}
+.tt-wx-text {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.tt-wx-claim {
+  font: 400 26px/1.15 var(--tt-display);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.tt-wall-wx.attention {
+.attention .tt-wx-claim {
   color: var(--tt-attention);
-  border-bottom: 2px solid var(--tt-attention);
 }
-.tt-wall-wx.lens {
-  font-family: var(--tt-mono);
-  font-size: 20px;
+.tt-wx-detail {
+  font: 400 16px/1.3 var(--tt-mono);
+  letter-spacing: 0.02em;
+  color: var(--tt-text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tt-wx-lens {
+  font: 500 18px var(--tt-mono);
   letter-spacing: 0.06em;
+  color: var(--tt-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .tt-wall-wx[hidden] {
   display: none !important;
 }
+/* Everything under the header moves down while the strip shows, so the
+   strip never covers a panel (S3, S4, S5, S6). */
+body[data-view='screen'] {
+  --wall-top: 96px;
+}
 body[data-view='screen'].tt-wx-strip-on {
-  --bar: calc((96px + 56px) / var(--wall-scale));
+  --wall-top: 182px;
+  --bar: calc(182px / var(--wall-scale));
 }
 body[data-view='screen'].tt-wx-strip-on .tt-chips {
-  top: calc((96px + 56px + 12px) / var(--wall-scale));
+  top: calc((182px + 12px) / var(--wall-scale));
+}
+body[data-view='screen'][data-role='incident'] .tt-wall-panel,
+body[data-view='screen'][data-role='weather'] .tt-wall-panel,
+body[data-view='screen'][data-role='day'] .tt-wall-panel {
+  top: calc((var(--wall-top) + 12px) / var(--wall-scale)) !important;
+}
+body[data-view='screen'][data-role='trips'] .tt-wall-panel {
+  top: calc((var(--wall-top) + 16px) / var(--wall-scale)) !important;
+}
+body[data-view='screen'][data-role='incident'].tt-wx-strip-on .tt-rcol {
+  top: calc((182px + 150px) / var(--wall-scale));
+}
+/* Walls show no controls: no Back to now; S3 and S6 carry no timeline. */
+body[data-view='screen'] .tt-wxtl-now {
+  display: none !important;
+}
+body[data-view='screen'][data-role='incident'] .tt-wxtl,
+body[data-view='screen'][data-role='trips'] .tt-wxtl {
+  display: none !important;
+}
+/* S4 band: the same three tiers, inside the panel. */
+.tt-wall-panel .tt-wx-tiers {
+  padding: 8px 0 10px;
+  border-bottom: 1px solid var(--tt-hair);
+}
+.tt-wall-panel .tt-wx-tiers {
+  display: grid;
+  gap: 4px;
+}
+.tt-wall-panel .tt-wx-lead {
+  font-size: 40px;
+}
+.tt-wall-panel .tt-wx-claim {
+  font-size: 18px;
+  white-space: normal;
+}
+.tt-wall-panel .tt-wx-detail {
+  font-size: 12px;
+  white-space: normal;
+}
+.tt-wall-line.sim {
+  color: var(--tt-text-2);
+  border-left: 2px dashed var(--tt-text-2);
+  padding-left: 8px;
+}
+.tt-kicker.attention {
+  color: var(--tt-attention);
+}
+/* Demo storm: the badge says so on every wall. */
+.tt-wall-badge.demo {
+  border-style: dashed;
 }
 .tt-m-event .tt-wall-wx:not([hidden]) {
   animation: ttBand 0.32s cubic-bezier(0, 0, 0.2, 1) both;

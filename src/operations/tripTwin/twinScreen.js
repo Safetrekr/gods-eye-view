@@ -304,15 +304,18 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       ? `ADVANCE · ${api.dayLabel()}`
       : dayPlan
         ? `TODAY'S PLAN · ${api.dayLabel()}`
-        : 'LIVE';
+        : ss.simStorm
+          ? 'LIVE · DEMO STORM'
+          : 'LIVE';
     if (badge.dataset.text !== badgeText) {
       badge.dataset.text = badgeText;
       // The live dot breathes under the Live tier (phase 11).
       badge.replaceChildren(
-        ...(badgeText === 'LIVE' ? [el('span', 'tt-livedot')] : []),
+        ...(badgeText.startsWith('LIVE') ? [el('span', 'tt-livedot')] : []),
         badgeText,
       );
     }
+    badge.classList.toggle('demo', Boolean(ss.simStorm) && !advance && !dayPlan);
     badge.classList.toggle('adv', advance || dayPlan);
     document.body.classList.toggle('tt-dayplan-live', dayPlan && !advance);
     time.textContent = api.clockText();
@@ -347,18 +350,31 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         stale.classList.toggle('heavy', since > 120);
       }
     }
-    // The approach line (arriving or over) and the lens line, every wall.
+    // The approach (arriving, near or over) and the lens line, every wall:
+    // a big lead figure, the claim, then the detail (phase 12 review).
     const ap = api.approachLine?.();
     const lens = api.lensLine?.() || '';
-    const showAp = ['arriving', 'over'].includes(ap?.status);
+    const showAp = ['arriving', 'near', 'over'].includes(ap?.status);
     wxStrip.hidden = !(showAp || lens);
     document.body.classList.toggle('tt-wx-strip-on', !wxStrip.hidden);
     if (!wxStrip.hidden) {
-      // While the lens is away the strip says so first, then the short form.
-      const text = lens
-        ? [lens, showAp ? ap.short : ''].filter(Boolean).join(' · ')
-        : ap.text;
-      if (wxStrip.textContent !== text) wxStrip.textContent = text;
+      const who = s?.role === 'trips' ? api.tripTitle?.() : '';
+      const key = JSON.stringify([lens, showAp && ap.lead, showAp && ap.claim, showAp && ap.detail, who]);
+      if (wxStrip.dataset.key !== key) {
+        wxStrip.dataset.key = key;
+        const parts = [];
+        if (lens) parts.push(el('div', 'tt-wx-lens', lens));
+        if (showAp) {
+          const row = el('div', 'tt-wx-tiers');
+          if (ap.lead) row.append(el('div', 'tt-wx-lead', ap.lead));
+          const txt = el('div', 'tt-wx-text');
+          txt.append(el('div', 'tt-wx-claim', who ? `${who} · ${ap.claim}` : ap.claim));
+          if (ap.detail && !lens) txt.append(el('div', 'tt-wx-detail', ap.detail));
+          row.append(txt);
+          parts.push(row);
+        }
+        wxStrip.replaceChildren(...parts);
+      }
       wxStrip.className = `tt-wall-wx ${showAp ? ap.level : 'info'}${lens ? ' lens' : ''}`;
     }
     // Incident banner: from this screen's own data, remote or not. An

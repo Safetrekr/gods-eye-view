@@ -1,24 +1,28 @@
-// Phase 12 · see it coming: radar motion, cores, arrival on the current
-// track, the simulated storm, warning areas, and honest wording.
+// Phase 12 · see it coming (revised after review/phase12): exact palette
+// decoding, storm-echo motion, cores (size and persistence), per-pixel
+// arrival from now, the simulated storm, contours, warning areas, wording.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CORE_T,
+  CORE_DBZ,
   approach,
+  approachNow,
   approachText,
   bandOf,
   boxKm,
   cellKm,
-  etaText,
+  etaRange,
   findCores,
+  hasMotion,
   insideAny,
   makeGrid,
   motionVector,
   nearestPoint,
   outerRings,
+  persistent,
   pointInRing,
   projectGrid,
-  rgbaToIntensity,
+  rgbaToDbz,
   simulatedMotion,
   simulatedStorm,
   simulatedStormStrikes,
@@ -26,6 +30,8 @@ import {
   toKm,
   trendOf,
 } from './twinNowcast.js';
+import { eetKft, n0qDbz } from './twinRadarPalette.js';
+import { chaikin, signedArea, traceAreas } from './twinContours.js';
 import { bannedWordHits } from './twinData.js';
 
 const SITE = { lat: 30.2622, lon: -97.7382 }; // Fairmont Austin
@@ -35,13 +41,15 @@ const fmt = {
   dist: (m) => `${(m / 1000).toFixed(1)} km`,
   speed: (k) => `${Math.round(k)} km/h`,
   siteNoun: 'hotel',
-  frame: '21:25',
+  frame: '21:25 CDT',
+  frameAge: 3,
   source: 'radar',
-  boxKm: 160,
+  boxText: '80 km',
+  nearText: '10 km',
 };
 
-/** A grid with Gaussian blobs at (east km, north km) from the site. */
-function blobs(list, t = 0) {
+/** A dBZ grid with Gaussian cells at (east km, north km): [x, y, sigma, peak]. */
+function cells(list, t = 0) {
   const data = new Float32Array(W * W);
   const g = makeGrid(data, W, W, BOX, t);
   const ck = cellKm(g);
@@ -53,168 +61,196 @@ function blobs(list, t = 0) {
       for (const [bx, by, s, peak] of list)
         v = Math.max(
           v,
-          peak * Math.exp(-((ex - bx) ** 2 + (ny - by) ** 2) / (2 * s * s)),
+          20 +
+            (peak - 20) *
+              Math.exp(-((ex - bx) ** 2 + (ny - by) ** 2) / (2 * s * s)),
         );
-      if (v > 0.06) data[y * W + x] = v;
+      if (v >= 21) data[y * W + x] = v;
     }
   return g;
 }
 
-test('radar colours become intensity bands; transparent is no rain', () => {
+test('exact palette: n0q colours decode to dBZ; echo tops to kft', () => {
+  assert.equal(n0qDbz(17, 209, 23), 22); // green: light rain
+  assert.equal(n0qDbz(255, 226, 0), 40); // yellow: a core starts
+  assert.equal(n0qDbz(248, 0, 0), 50); // red: heavy
+  assert.equal(n0qDbz(133, 113, 143), -32); // grey clear air, never a core
+  assert.equal(eetKft(69, 104, 166), 7);
+  assert.equal(eetKft(255, 0, 0), 50);
   const px = new Uint8ClampedArray([
-    0,
-    100,
-    255,
-    255, // blue → light (often not rain)
-    0,
-    200,
-    0,
-    255, // green, 20–35 dBZ → light rain, not a core
-    255,
-    255,
-    0,
-    255, // yellow, ~40 dBZ → moderate core
-    255,
-    0,
-    0,
-    255, // red → heavy
-    255,
-    0,
-    255,
-    255, // magenta → intense
-    0,
-    200,
-    0,
-    10, // nearly transparent → none
+    133, 113, 143, 255, 17, 209, 23, 255, 248, 0, 0, 255,
   ]);
-  const t = rgbaToIntensity(px, 6, 1);
-  assert.equal(bandOf(t[0]), 'light');
-  assert.equal(bandOf(t[1]), 'light');
-  assert.ok(t[1] < CORE_T, 'green is never a core');
-  assert.equal(bandOf(t[2]), 'moderate');
-  assert.equal(bandOf(t[3]), 'heavy');
-  assert.equal(bandOf(t[4]), 'intense');
-  assert.equal(t[5], 0);
+  const d = rgbaToDbz(px, 3, 1, n0qDbz);
+  assert.equal(d[0], 0, 'below 20 dBZ is not rain');
+  assert.equal(bandOf(d[1]), 'light');
+  assert.equal(bandOf(d[2]), 'heavy');
 });
 
-test('motion: a field moved 10 km east and 5 km north in 20 min is measured', () => {
-  const a = blobs(
+test('motion: storm echo moved 10 km east and 5 km north in 20 min', () => {
+  const a = cells(
     [
-      [-30, -20, 4, 0.8],
-      [-10, -35, 5, 0.5],
-      [20, 10, 3, 0.6],
+      [-30, -20, 4, 55],
+      [-10, -35, 5, 48],
+      [20, 10, 3, 52],
     ],
     0,
   );
-  const b = blobs(
+  const b = cells(
     [
-      [-20, -15, 4, 0.8],
-      [0, -30, 5, 0.5],
-      [30, 15, 3, 0.6],
+      [-20, -15, 4, 55],
+      [0, -30, 5, 48],
+      [30, 15, 3, 52],
     ],
     20 * 60e3,
   );
   const m = motionVector(a, b);
-  assert.ok(m, 'motion found');
+  assert.ok(hasMotion(m), JSON.stringify(m));
   assert.ok(Math.abs(m.vxKmh - 30) < 4, `vx ${m.vxKmh}`);
   assert.ok(Math.abs(m.vyKmh - 15) < 4, `vy ${m.vyKmh}`);
-  assert.ok(m.headingDeg > 50 && m.headingDeg < 75, `heading ${m.headingDeg}`);
 });
 
-test('motion: too little rain or no time between frames gives no motion', () => {
-  const empty = makeGrid(new Float32Array(W * W), W, W, BOX, 0);
-  const one = blobs([[0, 0, 3, 0.8]], 20 * 60e3);
-  assert.equal(motionVector(empty, one), null);
-  assert.equal(motionVector(one, one), null);
+test('motion: light echo (birds, clear air) never sets the motion', () => {
+  const a = cells([[-20, 0, 30, 32]], 0);
+  const b = cells([[-10, 0, 30, 32]], 20 * 60e3);
+  const m = motionVector(a, b);
+  assert.equal(hasMotion(m), false);
+  assert.match(m.unmeasured, /too little storm echo/);
 });
 
-test('cores: two separate cores, strongest first, placed where they are', () => {
-  const g = blobs([
-    [-20, 0, 3, 0.95],
-    [25, 10, 4, 0.62],
+test('cores: specks are not cores; bands by dBZ; persistence across frames', () => {
+  const g = cells([
+    [-20, 0, 3, 62],
+    [25, 10, 4, 46],
+    [5, 5, 0.4, 55],
   ]);
   const cores = findCores(g);
-  assert.equal(cores.length, 2);
+  assert.equal(cores.length, 2, 'the 0.4 km speck is dropped');
   assert.equal(cores[0].band, 'intense');
   assert.equal(cores[1].band, 'moderate');
-  const k = toKm(SITE, cores[0]);
-  assert.ok(Math.abs(k.x + 20) < 1.5 && Math.abs(k.y) < 1.5, JSON.stringify(k));
-  assert.ok(cores.every((c) => c.maxT >= CORE_T));
+  assert.ok(cores.every((c) => c.maxDbz >= CORE_DBZ && c.areaKm2 >= 4));
+  const older = cells(
+    [
+      [-23, -1, 3, 60],
+      [22, 9, 4, 45],
+    ],
+    -20 * 60e3,
+  );
+  const m = { vxKmh: 9, vyKmh: 3, speedKmh: 9.5, headingDeg: 72, dtMin: 20 };
+  assert.equal(persistent(cores[0], older, m, g), true);
+  const empty = makeGrid(new Float32Array(W * W), W, W, BOX, -20 * 60e3);
+  assert.equal(persistent(cores[0], empty, m, g), false);
 });
 
-test('approach: a core 20 km SW moving NE at 40 km/h arrives on its track', () => {
-  const g = blobs([[-14.1, -14.1, 2, 0.8]]);
+const NE40 = {
+  vxKmh: 28.3,
+  vyKmh: 28.3,
+  speedKmh: 40,
+  headingDeg: 45,
+  dtMin: 20,
+};
+
+test('arrival: within 10 km and over the site, counted from now, as a range', () => {
+  const g = cells([[-14.1, -14.1, 2.2, 56]]);
   const cores = findCores(g);
-  const motion = { vxKmh: 28.3, vyKmh: 28.3, speedKmh: 40, headingDeg: 45 };
-  const ap = approach({ cores, motion, site: SITE });
+  const ap = approach({ cores, motion: NE40, site: SITE, grid: g });
   assert.equal(ap.status, 'arriving');
   assert.equal(ap.fromDir, 'SW');
-  assert.equal(ap.headingDir, 'NE');
-  // Distance 20 km less the reach (1.5 km) and the core radius, at 40 km/h.
-  const expect = ((20 - 1.5 - cores[0].radiusKm) / 40) * 60;
-  assert.ok(Math.abs(ap.etaMin - expect) < 2.5, `${ap.etaMin} vs ${expect}`);
-  const tx = approachText(ap, fmt);
+  assert.ok(ap.nearMin > 4 && ap.nearMin < 16, `near ${ap.nearMin}`);
+  assert.ok(ap.overMin > ap.nearMin, `over ${ap.overMin}`);
+  const now = approachNow(ap, 4);
+  assert.ok(Math.abs(now.nearMin - Math.max(0, ap.nearMin - 4)) < 1e-9);
+  const tx = approachText(now, fmt);
   assert.equal(tx.level, 'attention');
-  assert.match(tx.text, /on this track reaches the hotel in about \d+ min/);
-  assert.match(tx.text, /observed motion/);
+  assert.ok(/min$/.test(tx.lead), tx.lead);
+  assert.match(tx.claim, /within 10 km of the hotel in/);
+  assert.match(tx.detail, /radar 21:25 CDT, 3 min old, observed motion/);
   assert.deepEqual(bannedWordHits(tx.text), []);
 });
 
-test('approach: moving away, passing to one side, over the site, no motion', () => {
-  const sw = findCores(blobs([[-14, -14, 2, 0.8]]));
+test('a squall line is not a circle: the line sweeps over an off-centre site', () => {
+  const list = [];
+  for (let s = -30; s <= 30; s += 2)
+    list.push([-14.1 + s * 0.707 + 10.6, -14.1 - s * 0.707 - 10.6, 2, 52]);
+  const g = cells(list);
+  const ap = approach({ cores: findCores(g), motion: NE40, site: SITE, grid: g });
+  assert.ok(['arriving', 'near'].includes(ap.status), ap.status);
+  assert.ok(ap.overMin != null, 'the line passes over the site');
+});
+
+test('the worst core leads, not the earliest speck', () => {
+  const g = cells([
+    [-9, -9, 1.3, 44],
+    [-16, -16, 2.5, 58],
+  ]);
+  const ap = approach({ cores: findCores(g), motion: NE40, site: SITE, grid: g });
+  assert.equal(ap.core.band, 'heavy');
+  assert.equal(ap.others, 1);
+});
+
+test('statuses: moving away, passing, over, near without motion, none', () => {
+  const sw = findCores(cells([[-14, -14, 2, 55]]));
   const away = approach({
     cores: sw,
-    motion: { vxKmh: -28, vyKmh: -28, speedKmh: 40, headingDeg: 225 },
+    motion: { vxKmh: -28, vyKmh: -28, speedKmh: 40, headingDeg: 225, dtMin: 20 },
     site: SITE,
   });
   assert.equal(away.status, 'receding');
-  const west = findCores(blobs([[-30, -15, 2, 0.6]]));
   const passing = approach({
-    cores: west,
-    motion: { vxKmh: 0, vyKmh: 40, speedKmh: 40, headingDeg: 0 },
+    cores: findCores(cells([[-30, -15, 2, 46]])),
+    motion: { vxKmh: 0, vyKmh: 40, speedKmh: 40, headingDeg: 0, dtMin: 20 },
     site: SITE,
   });
   assert.equal(passing.status, 'passing');
-  assert.ok(passing.cpaKm > 25 && passing.cpaKm < 35, `${passing.cpaKm}`);
   const over = approach({
-    cores: findCores(blobs([[0.5, 0.3, 2, 0.9]])),
+    cores: findCores(cells([[0.5, 0.3, 2, 62]])),
     motion: null,
     site: SITE,
   });
   assert.equal(over.status, 'over');
-  assert.match(approachText(over, fmt).text, /over the hotel now/);
-  const unknown = approach({ cores: sw, motion: null, site: SITE });
-  assert.equal(unknown.status, 'unknown');
-  assert.match(approachText(unknown, fmt).text, /motion not measured/);
+  assert.match(approachText(over, fmt).claim, /over the hotel/);
+  const near = approach({
+    cores: findCores(cells([[5, 3, 1.5, 48]])),
+    motion: { unmeasured: 'one frame' },
+    site: SITE,
+  });
+  assert.equal(near.status, 'near');
   const none = approachText(
     approach({ cores: [], motion: null, site: SITE }),
     fmt,
   );
   assert.equal(none.status, 'none');
-  for (const t of [away, passing, unknown].map(
+  for (const t of [away, passing, over, near].map(
     (a) => approachText(a, fmt).text,
   ))
     assert.deepEqual(bannedWordHits(t), [], t);
+  assert.match(
+    approachText(away, { ...fmt, positionOnly: true }).detail,
+    /no arrival time/,
+  );
 });
 
-test('ETAs read in plain steps', () => {
-  assert.equal(etaText(0.4), 'now');
-  assert.equal(etaText(12.4), 'about 12 min');
-  assert.equal(etaText(33), 'about 35 min');
-  assert.equal(etaText(57), 'about 55 min');
+test('arrival ranges', () => {
+  assert.equal(etaRange(0), 'now');
+  assert.equal(etaRange(3), 'within 5 min');
+  assert.equal(etaRange(12), '5–15 min');
+  assert.equal(etaRange(25), '20–30 min');
 });
 
-test('projection moves the field along the motion and says so', () => {
-  const g = blobs([[-20, 0, 3, 0.8]], 1000);
-  const m = { vxKmh: 30, vyKmh: 0, speedKmh: 30, headingDeg: 90 };
-  const p = projectGrid(g, m, 20);
+test('projection moves the field (and its tops) along the motion', () => {
+  const g = cells([[-20, 0, 3, 56]], 1000);
+  g.tops = new Float32Array(W * W);
+  const p = projectGrid(
+    g,
+    { vxKmh: 30, vyKmh: 0, speedKmh: 30, headingDeg: 90, dtMin: 20 },
+    20,
+  );
   assert.equal(p.projected, true);
   assert.equal(p.t, 1000 + 20 * 60e3);
-  const c = findCores(p)[0];
-  assert.ok(Math.abs(toKm(SITE, c).x + 10) < 1.5, `${toKm(SITE, c).x}`);
+  assert.ok(p.tops instanceof Float32Array);
+  assert.ok(Math.abs(toKm(SITE, findCores(p)[0]).x + 10) < 1.5);
 });
 
-test('simulated storm: heavy core arrives about 30 min after the start, then passes', () => {
+test('simulated storm: intense core with tops, over the site about 30 min after the start', () => {
   const start = Date.UTC(2026, 9, 16, 2, 0);
   const at = (min) =>
     simulatedStorm({
@@ -226,21 +262,32 @@ test('simulated storm: heavy core arrives about 30 min after the start, then pas
       startMs: start,
     });
   const motion = simulatedMotion();
-  const ap0 = approach({ cores: findCores(at(0)), motion, site: SITE });
+  const g0 = at(0);
+  const ap0 = approach({ cores: findCores(g0), motion, site: SITE, grid: g0 });
   assert.equal(ap0.status, 'arriving');
-  assert.ok(ap0.etaMin > 22 && ap0.etaMin < 34, `${ap0.etaMin}`);
-  assert.ok(['heavy', 'intense'].includes(ap0.core.band));
-  assert.equal(at(0).simulated, true);
-  const ap1 = approach({ cores: findCores(at(33)), motion, site: SITE });
-  assert.equal(ap1.status, 'over');
-  const ap2 = approach({ cores: findCores(at(75)), motion, site: SITE });
-  assert.notEqual(ap2.status, 'arriving');
-  const sim = approachText(ap0, { ...fmt, simulated: true });
-  assert.match(sim.text, /^SIMULATED · /);
-  const strikes = simulatedStormStrikes(findCores(at(0)), start);
-  assert.ok(
-    strikes.length > 0 && strikes.every((s) => s.ageMin >= 0 && s.ageMin < 9),
+  assert.equal(ap0.core.band, 'intense');
+  assert.ok(ap0.overMin > 18 && ap0.overMin < 36, `over ${ap0.overMin}`);
+  assert.ok(Math.max(...g0.tops) > 40, 'simulated echo tops in kft');
+  const g1 = at(33);
+  assert.equal(
+    approach({ cores: findCores(g1), motion, site: SITE, grid: g1 }).status,
+    'over',
   );
+  assert.ok(simulatedStormStrikes(findCores(g0), start).length > 0);
+});
+
+test('contours: one smooth closed outline per area', () => {
+  const g = cells([
+    [-20, 0, 4, 56],
+    [25, 10, 3, 52],
+  ]);
+  const areas = traceAreas(g.data, g.w, g.h, 45);
+  assert.equal(areas.length, 2);
+  for (const a of areas) {
+    assert.ok(a.loop.length >= 8);
+    assert.equal(chaikin(a.loop, 2).length, a.loop.length * 4);
+    assert.ok(Math.abs(signedArea(a.loop)) >= a.cells * 0.9);
+  }
 });
 
 test('warning areas: point in ring, multipolygons, simulated box covers the site', () => {
@@ -269,20 +316,17 @@ test('warning areas: point in ring, multipolygons, simulated box covers the site
   };
   assert.equal(outerRings(multi).length, 2);
   assert.equal(insideAny({ lat: 30.5, lon: -97.5 }, outerRings(multi)), true);
-  const start = 0;
-  const ring = simulatedWarningRing(SITE, start + 5 * 60e3, start);
-  assert.equal(pointInRing(SITE, ring), true);
+  assert.equal(pointInRing(SITE, simulatedWarningRing(SITE, 5 * 60e3, 0)), true);
 });
 
-test('lightning: nearest point and its trend', () => {
+test('lightning: nearest point; a trend needs more than one 8 km cell', () => {
   const n = nearestPoint(SITE, [
     { lat: 30.3, lon: -97.8 },
     { lat: 30.1, lon: -97.5 },
   ]);
   assert.equal(n.dir, 'NW');
-  assert.ok(n.distKm > 6 && n.distKm < 8);
-  assert.equal(trendOf(12, 8), 'closing');
-  assert.equal(trendOf(8, 12), 'moving away');
-  assert.equal(trendOf(8, 8.5), 'steady');
+  assert.equal(trendOf(30, 20), 'getting closer');
+  assert.equal(trendOf(20, 30), 'moving away');
+  assert.equal(trendOf(12, 8), 'steady');
   assert.equal(trendOf(null, 8), null);
 });

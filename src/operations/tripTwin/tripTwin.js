@@ -1540,6 +1540,10 @@ export function createTripTwin({
       selectedPlaceId = id || null;
       safety?.setSelected(selectedPlaceId);
     },
+    /** Fly into the panel-free area (operator actions only, phase 12). */
+    flySafe(sphere, opts) {
+      flySafe(sphere, opts);
+    },
     /** Panel insets for framing (phase 5b): () => {left, right, top, bottom}. */
     setSafeArea(fn) {
       safeArea = fn || null;

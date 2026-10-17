@@ -9,6 +9,7 @@
 | Help overlay regrouped · frame-whole-trip honours Reduce motion | **Done** (phase 9 commit) |
 | Leader lines for moved labels | Deferred |
 | Full UX · UI · IA · brand · motion polish (phase 11) | **Done:** Instrument skin, three motion tiers with switches, S3/S5/S6 boards, launch cards, remote rail card; six reviews and F1–F24 (`review/phase11`). Deferred: echo, reticle, cascade, placed wordmark, scene label scale, shared feed clock |
+| Weather: see it coming (phase 12) | **Revision 2 built:** contour storm shells with echo-top height and rain curtains, exact radar palette decode, arrival ranges counted from now, one official list everywhere, OUTDOORS NOW, demo storm guarded (confirm, 45 min, Return all). QA findings to fold in (`review/phase12/00-FIX-LIST.md`) |
 | Saved path vs automatic suggestion | **Decided (Jesse): faded**, built in phase 9 (O19) |
 
 ## Next round: streets, walkways and a "ways out" view (Jesse, 16 Oct 2026)

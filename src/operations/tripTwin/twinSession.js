@@ -191,7 +191,8 @@ export function applyCommand(
       break;
     }
     case 'returnLive': {
-      for (const k of ['wxAt', 'spotlight']) {
+      // Return all also ends a demo storm (phase 12 review).
+      for (const k of ['wxAt', 'spotlight', 'simStorm']) {
         undo.session[k] = clone(state.session[k] ?? null);
         next.session[k] = null;
       }
@@ -277,7 +278,9 @@ export function needsConfirm(cmd) {
       'tripId' in p ||
       'siteKey' in p ||
       ('report' in p && p.report === null) ||
-      ('visitor' in p && p.visitor === false)
+      ('visitor' in p && p.visitor === false) ||
+      // Starting the demo storm puts SIMULATED weather on every wall.
+      Boolean(p.simStorm)
     );
   }
   if (cmd?.type === 'screens' && cmd.target === 'all')

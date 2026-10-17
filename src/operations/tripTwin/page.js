@@ -102,7 +102,6 @@ import {
   simulatedRainCanvas,
   simulatedStrikes,
   summarizeMet,
-  warningLine,
   weatherChipParts,
   fahrenheit,
   weatherSources,
@@ -114,7 +113,13 @@ import { KIND_TEXT, createWeatherTimeline } from './twinWeatherTimeline.js';
 import {
   NOWCAST_PX,
   PROJECT_MAX_MIN,
+  approach,
+  approachNow,
   approachText,
+  boxKm,
+  findCores,
+  inEta,
+  hasMotion,
   nearestPoint,
   projectGrid,
   simulatedStorm,
@@ -124,9 +129,14 @@ import {
   loadAlertAreas,
   loadPastGrid,
   runNowcast,
+  simNowcast,
   simulatedAlert,
 } from './twinNowcastLoad.js';
-import { COLUMN_RULE, createStormLayer } from './twinStorm3d.js';
+import {
+  HEIGHT_RULE,
+  HEIGHT_RULE_EST,
+  createStormLayer,
+} from './twinStorm3d.js';
 import {
   intensity,
   metSteps,
@@ -3968,12 +3978,18 @@ async function main() {
   // on that track; official alert areas; the nearest lightning. The same
   // line goes to the rail, a chip, the walls and the remote.
   const nc = {
-    res: null,
+    res: null, // real radar (never replaced by the demo)
+    sim: null, // the demo storm, drawn on top while it runs
     text: null,
+    realText: null,
     alerts: [],
     cache: new Map(),
     past: new Map(),
-    simStart: params.get('storm') === '1' ? Date.now() : null,
+    // ?storm=1 starts the demo now; &stormAgo=25 starts it 25 min ago.
+    simStart:
+      params.get('storm') === '1'
+        ? Date.now() - Math.min(44, Number(params.get('stormAgo')) || 0) * 60e3
+        : null,
     simGrid: new Map(),
     ltgSeenAt: null,
     ltgLastKm: null,
@@ -4110,7 +4126,7 @@ async function main() {
   }
   /** Points for the lightning rule: simulated strikes, else density cells. */
   function strikes() {
-    if (nc.simStart && nc.res?.strikes) return nc.res.strikes;
+    if (nc.sim?.strikes) return nc.sim.strikes;
     if (wx.sim.lightning) return simulatedStrikes(city.center);
     const img = wx.images.lightning;
     return img ? cellsToPoints(img.cells, ltgBox) : [];
@@ -4600,11 +4616,19 @@ async function main() {
     twin.refresh?.();
   }
   const siteNounNow = () => (city.kind === 'lodging' ? 'hotel' : 'venue');
+  const imperial = () => /mi$/.test(formatDistance(2000));
   const speedText = (kmh) =>
-    /mi$/.test(formatDistance(2000))
-      ? `${Math.round(kmh / 1.609)} mph`
-      : `${Math.round(kmh)} km/h`;
+    imperial() ? `${Math.round(kmh / 1.609)} mph` : `${Math.round(kmh)} km/h`;
+  const SIM_MAX_MS = 45 * 60e3; // the demo storm ends itself
+  /** A weather time with its age or its time to go: "20:21 CDT, 3 min ago". */
+  const ago = (ms) => {
+    const m = Math.round((Date.now() - ms) / 60e3);
+    return m >= 0
+      ? `${wxTime(ms)}, ${m} min ago`
+      : `${wxTime(ms)}, in ${relText(ms, Date.now()).replace(/^\+/, '')}`;
+  };
   let ncSeq = 0;
+  /** Real radar, every 3 min. The demo storm never replaces it. */
   async function loadNowcast() {
     const seq = ++ncSeq;
     let res;
@@ -4612,7 +4636,6 @@ async function main() {
       res = await runNowcast({
         center: ncCenter(),
         region,
-        simStart: nc.simStart,
         signal: abort.signal,
         cache: nc.cache,
       });
@@ -4625,100 +4648,145 @@ async function main() {
     }
     if (seq !== ncSeq) return;
     nc.res = res;
+    refreshNowcast();
+  }
+  /** Every 20 s: the arrival counts down; the demo storm moves. */
+  function refreshNowcast() {
+    if (nc.simStart && Date.now() - nc.simStart > SIM_MAX_MS) {
+      setSimStorm(null);
+      offerNotice?.('Demo storm ended after 45 min · real weather only');
+      return;
+    }
+    nc.sim = nc.simStart
+      ? simNowcast({ center: ncCenter(), simStart: nc.simStart })
+      : null;
     nc.text = approachLine();
+    nc.realText = nc.sim ? approachLine(nc.res) : null;
     drawStorm();
     renderTimeline();
     renderLayers();
   }
-  /** The approach line for every surface (twinNowcast.approachText). */
-  function approachLine() {
-    const r = nc.res;
+  /** What the storm visuals and the lead line show: the demo, else radar. */
+  const ncView = () => nc.sim || nc.res;
+  /** The approach line (three tiers) for every surface. */
+  function approachLine(r = ncView()) {
     if (!r)
       return {
         status: 'loading',
         level: 'info',
+        lead: '',
+        claim: 'Storm approach · radar loading',
+        detail: '',
         text: 'Storm approach · radar loading',
         short: '',
       };
-    if (r.status !== 'live')
-      return {
-        status: 'unavailable',
-        level: 'info',
-        text: `Storm approach unavailable · the ${r.source} frame${r.frameAt ? ` for ${wxTime(r.frameAt)}` : ''} did not load`,
-        short: '',
-      };
-    return approachText(r.ap, {
+    if (r.status !== 'live') {
+      const t = `Storm approach unavailable · the ${r.source} frame${r.frameAt ? ` for ${wxTime(r.frameAt)}` : ''} did not load`;
+      return { status: 'unavailable', level: 'info', lead: '', claim: t, detail: '', text: t, short: '' };
+    }
+    const ageMin = r.simulated ? 0 : (Date.now() - r.frameAt) / 60e3;
+    const ap = r.simulated
+      ? r.ap
+      : approachNow(r.apFrame || r.ap, ageMin);
+    return approachText(ap, {
       dist: (m) => formatDistance(m),
       speed: speedText,
       siteNoun: siteNounNow(),
       frame: wxTime(r.frameAt),
+      frameAge: r.simulated ? null : ageMin,
       source: r.source,
       simulated: r.simulated,
-      boxKm: 160,
-      boxText: /mi$/.test(formatDistance(2000)) ? '50 mi' : '80 km',
+      positionOnly: r.positionOnly,
+      unmeasured: r.motion?.unmeasured,
+      boxText: imperial() ? '50 mi' : '80 km',
+      nearText: imperial() ? '6 mi' : '10 km',
     });
   }
   const simAlert = () =>
     nc.simStart ? simulatedAlert(ncCenter(), Date.now(), nc.simStart) : null;
-  /** Official lines with "the hotel is inside the area" when it is. */
+  const untilText = (iso) => (iso ? ago(Date.parse(iso)) : '');
+  /**
+   * Official lines, the same on every surface: the demo's warning first and
+   * labelled, then every real alert with its time to go and whether the
+   * site is inside its area, or the check that found none.
+   */
   function officialLines() {
     const noun = siteNounNow();
-    const list =
-      wx.warningsStatus === 'unavailable'
-        ? ['Official weather alerts unavailable right now']
-        : (nc.alerts?.length ? nc.alerts : wx.warnings).map(
-            (w) =>
-              `${warningLine(w, city.timezone)}${w.inside === true ? ` · the ${noun} is inside the area` : ''}`,
-          );
+    const src = WX.warnings === 'nws' ? 'NWS' : 'MeteoAlarm';
+    const list = [];
     const a = simAlert();
     if (a)
-      list.unshift(
-        `SIMULATED · ${a.event} · until ${hhmm(a.ends)}${a.inside ? ` · the ${noun} is inside the area` : ''}`,
-      );
+      list.push({
+        sim: true,
+        text: `SIMULATED (demo) · ${a.event} · until ${untilText(a.ends)}${a.inside ? ` · the ${noun} is inside the area` : ''}`,
+      });
+    if (wx.warningsStatus === 'unavailable')
+      list.push({ warn: true, text: `${src} alerts unavailable right now · not checked` });
+    else if (!wx.warnings.length)
+      list.push({
+        text: `${src} checked ${wx.warningsAt ? ago(wx.warningsAt) : 'at load'}: no active alerts returned for this point`,
+      });
+    else
+      for (const w of nc.alerts?.length ? nc.alerts : wx.warnings)
+        list.push({
+          official: true,
+          text: `${src}: ${w.event}${w.ends ? ` · until ${untilText(w.ends)}` : ''}${w.inside === true ? ` · the ${noun} is inside the area` : ''}`,
+        });
     return list;
   }
   function alertList() {
     const list = (nc.alerts || []).map((a) => ({
       ...a,
-      untilText: a.ends
-        ? new Date(a.ends).toLocaleString('en-GB', {
-            timeZone: city.timezone,
-            weekday: 'short',
-            hour: '2-digit',
-            minute: '2-digit',
-          })
-        : '',
+      untilText: a.ends ? untilText(a.ends) : '',
     }));
     const s = simAlert();
-    if (s) list.unshift({ ...s, untilText: hhmm(s.ends) });
+    if (s) list.unshift({ ...s, untilText: untilText(s.ends) });
     return list;
   }
-  /** The nearest lightning to the site, with its source and trend. */
+  /** The nearest lightning: {point, distKm, dir, text, label} or null. */
   function ltgLine() {
     const site = ncCenter();
-    if (nc.simStart && nc.res?.strikes?.length) {
-      const n = nearestPoint(site, nc.res.strikes);
+    const near = imperial() ? '6 mi' : '10 km';
+    if (nc.sim?.strikes?.length) {
+      const n = nearestPoint(site, nc.sim.strikes);
       return (
         n && {
           ...n,
-          text: `SIMULATED lightning · ${formatDistance(n.distKm * 1000)} ${n.dir} · ${n.point.ageMin} min ago`,
+          sim: true,
+          inside: n.distKm <= 10,
+          text: `SIMULATED lightning · ${formatDistance(n.distKm * 1000)} ${n.dir} · ${n.point.ageMin} min ago${n.distKm <= 10 ? ` · inside ${near}` : ''}`,
         }
       );
     }
     const img = wx.images.lightning;
     if (!img || img.noData || !img.cells?.length) return null;
     const n = nearestPoint(site, cellsToPoints(img.cells, ltgBox));
-    if (!n) return null;
+    if (!n || n.distKm > 40) return null;
     if (nc.ltgSeenAt !== wx.imageAt.lightning) {
       nc.ltgSeenAt = wx.imageAt.lightning;
       nc.ltgPrevKm = nc.ltgLastKm;
       nc.ltgLastKm = n.distKm;
     }
     const tr = trendOf(nc.ltgPrevKm, nc.ltgLastKm);
+    const fetched = Date.parse(wx.imageAt.lightning);
     return {
       ...n,
-      text: `Lightning · ${WX.lightning?.gridKm || ''} km grid cell ${formatDistance(n.distKm * 1000)} ${n.dir} · ${region === 'us' ? 'nowCOAST' : 'EUMETSAT'} ${hhmm(wx.imageAt.lightning)}${tr ? ` · ${tr}` : ''}`,
+      inside: n.distKm <= 10,
+      text: `Lightning · nearest ${WX.lightning?.gridKm || 8} km grid cell ${formatDistance(n.distKm * 1000)} ${n.dir}${n.distKm <= 10 ? ` · inside ${near}` : ''} · ${region === 'us' ? 'nowCOAST 15-min density' : 'EUMETSAT MTG-LI'}, fetched ${Number.isFinite(fetched) ? ago(fetched) : ''} (data can be up to 15 min older)${tr ? ` · ${tr}` : ''}`,
     };
+  }
+  /** People outdoors near the site right now, with the walk to the hotel. */
+  function outdoorsNow() {
+    const rows = (lastA?.rows || []).filter(
+      (r) => r.verdict?.bucket === 'Outside, nearby',
+    );
+    return rows.map((r) => ({
+      name: shortName(r.person.name),
+      distM: r.verdict.distM,
+      walkMin: Number.isFinite(r.verdict.distM)
+        ? Math.max(1, Math.round((r.verdict.distM * 1.3) / 80))
+        : null,
+    }));
   }
   /** The simulated storm's grid at time t (cached per 30 s). */
   function simGridAt(t) {
@@ -4726,7 +4794,7 @@ async function main() {
     if (nc.simGrid.has(key)) return nc.simGrid.get(key);
     const g = simulatedStorm({
       center: ncCenter(),
-      bbox: nc.res?.bbox,
+      bbox: nc.sim?.bbox || boxKm(ncCenter(), 160),
       w: NOWCAST_PX,
       h: NOWCAST_PX,
       tMs: t,
@@ -4736,16 +4804,15 @@ async function main() {
     if (nc.simGrid.size > 40) nc.simGrid.delete(nc.simGrid.keys().next().value);
     return g;
   }
-  /** Weather at the site under the simulated storm (or null when off). */
+  /** Weather at the site under the demo storm (or null when off). */
   function stormStep(at = wx.at ?? Date.now()) {
-    if (!nc.simStart || !nc.res?.bbox) return null;
+    if (!nc.simStart) return null;
     const g = simGridAt(at);
     const c = Math.floor(g.w / 2);
-    let t = 0;
+    let d = 0;
     for (let y = c - 2; y <= c + 2; y++)
-      for (let x = c - 2; x <= c + 2; x++) t = Math.max(t, g.data[y * g.w + x]);
-    const mm =
-      t >= 0.9 ? 30 : t >= 0.67 ? 15 : t >= 0.5 ? 6 : t >= 0.25 ? 2 : 0;
+      for (let x = c - 2; x <= c + 2; x++) d = Math.max(d, g.data[y * g.w + x]);
+    const mm = d >= 60 ? 30 : d >= 50 ? 15 : d >= 40 ? 6 : d >= 25 ? 2 : 0;
     return {
       precipMmH: mm,
       tempC: mm ? 19 : 23,
@@ -4759,13 +4826,13 @@ async function main() {
     };
   }
   const projectionOn = () =>
-    wx.layers.radar3d && Boolean(nc.simStart || nc.res?.motion);
+    wx.layers.radar3d && Boolean(nc.simStart || hasMotion(nc.res?.motion));
   function projectionLabel(t) {
     if (nc.simStart) return `SIMULATED storm (prototype) · ${wxTime(t)}`;
     const r = nc.res;
     return `Projection on the current track · ${r?.source || 'radar'} ${wxTime(r?.frameAt)} + observed motion · not a forecast model`;
   }
-  /** The timeline under the simulated storm: 2 h back, 1 h ahead. */
+  /** The timeline under the demo storm: 2 h back, 1 h ahead. */
   function stormTimelineModel() {
     const now = Math.floor(Date.now() / (5 * 60e3)) * 5 * 60e3;
     const start = now - 2 * H;
@@ -4784,17 +4851,17 @@ async function main() {
         t < start || t > end ? 'none' : t <= now ? 'observed' : 'projected',
       sourceAt: (t) =>
         wx.at == null
-          ? 'SIMULATED storm (prototype) · columns, track, lightning and the warning are simulated'
+          ? 'SIMULATED storm (prototype) · shells, track, lightning and the warning are simulated'
           : `SIMULATED storm (prototype) · ${wxTime(t)}`,
     };
   }
   /** The radar grid for the viewed time: {grid, kind}. */
   function stormGridAt() {
+    if (nc.simStart)
+      return { grid: simGridAt(wx.at ?? Date.now()), kind: 'simulated' };
     const r = nc.res;
     if (!r || r.status !== 'live') return { grid: null, kind: 'none' };
     const t = wx.at;
-    if (r.simulated)
-      return { grid: simGridAt(t ?? Date.now()), kind: 'simulated' };
     if (t == null || Math.abs(t - r.frameAt) < 2.5 * 60e3)
       return { grid: r.latest, kind: 'observed' };
     if (t < r.frameAt) {
@@ -4818,72 +4885,128 @@ async function main() {
         ? { grid: null, kind: 'loading' }
         : { grid: g || null, kind: g ? 'observed' : 'missing' };
     }
-    if (r.motion && t - r.frameAt <= PROJECT_MAX_MIN * 60e3)
+    if (hasMotion(r.motion) && t - r.frameAt <= PROJECT_MAX_MIN * 60e3)
       return {
         grid: projectGrid(r.latest, r.motion, (t - r.frameAt) / 60e3),
         kind: 'projected',
       };
     return { grid: null, kind: 'beyond' };
   }
+  /** What the viewed time shows at the site (lens), never the live figure. */
+  function lensClaim() {
+    if (wx.at == null) return '';
+    const g = stormGridAt();
+    if (!g.grid) return g.kind === 'beyond' ? 'beyond the 60 min projection' : '';
+    const ap = approach({
+      cores: findCores(g.grid),
+      motion: null,
+      site: ncCenter(),
+      grid: g.grid,
+    });
+    const noun = siteNounNow();
+    if (ap.status === 'over') return `rain core over the ${noun} at that time`;
+    if (ap.status === 'near')
+      return `rain core within ${imperial() ? '6 mi' : '10 km'} of the ${noun} at that time`;
+    return ap.status === 'none'
+      ? `no rain core within ${imperial() ? '50 mi' : '80 km'} at that time`
+      : `nearest rain core ${formatDistance(ap.edgeKm * 1000)} ${ap.fromDir} at that time`;
+  }
+  let stormKey = '';
   function drawStorm() {
     if (!stormLayer) return;
-    const r = nc.res;
+    const v = ncView();
     const g = stormGridAt();
     nc.lensKind = g.kind;
     const line = nc.text || approachLine();
-    const live = r?.status === 'live';
-    const showTrack =
-      live &&
-      (['arriving', 'over'].includes(r.ap?.status) || wx.layers.radar3d);
+    const live = v?.status === 'live';
+    const ap = live
+      ? v.simulated
+        ? v.ap
+        : approachNow(v.apFrame || v.ap, (Date.now() - v.frameAt) / 60e3)
+      : null;
+    const six = imperial() ? '6 mi' : '10 km';
+    const arrivalText =
+      line.status === 'over'
+        ? `over the ${siteNounNow()} now`
+        : ['arriving', 'near'].includes(line.status)
+          ? ap?.overMin != null
+            ? `core over the ${siteNounNow()} ${inEta(ap.overMin)}`
+            : line.status === 'near'
+              ? `core within ${six} now`
+              : `core within ${six} ${inEta(ap.nearMin)}`
+          : '';
     const lensMin =
-      wx.at != null && r?.frameAt ? (wx.at - r.frameAt) / 60e3 : null;
-    stormLayer.set({
+      wx.at != null && v?.frameAt ? (wx.at - v.frameAt) / 60e3 : null;
+    const opts = {
       grid: g.grid,
-      showColumns: wx.layers.radar3d,
-      ap: showTrack ? r.ap : null,
-      motion: r?.motion,
+      showShells: wx.layers.radar3d,
+      ap: live ? ap : null,
+      motion: v?.motion,
       level: line.level,
-      trackText: line.short || line.text,
+      trackText: line.short || line.claim,
+      arrivalText,
       inspect: line.text,
       lensMin: lensMin > 0 ? lensMin : null,
       lensText:
-        wx.at != null
-          ? `${hhmm(new Date(wx.at).toISOString())} on this track`
-          : '',
+        wx.at != null ? `${hhmm(new Date(wx.at).toISOString())} on this track` : '',
       alerts: alertList(),
       showAlerts: wx.layers.alertAreas,
       lightning: ltgLine(),
       siteNoun: siteNounNow(),
-    });
+      nearLabel: imperial()
+        ? '6 mi · lightning and gusts arrive before the rain core'
+        : '10 km · lightning and gusts arrive before the rain core',
+      labelScale: document.body.dataset.view === 'screen' ? 2 : 1,
+    };
+    // Rebuild only when something drawn changed (the shells are traced).
+    const key = JSON.stringify([
+      g.grid?.t,
+      g.kind,
+      opts.showShells,
+      ap?.status,
+      Math.round(ap?.nearMin ?? -1),
+      Math.round(ap?.overMin ?? -1),
+      opts.level,
+      opts.trackText,
+      opts.lensMin != null ? Math.round(opts.lensMin) : null,
+      opts.alerts.map((x) => `${x.event}:${x.inside}`),
+      opts.showAlerts,
+      opts.lightning?.text,
+      opts.labelScale,
+    ]);
+    if (key === stormKey) return;
+    stormKey = key;
+    stormLayer.set(opts);
   }
   function radar3dNote() {
-    const r = nc.res;
-    if (!r) return 'Radar frames loading';
-    if (r.status !== 'live')
-      return `The ${r.source} frame did not load · not drawn`;
-    if (r.simulated) return `SIMULATED storm (prototype) · ${COLUMN_RULE}`;
+    const v = ncView();
+    if (!v) return 'Radar frames loading';
+    if (v.status !== 'live') return `The ${v.source} frame did not load · not drawn`;
+    if (v.simulated) return `SIMULATED storm (prototype) · ${HEIGHT_RULE}`;
     const k = nc.lensKind;
+    const rule = v.latest?.tops ? HEIGHT_RULE : HEIGHT_RULE_EST;
     if (k === 'projected')
-      return `PROJECTED to ${wxTime(wx.at)} on the current track · from ${r.source} ${wxTime(r.frameAt)} · ${COLUMN_RULE}`;
+      return `PROJECTED to ${wxTime(wx.at)} on the current track · from ${v.source} ${wxTime(v.frameAt)} · ${rule}`;
     if (k === 'beyond')
       return 'Beyond the 60 min projection · the forecast map takes over';
     if (k === 'loading') return 'Radar frame loading';
     if (k === 'missing') return 'No radar frame for this time · not drawn';
-    return `${r.source} ${wxTime(wx.at != null ? wx.at : r.frameAt)} · within 30 km · ${COLUMN_RULE}`;
+    return `${v.source} ${ago(wx.at != null ? wx.at : v.frameAt)} · moderate rain and above within ${imperial() ? '28 mi' : '45 km'} · ${rule}`;
   }
   function alertAreasNote() {
     if (region !== 'us')
       return 'MeteoAlarm areas come without a shape · alerts are listed in the rail';
     const list = alertList();
     if (!list.length)
-      return `No official alerts for this point · NWS checked ${wx.warningsAt ? hhmm(new Date(wx.warningsAt).toISOString()) : 'at load'}`;
+      return `No official alerts for this point · NWS checked ${wx.warningsAt ? ago(wx.warningsAt) : 'at load'}`;
     const inside = list.filter((a) => a.inside).length;
     return `${list.length} alert area${list.length > 1 ? 's' : ''}${inside ? ` · the ${siteNounNow()} is inside ${inside === list.length ? (list.length > 1 ? 'all' : 'it') : inside}` : ''}`;
   }
-  /** The chip on the map's edge while a core is arriving or over the site. */
+  /** The chip on the map's edge (All-in-one only: walls show no controls). */
   function approachChip() {
+    if (document.body.dataset.view === 'screen') return [];
     const t = nc.text;
-    if (!['arriving', 'over'].includes(t?.status)) return [];
+    if (!['arriving', 'near', 'over'].includes(t?.status)) return [];
     return [
       {
         label: t.short,
@@ -4893,23 +5016,42 @@ async function main() {
       },
     ];
   }
-  /** Operator action: radar in 3D on, and the camera frames site and storm. */
+  /** Operator action: storm shells on; frame site and storm across the track. */
   function frameStorm() {
     wx.layers.radar3d = true;
-    const r = nc.res;
-    const pts = [ncCenter()];
-    if (r?.ap?.core) pts.push(r.ap.core);
+    const v = ncView();
+    const site = ncCenter();
+    const pts = [site];
+    const core = v?.ap?.core;
+    if (core) {
+      pts.push(core);
+      // The storm body trails the core: take in 20 min of track behind it.
+      if (hasMotion(v.motion)) {
+        const km = (v.motion.speedKmh * 20) / 60;
+        const h = Cesium.Math.toRadians(v.motion.headingDeg);
+        pts.push({
+          lat: core.lat - (km * Math.cos(h)) / 111.32,
+          lon:
+            core.lon -
+            (km * Math.sin(h)) / (111.32 * Math.cos((core.lat * Math.PI) / 180)),
+        });
+      }
+    }
     const sphere = Cesium.BoundingSphere.fromPoints(
       pts.map((p) => Cesium.Cartesian3.fromDegrees(p.lon, p.lat, 0)),
     );
-    viewer.camera.flyToBoundingSphere(sphere, {
-      offset: new Cesium.HeadingPitchRange(
-        viewer.camera.heading,
-        Cesium.Math.toRadians(-38),
-        Math.max(6000, sphere.radius * 3.2),
-      ),
+    // Look across the track, so the storm moves left to right in view.
+    const heading = hasMotion(v?.motion)
+      ? Cesium.Math.toRadians((v.motion.headingDeg + 270) % 360)
+      : viewer.camera.heading;
+    twin.flySafe(sphere, {
+      heading,
+      pitch: Cesium.Math.toRadians(-30),
+      range: Math.max(14000, sphere.radius * 3.4),
+      fit: true,
       duration: reducedMotion() ? 0 : 1.6,
     });
+    stormKey = '';
     drawWeather();
     renderLayers();
   }
@@ -4921,16 +5063,20 @@ async function main() {
   document.body.append(inspectEl);
   let inspectTimer = null;
   function showInspect(id) {
-    const r = nc.res;
+    const v = ncView();
     const g = stormGridAt();
-    const frameText = !r
+    const frameText = !v
       ? ''
-      : r.simulated
+      : v.simulated
         ? 'SIMULATED storm (prototype)'
         : g.kind === 'projected'
-          ? `PROJECTED to ${wxTime(wx.at)} on the current track from ${r.source} ${wxTime(r.frameAt)}`
-          : `${r.source} ${wxTime(g.grid?.t ?? r.frameAt)} · ${Math.max(0, Math.round((Date.now() - (g.grid?.t ?? r.frameAt)) / 60e3))} min old`;
-    const info = stormLayer?.info(id, { frameText, siteNoun: siteNounNow() });
+          ? `PROJECTED to ${wxTime(wx.at)} on the current track from ${v.source} ${wxTime(v.frameAt)}`
+          : `${v.source} ${ago(g.grid?.t ?? v.frameAt)}`;
+    const info = stormLayer?.info(id, {
+      frameText,
+      siteNoun: siteNounNow(),
+      dist: (m) => formatDistance(m),
+    });
     if (!info) return false;
     const close = document.createElement('button');
     close.type = 'button';
@@ -4960,7 +5106,10 @@ async function main() {
   }
   /** Demo: the simulated storm on or off (Prototype, or the remote). */
   function setSimStorm(start) {
-    nc.simStart = start || null;
+    // A demo older than 45 min has ended, whatever the session says.
+    const s = start && Date.now() - start < SIM_MAX_MS ? start : null;
+    if (s === nc.simStart) return;
+    nc.simStart = s;
     nc.simGrid.clear();
     if (nc.simStart) {
       wx.layers.radar3d = true;
@@ -4969,12 +5118,47 @@ async function main() {
     }
     const box = $('tt-simstorm');
     if (box) box.checked = Boolean(nc.simStart);
+    document.body.classList.toggle('tt-demo-storm', Boolean(nc.simStart));
+    stormKey = '';
     renderSimFlag();
-    loadNowcast();
+    refreshNowcast();
     renderWeather();
-    renderLayers();
   }
-  /** "VIEWING 21:45 · PROJECTED ON THE CURRENT TRACK" while the lens is away. */
+  /** OFFICIAL kicker plus the same lines as every other surface. */
+  function officialInto(add) {
+    add(
+      'tt-kicker',
+      `OFFICIAL · ${WX.warnings === 'nws' ? 'NWS' : 'MeteoAlarm'}`,
+    );
+    for (const l of officialLines())
+      add(
+        `tt-wall-line${l.sim ? ' sim' : l.official ? ' official' : l.warn ? ' warn' : ''}`,
+        l.text,
+      );
+  }
+  /** Lead numeral, claim, detail: readable from across the room. */
+  function tierBlock(ap) {
+    const box = document.createElement('div');
+    box.className = `tt-wx-tiers ${ap.level || 'info'}`;
+    if (ap.lead) {
+      const n = document.createElement('div');
+      n.className = 'tt-wx-lead';
+      n.textContent = ap.lead;
+      box.append(n);
+    }
+    const c = document.createElement('div');
+    c.className = 'tt-wx-claim';
+    c.textContent = ap.claim || ap.text;
+    box.append(c);
+    if (ap.detail) {
+      const d = document.createElement('div');
+      d.className = 'tt-wx-detail';
+      d.textContent = ap.detail;
+      box.append(d);
+    }
+    return box;
+  }
+  /** "VIEWING +30 MIN · 20:51 CDT · PROJECTION …" while the lens is away. */
   function lensLine() {
     if (wx.at == null) return '';
     const now = Date.now();
@@ -4983,9 +5167,16 @@ async function main() {
       : wx.at <= now
         ? 'OBSERVED RADAR'
         : projectionOn() && wx.at - now <= PROJECT_MAX_MIN * 60e3
-          ? 'PROJECTED ON THE CURRENT TRACK · NOT A FORECAST MODEL'
+          ? 'PROJECTION ON THE CURRENT TRACK, NOT A FORECAST MODEL'
           : 'FORECAST';
-    return `VIEWING ${wxTime(wx.at)} · ${what}`;
+    // Rounded to 5 min so every wall reads the same figure.
+    const m = Math.round((wx.at - now) / 60e3);
+    const rel =
+      Math.abs(m) >= 10
+        ? `${m > 0 ? '+' : '−'}${Math.round(Math.abs(m) / 5) * 5} MIN`
+        : relText(wx.at, now).toUpperCase();
+    const claim = lensClaim();
+    return `VIEWING ${rel} · ${wxTime(wx.at)} · ${what}${claim ? ` · ${claim}` : ''}`;
   }
   function wxRowNote(key) {
     if (key === 'radar3d') return radar3dNote();
@@ -5025,10 +5216,10 @@ async function main() {
     sm.textContent = `Weather overlays · ${on} of 7 on`;
     d.append(sm);
     for (const [key, label] of [
-      ['radar3d', 'Radar with height (3D)'],
+      ['radar3d', 'Storm shells (3D)'],
       ['alertAreas', 'Official alert areas'],
       ['lightning', 'Lightning'],
-      ['precip', 'Rain & snow map'],
+      ['precip', 'Rain map (flat)'],
       ['fx', 'Rain & snow at the site (3D)'],
       ['clouds', 'Clouds & haze at the site (3D)'],
       ['totals', 'Rain & snow totals, last 24 h'],
@@ -5093,8 +5284,12 @@ async function main() {
       lightningDown,
       exposure,
       pace: rainPace(wxSummary(), { simulated: wx.sim.rain || wx.sim.snow }),
-      official: officialLines(),
-      approach: ['arriving', 'over'].includes(nc.text?.status) ? nc.text : null,
+      official: officialLines()
+        .filter((l) => l.official || l.sim || l.warn)
+        .map((l) => l.text),
+      approach: ['arriving', 'near', 'over'].includes(nc.text?.status)
+        ? nc.text
+        : null,
       lightningNear: ltgLine(),
     };
   }
@@ -5583,15 +5778,11 @@ async function main() {
   });
 
   // ---- weather feeds: now 10 min, images 5 min, warnings 5 min ----
-  // Phase 12: the nowcast every 3 min (radar frames come every 5); the
-  // simulated storm every 20 s so its arrival time counts down.
+  // Phase 12: real radar every 3 min (frames come every 5).
   loadNowcast();
-  const ncTimer = setInterval(() => {
-    if (!nc.simStart) loadNowcast();
-  }, 3 * 60e3);
-  const ncSimTimer = setInterval(() => {
-    if (nc.simStart) loadNowcast();
-  }, 20e3);
+  const ncTimer = setInterval(() => loadNowcast(), 3 * 60e3);
+  // Every 20 s: arrival times count down from now; the demo storm moves.
+  const ncSimTimer = setInterval(() => refreshNowcast(), 20e3);
   cleanups.push(
     () => clearInterval(ncTimer),
     () => clearInterval(ncSimTimer),
@@ -5690,6 +5881,7 @@ async function main() {
   let anyIncCache = { at: 0, v: false };
   const screenApi = {
     cityKey,
+    tripTitle: () => focusTrip.title,
     tripCity: (id) => tripById(id).city,
     tripScenario: (id) => tripById(id).scenario,
     setEpoch(ms) {
@@ -5974,23 +6166,7 @@ async function main() {
           `Day ${e.day} · ${e.start} · ${e.title}${site && !String(e.title).includes(site.short || '§') ? ` · ${site.short || site.label || ''}` : ''}`,
         );
       }
-      add(
-        'tt-kicker',
-        `OFFICIAL · ${WX.warnings === 'nws' ? 'NWS' : 'MeteoAlarm'}`,
-      );
-      if (wx.warningsStatus === 'unavailable')
-        add(
-          'tt-wall-line warn',
-          'Official warnings unavailable right now — not checked',
-        );
-      else if (!wx.warnings.length)
-        add(
-          'tt-wall-line',
-          `Checked ${wx.warningsAt ? hhmm(new Date(wx.warningsAt).toISOString()) : 'at load'}: no active alerts returned for this point`,
-        );
-      else
-        for (const w of wx.warnings)
-          add('tt-wall-line official', warningLine(w, city.timezone));
+      officialInto(add);
       try {
         const c = city.anchors?.inside || city.center;
         const today = new Date().toISOString().slice(0, 10);
@@ -6037,23 +6213,7 @@ async function main() {
       } catch {
         /* no sunset line */
       }
-      add(
-        'tt-kicker',
-        `OFFICIAL · ${WX.warnings === 'nws' ? 'NWS' : 'MeteoAlarm'}`,
-      );
-      if (wx.warningsStatus === 'unavailable')
-        add(
-          'tt-wall-line warn',
-          'Official warnings unavailable right now — not checked',
-        );
-      else if (!wx.warnings.length)
-        add(
-          'tt-wall-line',
-          `Checked ${wx.warningsAt ? hhmm(new Date(wx.warningsAt).toISOString()) : 'at load'}: no active alerts returned for this point`,
-        );
-      else
-        for (const w of wx.warnings)
-          add('tt-wall-line official', warningLine(w, city.timezone));
+      officialInto(add);
       add(
         'tt-wall-note',
         'Checks and notes for each stop are in the brief on the left · reviewed on the All-in-one',
@@ -6068,25 +6228,31 @@ async function main() {
         node.append(n);
       };
       node.replaceChildren();
-      const src = WX.warnings === 'nws' ? 'NWS' : 'MeteoAlarm';
+      officialInto(add);
       const ap = nc.text || approachLine();
-      add('tt-kicker', 'SEE IT COMING · OBSERVED MOTION');
-      add(`tt-wall-line tt-wx-approach ${ap.level}`, ap.text);
-      if (nc.res?.motion && !nc.res.simulated)
+      add(
+        'tt-kicker',
+        `STORM APPROACH · RADAR TRACK${nc.sim ? ' · SIMULATED' : ''}`,
+      );
+      node.append(tierBlock(ap));
+      if (nc.realText)
+        add('tt-wall-note', `Real radar under the demo: ${nc.realText.text}`);
+      const r = nc.res;
+      if (!nc.sim && r?.status === 'live' && !r.positionOnly)
         add(
           'tt-wall-note',
-          `Motion from two ${nc.res.source} frames 20 min apart · a track, not a forecast model · ${COLUMN_RULE}`,
+          `Motion from two ${r.source} frames 20 min apart · a track, not a forecast model · ${r.latest?.tops ? HEIGHT_RULE : HEIGHT_RULE_EST}`,
         );
-      add('tt-kicker', `OFFICIAL · ${src}`);
-      if (wx.warningsStatus === 'unavailable')
-        add('tt-wall-line warn', `${src} unavailable right now — not checked`);
-      else if (!wx.warnings.length)
-        add(
-          'tt-wall-line',
-          `${src} checked ${wx.warningsAt ? hhmm(new Date(wx.warningsAt).toISOString()) : 'at load'}: no active alerts returned for this point`,
-        );
-      else
-        for (const line of officialLines()) add('tt-wall-line official', line);
+      const out = outdoorsNow();
+      if (out.length && ['arriving', 'near', 'over'].includes(ap.status)) {
+        add('tt-kicker attention', `OUTDOORS NOW · ${out.length}`);
+        for (const o of out.slice(0, 6))
+          add(
+            'tt-wall-line',
+            `${o.name} · ${formatDistance(o.distM)} from the ${siteNounNow()}${o.walkMin ? ` · about ${o.walkMin} min walk` : ''}`,
+          );
+        if (out.length > 6) add('tt-wall-note', `+${out.length - 6} more`);
+      }
       add('tt-kicker', 'SENSED');
       // lastCtx.fires is already the formatted line (firesLine at assess).
       add(
@@ -6098,7 +6264,7 @@ async function main() {
         ltgLine()?.text ||
           `Lightning · ${WX.lightning?.label || 'strike density'} · none within 30 km in the latest grid`,
       );
-      add('tt-kicker', 'NOW');
+      add('tt-kicker', `AT THE ${siteNounNow().toUpperCase()}`);
       const parts = [...$('tt-wx').children]
         .map((n) => n.textContent.trim())
         .filter(Boolean);

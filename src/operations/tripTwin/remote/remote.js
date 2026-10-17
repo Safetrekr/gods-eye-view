@@ -10,13 +10,14 @@ import { needsConfirm, previewAll } from '../twinSession.js';
 import { DEMO_TRIPS, tripById, tripDays } from '../demoTrips.js';
 import { tripTwinDemoSnapshot } from '../demoTripTwin.js';
 import { siteConfig, sitesForCity } from '../twinSites.js';
-import { approachText } from '../twinNowcast.js';
+import { approachNow, approachText } from '../twinNowcast.js';
 import {
   loadAlertAreas,
   loadLightningNearest,
   loadNwsAlerts,
   regionOf,
   runNowcast,
+  simNowcast,
   simulatedAlert,
 } from '../twinNowcastLoad.js';
 import { STATIONS, btn } from './stations.js';
@@ -580,28 +581,44 @@ function targetCard() {
   return c;
 }
 // ---- phase 12: see it coming, computed here from the same sources ----
+// Real radar every 3 min (never replaced by the demo); the demo storm is
+// computed here on top; every 20 s the arrival counts down from now.
 let wxSeq = 0;
 let wxKey = '';
 let wxAt = 0;
+let wxReal = null; // {nc, alerts, alertsAt, ltg}
 async function refreshWx(force = false) {
   const ss = ui.state?.session;
   if (!ss) return;
   const t = tripById(ss.tripId);
   const site = siteConfig(ss.siteKey || t.city) || siteConfig(t.city);
   if (!site) return;
-  const key = `${t.id}:${site.key}:${ss.simStorm || ''}`;
-  const sim = Boolean(ss.simStorm);
-  if (!force && key === wxKey && Date.now() - wxAt < (sim ? 20e3 : 120e3))
-    return;
-  wxKey = key;
-  wxAt = Date.now();
-  const seq = ++wxSeq;
+  const key = `${t.id}:${site.key}`;
   const center = {
     lat: site.center.lat,
     lon: site.center.lon ?? site.center.lng,
   };
   const region = regionOf(site.timezone);
   const us = region === 'us';
+  if (force || key !== wxKey || Date.now() - wxAt > 180e3) {
+    if (key !== wxKey) wxReal = null;
+    wxKey = key;
+    wxAt = Date.now();
+    const seq = ++wxSeq;
+    const [nc, alerts, ltg] = await Promise.all([
+      runNowcast({ center, region }).catch(() => null),
+      us
+        ? loadNwsAlerts(center)
+            .then((list) => loadAlertAreas(list, center))
+            .catch(() => 'unavailable')
+        : Promise.resolve([]),
+      loadLightningNearest(region, center).catch(() => 'unavailable'),
+    ]);
+    if (seq !== wxSeq) return;
+    wxReal = { nc, alerts, alertsAt: Date.now(), ltg };
+  }
+  if (!wxReal) return;
+  const { nc, alerts, alertsAt, ltg } = wxReal;
   const dist = (m) =>
     us
       ? `${(m / 1609.344).toFixed(1)} mi`
@@ -620,51 +637,57 @@ async function refreshWx(force = false) {
           timeZoneName: 'short',
         })
       : '';
+  // "20:21 CDT, 3 min ago" / "21:35 CDT, in 1 h 13 min".
+  const ago = (ms) => {
+    const m = Math.round((Date.now() - ms) / 60e3);
+    if (m >= 0) return `${clock(ms)}, ${m} min ago`;
+    const h = Math.floor(-m / 60);
+    return `${clock(ms)}, in ${h ? `${h} h ` : ''}${-m % 60} min`;
+  };
   const noun = site.kind === 'lodging' ? 'hotel' : 'venue';
-  const [nc, alerts, ltg] = await Promise.all([
-    runNowcast({ center, region, simStart: ss.simStorm || null }).catch(
-      () => null,
-    ),
-    us
-      ? loadNwsAlerts(center)
-          .then((list) => loadAlertAreas(list, center))
-          .catch(() => 'unavailable')
-      : Promise.resolve([]),
-    sim
-      ? Promise.resolve(null)
-      : loadLightningNearest(region, center).catch(() => 'unavailable'),
-  ]);
-  if (seq !== wxSeq) return;
-  const text =
-    !nc || nc.status !== 'live'
-      ? {
-          status: 'unavailable',
-          level: 'info',
-          text: `Storm approach unavailable · the ${nc?.source || 'radar'} frame did not load`,
-        }
-      : approachText(nc.ap, {
-          dist,
-          speed,
-          siteNoun: noun,
-          frame: clock(nc.frameAt),
-          source: nc.source,
-          simulated: nc.simulated,
-          boxKm: 160,
-          boxText: us ? '50 mi' : '80 km',
-        });
+  const SIM_MAX = 45 * 60e3;
+  const simOn = Boolean(ss.simStorm) && Date.now() - ss.simStorm < SIM_MAX;
+  const sim = simOn ? simNowcast({ center, simStart: ss.simStorm }) : null;
+  const lineOf = (r) => {
+    if (!r || r.status !== 'live') {
+      const tx = `Storm approach unavailable · the ${r?.source || 'radar'} frame did not load`;
+      return { status: 'unavailable', level: 'info', lead: '', claim: tx, detail: '', text: tx, short: '' };
+    }
+    const age = r.simulated ? 0 : (Date.now() - r.frameAt) / 60e3;
+    const ap = r.simulated ? r.ap : approachNow(r.apFrame || r.ap, age);
+    return {
+      ...approachText(ap, {
+        dist,
+        speed,
+        siteNoun: noun,
+        frame: clock(r.frameAt),
+        frameAge: r.simulated ? null : age,
+        source: r.source,
+        simulated: r.simulated,
+        positionOnly: r.positionOnly,
+        unmeasured: r.motion?.unmeasured,
+        boxText: us ? '50 mi' : '80 km',
+        nearText: us ? '6 mi' : '10 km',
+      }),
+      overMin: ap.overMin,
+      nearMin: ap.nearMin,
+    };
+  };
+  const text = lineOf(sim || nc);
+  const realText = sim ? lineOf(nc) : null;
   const lines = [];
-  if (ss.simStorm) {
+  if (sim) {
     const a = simulatedAlert(center, Date.now(), ss.simStorm);
     lines.push({
-      text: `SIMULATED · ${a.event} · until ${clock(Date.parse(a.ends))}${a.inside ? ` · the ${noun} is inside the area` : ''}`,
+      text: `SIMULATED (demo) · ${a.event} · until ${ago(Date.parse(a.ends))}${a.inside ? ` · the ${noun} is inside the area` : ''}`,
       sim: true,
     });
   }
   if (alerts === 'unavailable')
-    lines.push({ text: 'NWS alerts unavailable right now' });
-  else if (us && !alerts.length && !ss.simStorm)
+    lines.push({ text: 'NWS alerts unavailable right now · not checked', warn: true });
+  else if (us && !alerts.length)
     lines.push({
-      text: `NWS checked ${clock(Date.now())}: no active alerts returned for this point`,
+      text: `NWS checked ${ago(alertsAt)}: no active alerts returned for this point`,
     });
   else if (!us)
     lines.push({
@@ -672,29 +695,44 @@ async function refreshWx(force = false) {
     });
   for (const a of Array.isArray(alerts) ? alerts : [])
     lines.push({
-      text: `NWS: ${a.event}${a.ends ? ` · until ${new Date(a.ends).toLocaleString('en-GB', { timeZone: site.timezone, weekday: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}${a.inside ? ` · the ${noun} is inside the area` : ''}`,
+      official: true,
+      text: `NWS: ${a.event}${a.ends ? ` · until ${ago(Date.parse(a.ends))}` : ''}${a.inside ? ` · the ${noun} is inside the area` : ''}`,
     });
   let ltgText = '';
-  if (sim && nc?.strikes?.length)
+  if (sim?.strikes?.length)
     ltgText = 'SIMULATED lightning rides with the storm (on the walls)';
-  else if (ltg === 'unavailable')
-    ltgText = 'Lightning grid unavailable right now';
+  else if (ltg === 'unavailable') ltgText = 'Lightning grid unavailable right now';
   else if (ltg)
-    ltgText = `Lightning · nearest grid cell ${dist(ltg.distKm * 1000)} ${ltg.dir} · ${ltg.source} ${clock(ltg.at)}`;
+    ltgText = `Lightning · nearest grid cell ${dist(ltg.distKm * 1000)} ${ltg.dir}${ltg.distKm <= 10 ? ` · inside ${us ? '6 mi' : '10 km'}` : ''} · ${ltg.source} 15-min density, fetched ${ago(ltg.at)}`;
   else
     ltgText = `Lightning · none within ${us ? '25 mi' : '40 km'} in the latest grid`;
   ui.wx = {
     text,
+    realText,
     lines,
     ltgText,
-    sim,
+    sim: Boolean(sim),
     clock,
     site,
-    frameAt: nc?.frameAt,
-    motion: nc?.motion,
+    frameAt: (sim || nc)?.frameAt,
+    motion: (sim || nc)?.motion,
+    positionOnly: !sim && nc?.positionOnly,
   };
   renderRail();
   if (ui.station === 'weather') renderContent(true);
+}
+/** The Weather tile's pill: "IN ~25 MIN", "OVERHEAD", "SIM IN ~25". */
+function wxPill(t, sim, us = true) {
+  if (!t) return '';
+  // The same time as the big figure: the core within 6 mi (10 km).
+  const m = t.nearMin ?? t.overMin;
+  let p = '';
+  if (t.status === 'over') p = 'OVERHEAD';
+  else if (t.status === 'near') p = us ? 'WITHIN 6 MI' : 'WITHIN 10 KM';
+  else if (t.status === 'arriving' && m != null && m <= 90)
+    p = `IN ~${Math.max(5, Math.round(m / 5) * 5)} MIN`;
+  if (!p) return '';
+  return sim ? `SIM ${p.replace(/ MIN$/, '')}` : p;
 }
 function renderRail() {
   if (!ui.state) return;
@@ -739,21 +777,10 @@ function renderRail() {
     if (s.id === 'incident' && incidentOpen)
       t.append(el('span', 'pill', 'OPEN'));
     // A core on its way to the site shows on the Weather tile (amber).
-    if (s.id === 'weather' && wxT?.status === 'arriving' && wxT.eta <= 90)
+    const pill = s.id === 'weather' ? wxPill(wxT, ui.wx?.sim, regionOf(ui.wx?.site?.timezone) === 'us') : '';
+    if (pill)
       t.append(
-        el(
-          'span',
-          `pill ${wxT.level === 'attention' ? 'attn' : 'watch'}`,
-          `~${Math.max(1, Math.round(wxT.eta / 5) * 5)} MIN`,
-        ),
-      );
-    if (s.id === 'weather' && wxT?.status === 'over')
-      t.append(
-        el(
-          'span',
-          `pill ${wxT.level === 'attention' ? 'attn' : 'watch'}`,
-          'OVER',
-        ),
+        el('span', `pill ${wxT.level === 'attention' ? 'attn' : 'watch'}`, pill),
       );
     g.append(t);
   }
