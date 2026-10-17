@@ -711,3 +711,48 @@ body[data-view='screen'][data-role='day'] .tt-wall-panel .tt-kicker {
 :root {
   --tt-focus: #eef5f3;
 }
+
+/* Scrollbars and native controls follow the material (Jesse, 16 Oct):
+   a thin steel thumb on a transparent track; dark form controls. */
+:root {
+  color-scheme: dark;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(184, 195, 199, 0.28) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(184, 195, 199, 0.28);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(184, 195, 199, 0.45);
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+/* Walls are display only: no scrollbar on a wall, the fade says "more". */
+body[data-view='screen'] * {
+  scrollbar-width: none;
+}
+body[data-view='screen'] *::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+select,
+input,
+textarea {
+  background: rgba(2, 7, 11, 0.6);
+  color: var(--tt-text);
+  border: 1px solid var(--tt-border);
+}
