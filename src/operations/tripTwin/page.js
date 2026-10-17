@@ -4886,9 +4886,13 @@ async function main() {
   }
 
   // ---- prototype drawer behaviour ----
+  // A pinned ?site= outranks ?city= (phase 3), so changing the city or the
+  // scenario drops it: the new city opens at the scenario's own default site
+  // (Jesse, 16 Oct: the City select never changed the venue).
   const reloadWith = (k, v) => {
     const next = new URLSearchParams(location.search);
     next.set(k, v);
+    if (k === 'city' || k === 'scenario') next.delete('site');
     location.search = next.toString();
   };
   $('tt-scenario').addEventListener('change', (e) =>
