@@ -5,8 +5,10 @@
 // official alert areas, and the nearest lightning. Every element is pickable
 // and says its value, source and age (the inspect card).
 //
-// Colour: rain is a steel ramp (never path blue, never a meaning colour);
-// alert areas amber (official = attention); lightning red (hazard).
+// Colour by severity (Jesse, 16 Oct 2026): light and heavy rain stay grey;
+// very heavy cores (50 dBZ) amber, attention; intense cores (60 dBZ, hail
+// likely) hazard red. Never green or blue (approved places and paths).
+// Alert areas are a faint amber line so the amber cores read first.
 import * as Cesium from 'cesium';
 import { bandOf, compass, toKm } from './twinNowcast.js';
 import { smoothLoop, traceAreas } from './twinContours.js';
@@ -21,21 +23,17 @@ const FT = 0.3048;
 // Level: [dBZ, fill hex, fill alpha, edge hex, edge alpha, share of the top]
 const LEVELS = [
   [30, '#80959b', 0.05, null, 0, 0.12],
-  [40, '#9fb3bd', 0.09, '#9fb3bd', 0.55, 0.42],
-  [50, '#c3d0d6', 0.14, '#c3d0d6', 0.75, 0.72],
-  [60, '#e2e9ec', 0.2, '#eef5f3', 0.9, 1],
-];
-// Trial (?stormColor=severity): grey for rain, amber for very heavy cores
-// (attention), hazard red for intense cores. Not yet adopted.
-const SEVERITY_LEVELS = [
-  [30, '#80959b', 0.05, null, 0, 0.12],
   [40, '#9fb3bd', 0.08, '#b8c3c7', 0.6, 0.42],
   [50, '#f59e0b', 0.16, '#f59e0b', 0.85, 0.72],
   [60, '#ee7789', 0.26, '#f299a6', 0.95, 1],
 ];
-const SEVERITY =
-  typeof location !== 'undefined' &&
-  new URLSearchParams(location.search).get('stormColor') === 'severity';
+/** The key beside the storm: [dBZ, colour, words]. */
+export const SEVERITY_KEY = [
+  [30, '#80959b', 'Light to moderate rain'],
+  [40, '#b8c3c7', 'Heavy rain · a rain core'],
+  [50, '#f59e0b', 'Very heavy · street flooding possible'],
+  [60, '#ee7789', 'Intense · hail likely'],
+];
 const FALLBACK_TOP_KFT = { moderate: 28, heavy: 38, intense: 46 };
 const AMBER = Cesium.Color.fromCssColorString('#f59e0b');
 const STEEL = Cesium.Color.fromCssColorString('#b8c3c7');
@@ -126,9 +124,7 @@ export function createStormLayer(viewer, site) {
     shellInfo = [];
     const s = siteLL();
     const h0 = base();
-    for (const [dbz, fill, fa, edge, ea, share] of SEVERITY
-      ? SEVERITY_LEVELS
-      : LEVELS) {
+    for (const [dbz, fill, fa, edge, ea, share] of LEVELS) {
       const areas = traceAreas(grid.data, grid.w, grid.h, dbz, {
         tops: grid.tops,
         minCells: dbz === 30 ? 12 : 6,
@@ -218,9 +214,7 @@ export function createStormLayer(viewer, site) {
                 image: streaks,
                 repeat: new Cesium.Cartesian2(Math.max(4, lenKm * 3), 1),
                 transparent: true,
-                color: SEVERITY
-                  ? AMBER.withAlpha(0.6)
-                  : Cesium.Color.WHITE.withAlpha(0.55),
+                color: AMBER.withAlpha(0.6),
               }),
               outline: false,
             },
@@ -396,19 +390,19 @@ export function createStormLayer(viewer, site) {
             positions: r.map(([lon, lat]) => ll({ lat, lon }, base())),
             maximumHeights: r.map(() => base() + 260),
             minimumHeights: r.map(() => base()),
-            material: AMBER.withAlpha(a.simulated ? 0.12 : 0.09),
+            material: AMBER.withAlpha(a.simulated ? 0.05 : 0.04),
             outline: false,
           },
           polyline: {
             positions: r.map(([lon, lat]) => ll({ lat, lon }, base() + 260)),
-            width: 2.5,
+            width: 1.5,
             arcType: Cesium.ArcType.NONE,
             material: a.simulated
               ? new Cesium.PolylineDashMaterialProperty({
-                  color: AMBER.withAlpha(0.9),
-                  dashLength: 16,
+                  color: AMBER.withAlpha(0.5),
+                  dashLength: 24,
                 })
-              : AMBER.withAlpha(0.85),
+              : AMBER.withAlpha(0.55),
           },
         });
         for (const [lon, lat] of r) {
@@ -490,6 +484,7 @@ export function createStormLayer(viewer, site) {
           title: `${c.simulated ? 'SIMULATED · ' : ''}Rain · ${c.dbz} dBZ and above`,
           lines: [
             `${band} · peak ${Math.round(c.maxDbz)} dBZ${c.topKft ? ` · storm top ${Math.round(c.topKft)},000 ft` : ''}`,
+            `Colour: ${(SEVERITY_KEY.find((k) => k[0] === c.dbz) || SEVERITY_KEY[0])[2].toLowerCase()} (${c.dbz} dBZ and above)`,
             c.atSite
               ? `Over the ${siteNoun}`
               : `${dist ? dist(c.near * 1000) : `${c.near.toFixed(1)} km`} ${dir} of the ${siteNoun} at its nearest`,

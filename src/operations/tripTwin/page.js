@@ -135,6 +135,7 @@ import {
 import {
   HEIGHT_RULE,
   HEIGHT_RULE_EST,
+  SEVERITY_KEY,
   createStormLayer,
 } from './twinStorm3d.js';
 import {
@@ -4912,6 +4913,38 @@ async function main() {
       : `nearest rain core ${formatDistance(ap.edgeKm * 1000)} ${ap.fromDir} at that time`;
   }
   let stormKey = '';
+  // The colour key rides above the compass while storm shells are drawn.
+  const sevKey = document.createElement('div');
+  sevKey.className = 'tt-wx-key';
+  sevKey.hidden = true;
+  sevKey.setAttribute('aria-label', 'Storm colour key');
+  function renderSevKey(show, simulated) {
+    const host = document.querySelector('.tt-compass');
+    if (host && sevKey.parentNode !== host) host.append(sevKey);
+    sevKey.hidden = !show;
+    if (!show) return;
+    const k = simulated ? 'RAIN · SIMULATED' : 'RAIN · RADAR';
+    if (sevKey.dataset.k === k) return;
+    sevKey.dataset.k = k;
+    const head = document.createElement('div');
+    head.className = 'tt-kicker';
+    head.textContent = k;
+    sevKey.replaceChildren(
+      head,
+      ...[...SEVERITY_KEY].reverse().map(([dbz, color, words]) => {
+        const row = document.createElement('div');
+        row.className = 'row';
+        const sw = document.createElement('i');
+        sw.style.background = color;
+        const t = document.createElement('span');
+        t.textContent = words;
+        const v = document.createElement('b');
+        v.textContent = `${dbz}${dbz === 60 ? '+' : ''}`;
+        row.append(sw, t, v);
+        return row;
+      }),
+    );
+  }
   function drawStorm() {
     if (!stormLayer) return;
     const v = ncView();
@@ -4974,6 +5007,7 @@ async function main() {
       opts.lightning?.text,
       opts.labelScale,
     ]);
+    renderSevKey(Boolean(opts.showShells && g.grid), Boolean(v?.simulated));
     if (key === stormKey) return;
     stormKey = key;
     stormLayer.set(opts);
