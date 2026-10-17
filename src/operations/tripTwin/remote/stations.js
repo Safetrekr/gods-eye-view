@@ -754,6 +754,15 @@ function layers(ctx) {
 
 // --------------------------------------------------------------- 03 Weather
 /** See it coming: the approach, the time lens, official alerts, lightning. */
+/** The same lens words as the walls (QA D18). */
+function lensKind(wx, at, now) {
+  if (wx?.sim) return 'SIMULATED storm';
+  if (at <= now) return wx?.positionOnly ? 'satellite estimate' : 'observed radar';
+  const moving = wx?.motion && !wx.motion.unmeasured && !wx.positionOnly;
+  return moving && at - now <= 60 * 60e3
+    ? 'projection on the current track, not a forecast model'
+    : 'forecast';
+}
 function weather(ctx) {
   const { state } = ctx;
   const ss = state.session;
@@ -827,7 +836,7 @@ function weather(ctx) {
       'rm-note',
       at == null
         ? 'Walls show the weather now.'
-        : `Walls show ${wx?.clock ? wx.clock(at) : 'another time'} · ${at > now ? (at - now <= 60 * 60e3 ? 'projection on the current track, not a forecast model' : 'forecast') : 'observed radar'} · people and incidents stay live.`,
+        : `Walls show ${wx?.clock ? wx.clock(at) : 'another time'} · ${lensKind(wx, at, now)} · people and incidents stay live.`,
     ),
   );
   out.push(kick('Official alerts', WALL));

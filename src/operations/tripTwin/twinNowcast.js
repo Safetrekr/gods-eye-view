@@ -395,6 +395,8 @@ export function approach({
       ...more,
       status: closing ? 'passing' : 'receding',
       cpaKm,
+      // On a track to the site, but past the horizon (QA D11).
+      beyondMin: nearMin != null ? horizonMin : null,
     };
   });
   const sev = (r) => BAND_RANK[r.core.band] || 0;
@@ -544,7 +546,10 @@ export function approachText(ap, fmt) {
       status: 'passing',
       level: 'info',
       lead: '',
-      claim: `${coreName(c)} passing ${fmt.dist(ap.cpaKm * 1000)} from the ${noun} on its current track`,
+      claim:
+        ap.beyondMin != null
+          ? `${coreName(c)} on a track toward the ${noun}, more than ${ap.beyondMin / 60} h away`
+          : `${coreName(c)} passing ${fmt.dist(ap.cpaKm * 1000)} from the ${noun} on its current track`,
       detail: [where, moving, src].filter(Boolean).join(' · '),
       short: '',
     });

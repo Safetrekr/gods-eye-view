@@ -330,3 +330,23 @@ test('lightning: nearest point; a trend needs more than one 8 km cell', () => {
   assert.equal(trendOf(12, 8), 'steady');
   assert.equal(trendOf(null, 8), null);
 });
+
+test('QA D11: a direct track past the horizon is not "passing 0.0 mi"', () => {
+  const w = 320;
+  const grid = makeGrid(new Float32Array(w * w), w, w, boxKm({ lat: 30, lon: -97 }, 160), 0);
+  const site = { lat: 30, lon: -97 };
+  const core = { lat: 30 - 70 / 111.32, lon: -97, band: 'heavy', maxDbz: 52, pixels: [] };
+  // A ring of pixels 4 km round the core centre, 70 km south of the site.
+  const ck = cellKm(grid);
+  const cx = w / 2;
+  const cy = w / 2 + Math.round(70 / ck.y);
+  for (let dy = -6; dy <= 6; dy++)
+    for (let dx = -6; dx <= 6; dx++)
+      if (dx * dx + dy * dy <= 36) core.pixels.push((cy + dy) * w + cx + dx);
+  const motion = { vxKmh: 0, vyKmh: 20, speedKmh: 20, headingDeg: 0, score: 0.9 };
+  const ap = approach({ cores: [core], motion, site, grid });
+  assert.equal(ap.status, 'passing');
+  assert.equal(ap.beyondMin, 120);
+  const t = approachText(ap, { dist: (m) => `${(m / 1000).toFixed(1)} km`, speed: (k) => `${k} km/h`, siteNoun: 'hotel', frame: '20:00', source: 'radar' });
+  assert.match(t.claim, /more than 2 h away/);
+});

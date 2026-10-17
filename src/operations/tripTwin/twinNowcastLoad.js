@@ -115,15 +115,27 @@ export function nowcastSource(region) {
 
 function loadImage(url, signal) {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('aborted', 'AbortError'));
+      return;
+    }
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    signal?.addEventListener(
-      'abort',
-      () => reject(new DOMException('aborted', 'AbortError')),
-      { once: true },
-    );
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('image failed'));
+    // The listener goes when the image settles (walls run for hours).
+    const onAbort = () => {
+      img.src = '';
+      reject(new DOMException('aborted', 'AbortError'));
+    };
+    const done = () => signal?.removeEventListener('abort', onAbort);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    img.onload = () => {
+      done();
+      resolve(img);
+    };
+    img.onerror = () => {
+      done();
+      reject(new Error('image failed'));
+    };
     img.src = url;
   });
 }
@@ -142,10 +154,16 @@ export async function loadGrid(
   const px = g.getImageData(0, 0, size, size).data;
   if (raw) return px;
   const data = rgbaToDbz(px, size, size, decode);
-  // A frame that is lit almost everywhere is a no-data tile, not rain.
+  // A no-data tile is one flat fill. A frame lit almost everywhere with
+  // varied values is real echo (a rain shield) and is kept (QA D2).
   let lit = 0;
-  for (let i = 0; i < data.length; i++) if (data[i] > 0) lit++;
-  if (lit / data.length > 0.9) return null;
+  const seen = new Set();
+  for (let i = 0; i < data.length; i++)
+    if (data[i] > 0) {
+      lit++;
+      if (seen.size < 4) seen.add(data[i]);
+    }
+  if (lit / data.length > 0.9 && seen.size <= 2) return null;
   return makeGrid(data, size, size, bbox, t);
 }
 
@@ -171,7 +189,11 @@ export async function runNowcast({
     const url = src.url(bbox, t, NOWCAST_PX);
     if (cache.has(url)) return cache.get(url);
     const p = loadGrid(url, { bbox, t, signal, decode: src.decode }).catch(
-      () => null,
+      () => {
+        // A failed load is not cached: the next pass tries again (QA D16).
+        cache.delete(url);
+        return null;
+      },
     );
     cache.set(url, p);
     if (cache.size > 40) cache.delete(cache.keys().next().value);
@@ -278,9 +300,14 @@ export async function loadPastGrid({ region, center, t, signal, cache }) {
   const url = src.url(bbox, ft, NOWCAST_PX);
   if (cache?.has(url)) return cache.get(url);
   const p = loadGrid(url, { bbox, t: ft, signal, decode: src.decode }).catch(
-    () => null,
+    () => {
+      cache?.delete(url);
+      return null;
+    },
   );
   cache?.set(url, p);
+  // One bounded cache for latest and past frames (QA D16).
+  if (cache && cache.size > 40) cache.delete(cache.keys().next().value);
   return p;
 }
 

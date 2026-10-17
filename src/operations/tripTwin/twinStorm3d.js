@@ -300,6 +300,8 @@ export function createStormLayer(viewer, site) {
     });
     for (let m = 15; m < tc; m += 15)
       ds.entities.add({
+        // Pickable: opens the track card (QA D21).
+        id: `wx-track:tick${m}`,
         position: ll(at(m), h),
         point: {
           pixelSize: 7 * labelScale,

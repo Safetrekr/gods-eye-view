@@ -931,7 +931,7 @@ async function main() {
         ltg && ltg.d <= 15000
           ? [
               {
-                label: `${wx.sim.lightning ? 'SIMULATED ' : ''}Lightning`,
+                label: `${wx.sim.lightning || nc.sim ? 'SIMULATED ' : ''}Lightning`,
                 distance: formatDistance(ltg.d),
                 bearing: bearingLabel(city.center, ltg.pt),
                 hazard: true,
@@ -1253,7 +1253,17 @@ async function main() {
     loadWarnings();
     ensureImage('lightning');
     for (const k of ['precip', 'totals']) if (wx.layers[k]) ensureImage(k);
+    // Nothing from the old site carries over (QA D13).
     nc.res = null;
+    nc.sim = null;
+    nc.text = null;
+    nc.realText = null;
+    nc.alerts = [];
+    nc.past.clear();
+    nc.simGrid.clear();
+    nc.ltgSeenAt = nc.ltgLastKm = nc.ltgPrevKm = null;
+    inspectEl.hidden = true;
+    stormKey = '';
     loadNowcast();
   }
 
@@ -4024,10 +4034,10 @@ async function main() {
       });
     const zone =
       d
-        .toLocaleTimeString('en-US', {
-          timeZone: city.timezone,
-          timeZoneName: 'short',
-        })
+        .toLocaleTimeString(
+          /^America\//.test(city.timezone) ? 'en-US' : 'en-GB',
+          { timeZone: city.timezone, timeZoneName: 'short' },
+        )
         .split(' ')
         .pop() || '';
     return `${day(d) !== day(new Date()) ? `${day(d)} ` : ''}${hhmm(d.toISOString())} ${zone}`;
@@ -4631,6 +4641,8 @@ async function main() {
   let ncSeq = 0;
   /** Real radar, every 3 min. The demo storm never replaces it. */
   async function loadNowcast() {
+    // Nothing to fetch once Trip Twin is closed (QA D14).
+    if (twin.state === 'idle') return;
     const seq = ++ncSeq;
     let res;
     try {
@@ -4653,6 +4665,10 @@ async function main() {
   }
   /** Every 20 s: the arrival counts down; the demo storm moves. */
   function refreshNowcast() {
+    if (twin.state === 'idle') {
+      inspectEl.hidden = true;
+      return;
+    }
     if (nc.simStart && Date.now() - nc.simStart > SIM_MAX_MS) {
       setSimStorm(null);
       offerNotice?.('Demo storm ended after 45 min · real weather only');
@@ -4826,8 +4842,12 @@ async function main() {
       simulated: 'storm',
     };
   }
+  // Europe's satellite estimate is position only: no projection (QA D5).
   const projectionOn = () =>
-    wx.layers.radar3d && Boolean(nc.simStart || hasMotion(nc.res?.motion));
+    wx.layers.radar3d &&
+    Boolean(
+      nc.simStart || (hasMotion(nc.res?.motion) && !nc.res?.positionOnly),
+    );
   function projectionLabel(t) {
     if (nc.simStart) return `SIMULATED storm (prototype) · ${wxTime(t)}`;
     const r = nc.res;
@@ -4886,7 +4906,10 @@ async function main() {
         ? { grid: null, kind: 'loading' }
         : { grid: g || null, kind: g ? 'observed' : 'missing' };
     }
-    if (hasMotion(r.motion) && t - r.frameAt <= PROJECT_MAX_MIN * 60e3)
+    if (r.positionOnly)
+      return { grid: null, kind: t <= Date.now() ? 'noframe' : 'nomotion' };
+    if (!hasMotion(r.motion)) return { grid: null, kind: 'nomotion' };
+    if (t - r.frameAt <= PROJECT_MAX_MIN * 60e3)
       return {
         grid: projectGrid(r.latest, r.motion, (t - r.frameAt) / 60e3),
         kind: 'projected',
@@ -4897,7 +4920,14 @@ async function main() {
   function lensClaim() {
     if (wx.at == null) return '';
     const g = stormGridAt();
-    if (!g.grid) return g.kind === 'beyond' ? 'beyond the 60 min projection' : '';
+    if (!g.grid)
+      return g.kind === 'beyond'
+        ? 'beyond the 60 min projection'
+        : g.kind === 'nomotion'
+          ? 'no motion measured, no projection'
+          : g.kind === 'noframe'
+            ? 'no frame for this time yet'
+            : '';
     const ap = approach({
       cores: findCores(g.grid),
       motion: null,
@@ -5023,9 +5053,16 @@ async function main() {
       return `PROJECTED to ${wxTime(wx.at)} on the current track · from ${v.source} ${wxTime(v.frameAt)} · ${rule}`;
     if (k === 'beyond')
       return 'Beyond the 60 min projection · the forecast map takes over';
+    if (k === 'nomotion')
+      return v.positionOnly
+        ? 'Satellite estimate · position only · no projection ahead'
+        : 'No motion measured · no projection ahead';
+    if (k === 'noframe')
+      return 'The satellite estimate runs about 1 h behind · no frame for this time yet';
     if (k === 'loading') return 'Radar frame loading';
     if (k === 'missing') return 'No radar frame for this time · not drawn';
-    return `${v.source} ${ago(wx.at != null ? wx.at : v.frameAt)} · moderate rain and above within ${imperial() ? '28 mi' : '45 km'} · ${rule}`;
+    const claim = nc.text?.claim ? `${nc.text.claim} · ` : '';
+    return `${claim}${v.source} ${ago(wx.at != null ? wx.at : v.frameAt)} · ${rule}`;
   }
   function alertAreasNote() {
     if (region !== 'us')
@@ -5148,8 +5185,7 @@ async function main() {
     if (nc.simStart) {
       wx.layers.radar3d = true;
       wx.layers.lightning = true;
-      setWxTime(null);
-    }
+    } else if (wx.lastLightning?.simulated) wx.lastLightning = null;
     const box = $('tt-simstorm');
     if (box) box.checked = Boolean(nc.simStart);
     document.body.classList.toggle('tt-demo-storm', Boolean(nc.simStart));
@@ -5199,7 +5235,9 @@ async function main() {
     const what = nc.simStart
       ? 'SIMULATED STORM'
       : wx.at <= now
-        ? 'OBSERVED RADAR'
+        ? nc.res?.positionOnly
+          ? 'SATELLITE ESTIMATE'
+          : 'OBSERVED RADAR'
         : projectionOn() && wx.at - now <= PROJECT_MAX_MIN * 60e3
           ? 'PROJECTION ON THE CURRENT TRACK, NOT A FORECAST MODEL'
           : 'FORECAST';
@@ -5282,13 +5320,14 @@ async function main() {
   function weatherLines(a, snap, incident) {
     const gatherings = gatheringInUse(a, snap);
     lastWatchCenter = gatherings[0]?.point || null;
+    // Demo storm strikes are simulated too (QA D1, P0).
+    const simLtg = wx.sim.lightning || Boolean(nc.sim?.strikes?.length);
     const live = lightningException(strikes(), gatherings, {
-      simulated: wx.sim.lightning,
-      gridKm: wx.sim.lightning ? null : WX.lightning?.gridKm,
+      simulated: simLtg,
+      gridKm: simLtg ? null : WX.lightning?.gridKm,
     });
-    if (live) wx.lastLightning = { ex: live, at: Date.now() };
-    else if (!wx.sim.lightning && wx.lastLightning?.ex.text.startsWith('SIM'))
-      wx.lastLightning = null;
+    if (live) wx.lastLightning = { ex: live, at: Date.now(), simulated: simLtg };
+    else if (!simLtg && wx.lastLightning?.simulated) wx.lastLightning = null;
     const lightning =
       live ||
       heldLightning(
@@ -5344,9 +5383,11 @@ async function main() {
   });
   $('tt-reduce-motion').addEventListener('change', () => drawFx());
   $('tt-simstorm').checked = Boolean(nc.simStart);
-  $('tt-simstorm').addEventListener('change', (e) =>
-    setSimStorm(e.target.checked ? Date.now() : null),
-  );
+  $('tt-simstorm').addEventListener('change', (e) => {
+    // All-in-one only: the demo starts at now. Walls keep the session lens.
+    if (e.target.checked) setWxTime(null);
+    setSimStorm(e.target.checked ? Date.now() : null);
+  });
   $('tt-simlightning').addEventListener('change', (e) => {
     wx.sim.lightning = e.target.checked;
     renderSimFlag();
@@ -5444,6 +5485,11 @@ async function main() {
     renderAdvance();
     renderWeather();
     renderLayers();
+    // The approach line and storm labels follow the units at once (QA D8).
+    nc.text = approachLine();
+    nc.realText = nc.sim ? approachLine(nc.res) : null;
+    stormKey = '';
+    drawStorm();
   }
   $('tt-units').addEventListener('change', (e) => {
     ground.unit = e.target.value;

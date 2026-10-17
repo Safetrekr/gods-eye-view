@@ -47,8 +47,37 @@
 | Every wall badges "LIVE · DEMO STORM" | Done |
 | Remote pill "SIM IN ~15", "IN ~15 MIN", "WITHIN 6 MI", "OVERHEAD", matching the big figure | Done |
 
+## Severity colours (Jesse, after revision 2)
+Shells are grey for light and heavy rain, amber for very heavy cores (50 dBZ) and hazard red for intense cores (60 dBZ, hail likely). Alert areas became a faint amber line so the cores read first. A four-step key sits above the compass, and the inspect card names the colour. Commit c355549.
+
+## QA review (03-qa.md, tested on f54e35b)
+| Defect | Status |
+|---|---|
+| D1 P0 demo strikes reported as real lightning, held 30 min | Fixed: SIMULATED in the rail and chip; the hold clears when the demo stops (checked headless) |
+| D2 P1 dense real frames thrown away as "no data" | Fixed: only a flat fill counts as no data |
+| D3 P1 starting the demo reset the lens on every wall | Fixed: walls keep the session lens; only the All-in-one checkbox starts at now |
+| D4 P1 S4 hid the simulated warning | Fixed in revision 2 (one official list) |
+| D5 P1 Europe projection anchored to a 65-min-old frame | Fixed: Europe is position only, no projection; "no frame for this time yet" for the gap |
+| D6 approach line missing in the All-in-one when nothing approaches | Fixed: the claim leads the Storm shells note |
+| D7 motion from bird echo | Fixed in revision 2 (35 dBZ and above only) |
+| D8 units change lagged | Fixed |
+| D9 card always in km | Fixed in revision 2 |
+| D10 "reaches the hotel in now" | Fixed in revision 2 (ranges) |
+| D11 far direct track read "passing 0.0 mi" | Fixed: "on a track toward the hotel, more than 2 h away"; closest approach now from the core edge (test added) |
+| D12 cores cut by the box edge | Open (P2) |
+| D13 state carried across a site switch | Fixed |
+| D14 fetching after Exit | Fixed |
+| D15 abort listener leak | Fixed |
+| D16 failures cached; unbounded caches | Fixed: failures retried, one bounded cache |
+| D17 lightning age was the fetch time | Fixed in revision 2 (says "fetched") |
+| D18 lens words differ between walls and remote | Fixed: one rule on both |
+| D19 no motion read as "beyond 60 min" | Fixed: "No motion measured · no projection ahead" |
+| D20 "GMT+1" instead of "BST" | Fixed |
+| D21 ticks not pickable | Fixed (ticks open the track card) |
+| D22 region chosen by time zone | Open (latent with three cities) |
+| D23 entity rebuild each pass | Mostly fixed in revision 2 (rebuild only on change) |
+
 ## Not done in this revision
-- The QA review's findings (pending at commit time).
 - The rally point note "open ground · not a lightning shelter" during lightning. It needs a change in the safety-places card and is carried to the next pass.
 
 ## Verification
