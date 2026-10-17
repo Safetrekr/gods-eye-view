@@ -25,6 +25,17 @@ const LEVELS = [
   [50, '#c3d0d6', 0.14, '#c3d0d6', 0.75, 0.72],
   [60, '#e2e9ec', 0.2, '#eef5f3', 0.9, 1],
 ];
+// Trial (?stormColor=severity): grey for rain, amber for very heavy cores
+// (attention), hazard red for intense cores. Not yet adopted.
+const SEVERITY_LEVELS = [
+  [30, '#80959b', 0.05, null, 0, 0.12],
+  [40, '#9fb3bd', 0.08, '#b8c3c7', 0.6, 0.42],
+  [50, '#f59e0b', 0.16, '#f59e0b', 0.85, 0.72],
+  [60, '#ee7789', 0.26, '#f299a6', 0.95, 1],
+];
+const SEVERITY =
+  typeof location !== 'undefined' &&
+  new URLSearchParams(location.search).get('stormColor') === 'severity';
 const FALLBACK_TOP_KFT = { moderate: 28, heavy: 38, intense: 46 };
 const AMBER = Cesium.Color.fromCssColorString('#f59e0b');
 const STEEL = Cesium.Color.fromCssColorString('#b8c3c7');
@@ -115,7 +126,9 @@ export function createStormLayer(viewer, site) {
     shellInfo = [];
     const s = siteLL();
     const h0 = base();
-    for (const [dbz, fill, fa, edge, ea, share] of LEVELS) {
+    for (const [dbz, fill, fa, edge, ea, share] of SEVERITY
+      ? SEVERITY_LEVELS
+      : LEVELS) {
       const areas = traceAreas(grid.data, grid.w, grid.h, dbz, {
         tops: grid.tops,
         minCells: dbz === 30 ? 12 : 6,
@@ -205,7 +218,9 @@ export function createStormLayer(viewer, site) {
                 image: streaks,
                 repeat: new Cesium.Cartesian2(Math.max(4, lenKm * 3), 1),
                 transparent: true,
-                color: Cesium.Color.WHITE.withAlpha(0.55),
+                color: SEVERITY
+                  ? AMBER.withAlpha(0.6)
+                  : Cesium.Color.WHITE.withAlpha(0.55),
               }),
               outline: false,
             },
