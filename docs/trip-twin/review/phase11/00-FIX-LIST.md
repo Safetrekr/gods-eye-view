@@ -28,7 +28,7 @@ Merged from 01-ux, 02-ui, 03-supervision, 04-ia, 05-motion and 06-brand on 16 Oc
 | F11 | Inter never above 28 px after the wall scale: wall lines, toplines and roster labels use `calc(28px / var(--wall-scale))`; card names and toplines move to Manrope 300. | BRAND P1-5/6, UI P1 |
 | F12 | The dot grid is a fixed overlay above the canvas and below the panels, so it shows on every wall, not only where the canvas is inset. | BRAND P1-4, UI P1 |
 | F13 | The live dot stops while the wall is STALE or the remote is offline (`tt-stale`). | MOT P1, SUP P1-3 |
-| F14 | The sweep animates `transform` only, peaks at α 0.2, and never runs on walls without 3D. | MOT P1 |
+| F14 | ~~The sweep animates `transform` only, peaks at α 0.2, and never runs on walls without 3D.~~ Superseded: Jesse removed the sweep on 16 Oct ("get rid of the horizontal line moving up the screen"). | MOT P1 |
 | F15 | PEOPLE kicker carries "as of {sample clock}"; the S3 change log says its clock basis ("sample clock · data every 5 s"). | IA P0-2, SUP P1-15 |
 | F16 | Old ramp out of the scene: pins fill with the card colour and ring with the light; grid minor and context lines use `#415e6b`; dim text `#7f949b`. | BRAND P1-7/8/9 |
 | F17 | S6 clocks say which city they are local to; the incident line carries its age. | IA P1, UX P1 |

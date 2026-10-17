@@ -1,7 +1,6 @@
 // Trip Twin motion tiers (phase 11; plans/trip-twin/PHASE-11-PLAN.md P11-A).
 // Every animation belongs to one of three tiers, each with its own switch:
-//   live   — things that are genuinely live: the live dot, fix ages, the
-//            snapshot sweep
+//   live   — things that are genuinely live: the live dot and fix ages
 //   event  — when data changes: a number swap with its highlight, the hollow
 //            echo at the old fix, a band entering
 //   cine   — presentation only: fog-in panels, the rail wavefront, the
@@ -14,7 +13,7 @@ export const MOTION_TIERS = Object.freeze([
   {
     key: 'live',
     label: 'Live',
-    sub: 'The live dot and the snapshot sweep',
+    sub: 'The live dot',
   },
   {
     key: 'event',

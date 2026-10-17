@@ -4,7 +4,7 @@
 import * as Cesium from 'cesium';
 import './tripTwin.css';
 import './tripTwin.instrument.css';
-import { createMotion, MOTION_DEFAULTS, flash } from './twinMotion.js';
+import { createMotion, MOTION_DEFAULTS } from './twinMotion.js';
 import { createStandaloneScene } from '../../standalone/scene.js';
 import { createTripTwin, flightMs } from './tripTwin.js';
 import { TWIN_CITIES } from './twinCities.js';
@@ -5068,15 +5068,8 @@ async function main() {
   const pois = poisBySite[cityKey] || [];
   // SOC multi-view: screens count scenario time from the session's epoch.
   let scenarioEpoch = null;
-  // Snapshot sweep (Live tier, 05 §4.1): one faint band rises over the
-  // twin as a snapshot is applied; never when the feed is frozen or reduced.
-  const sweep = document.createElement('div');
-  sweep.className = 'tt-sweep';
-  sweep.setAttribute('aria-hidden', 'true');
-  document.body.append(sweep);
   const feed = () => {
     lastFeed = Date.now();
-    if (motion.on('live') && !document.hidden) flash(sweep, 'go');
     twin.setSnapshot(
       applyOperatorNumbering(
         tripTwinDemoSnapshot(cityKey, scenario, {

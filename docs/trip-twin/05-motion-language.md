@@ -793,9 +793,9 @@ Decided by Jesse on 16 Oct 2026; built in `twinMotion.js` and the Instrument ski
 
 | Item | Rule |
 |---|---|
-| Tiers | Every motion belongs to one tier: **Live** (live dot, snapshot sweep), **Event** (count highlight, band entrance), **Cinematic** (fog-in panels, the remote's rail wavefront, idle drift). Each tier has its own switch per wall (remote 06 Layers › Display · Motion) and on the All-in-one (Display › Motion). Reduce motion, system or in-app, turns all three off and cannot be overridden. |
+| Tiers | Every motion belongs to one tier: **Live** (live dot), **Event** (count highlight, band entrance), **Cinematic** (fog-in panels, the remote's rail wavefront, idle drift). Each tier has its own switch per wall (remote 06 Layers › Display · Motion) and on the All-in-one (Display › Motion). Reduce motion, system or in-app, turns all three off and cannot be overridden. |
 | Idle drift (exception to §4.2 and V5) | Site wall only, Cinematic tier on, after 60 s with no hands on and no pending camera command. Never while a report is open on any trip on watch, while the link is stale, or while the remote is offline. Any input, camera command, site switch, spotlight or report stops it at once and restarts the 60 s clock. Profile: heading = h0 + 10°·(1 − cos 2πt/125 s), peak 0.5°/s, no roll, no pitch change; it returns to the operator's heading. The wall chip reads "· drifting" and the remote's card and preview read "drifting · idle camera". |
 | Calm budget while drifting | §4.4 is measured with drift excluded; the sweep and the live dot stay inside the budget. |
-| Sweep | DOM band over the 3D view, transform only, α 0.2, 1.6 s linear, once per applied snapshot; never on a stale wall or a wall without 3D. |
+| Sweep | Removed. Built as a DOM band in phase 11 and taken out the same day at Jesse's request ("get rid of the horizontal line moving up the screen"). Freshness is carried by the age text and the live dot. |
 | Live dot | 4.6 s breath; stops while the wall is STALE or the remote is offline. |
 | Not yet built (declared, next motion phase) | Echo at the old fix, selection reticle, identify pulse, static "+n at hh:mm:ss" deltas, the cross-wall incident cascade. |

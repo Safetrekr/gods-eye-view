@@ -955,7 +955,7 @@ Wall sizes before the wall scale (×1.5–2): kicker 30 px mono; headcount numer
 Three tiers, each with its own switch (remote: 06 Layers › Motion, per wall or All, pins respected; All-in-one: Display › Motion). The system's Reduce motion, or the in-app override, turns all three off and cannot be overridden. Body classes `tt-m-live`, `tt-m-event`, `tt-m-cine`, `tt-m-reduced` (`twinMotion.js`).
 | Tier | Moves | Defaults |
 |---|---|---|
-| Live | The live dot on the LIVE badge (4.6 s breath); the snapshot sweep (1.6 s, once per applied snapshot); fix ages on the 5 s tick | On everywhere |
+| Live | The live dot on the LIVE badge (4.6 s breath); fix ages on the 5 s tick. The snapshot sweep was built and then removed at Jesse's request (16 Oct) | On everywhere |
 | Event | A changed headcount flashes once (1.2 s); the incident band enters from its slot (0.62 s) | On everywhere |
 | Cinematic | Panels fog in (0.32–0.8 s, podium's curve `cubic-bezier(.33,0,.18,1)`); the remote's rail wavefront on a station change (0.52 s, 50 ms per tile); idle drift on the Site wall: 0.5°/s around the site after 60 s with no hands on, never during an incident, stopped by any input or camera command, named "· drifting" in the chip | On for walls and the remote; off on the All-in-one |
 
