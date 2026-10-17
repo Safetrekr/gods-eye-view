@@ -13,6 +13,7 @@ const el = (tag, cls, text) => {
 export const KIND_TEXT = {
   observed: 'observed map',
   model: 'model forecast map',
+  projected: 'projection on the current track',
   site: 'site forecast',
   none: 'no frame yet',
 };
@@ -161,12 +162,12 @@ export function createWeatherTimeline({ onChange, clock, tick = clock }) {
           el(
             'strong',
             'lead',
-            `WEATHER AT ${clock(t)} (${relText(t, m.now)}) · ${t > m.now ? 'forecast' : 'past'} — not live`,
+            `WEATHER AT ${clock(t)} (${relText(t, m.now)}) · ${t > m.now ? (m.kindAt?.(t) === 'projected' ? 'projection on the current track' : 'forecast') : 'past'} — not live`,
           ),
           ` · ${m.sourceAt(t)} · people and incidents are shown now (dimmed people)`,
         );
       legend.replaceChildren(
-        ...['observed', 'model', 'site', 'none']
+        ...['observed', 'projected', 'model', 'site', 'none']
           .filter((k) => drawn.some((s) => s.kind === k))
           .map((k) => {
             const i = el('span', `lg ${k}`);

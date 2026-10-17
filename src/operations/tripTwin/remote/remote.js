@@ -9,7 +9,16 @@ import { ROLES, screenSummary } from '../twinScreenRoles.js';
 import { needsConfirm, previewAll } from '../twinSession.js';
 import { DEMO_TRIPS, tripById, tripDays } from '../demoTrips.js';
 import { tripTwinDemoSnapshot } from '../demoTripTwin.js';
-import { sitesForCity } from '../twinSites.js';
+import { siteConfig, sitesForCity } from '../twinSites.js';
+import { approachText } from '../twinNowcast.js';
+import {
+  loadAlertAreas,
+  loadLightningNearest,
+  loadNwsAlerts,
+  regionOf,
+  runNowcast,
+  simulatedAlert,
+} from '../twinNowcastLoad.js';
 import { STATIONS, btn } from './stations.js';
 
 const params = new URLSearchParams(location.search);
@@ -53,6 +62,7 @@ const ui = {
   bar: null, // {kind: 'undo'|'err'|'ok', text, undoId, until}
   link: 'connecting',
   denied: null,
+  wx: null, // phase 12: the nowcast for the trip in focus (same as the walls)
 };
 
 const device =
@@ -462,6 +472,7 @@ function ctx() {
     showDay,
     tripData,
     copyResponders,
+    wxRefresh: () => refreshWx(true),
     remoteMotion,
     setRemoteMotion(on) {
       try {
@@ -568,6 +579,123 @@ function targetCard() {
   );
   return c;
 }
+// ---- phase 12: see it coming, computed here from the same sources ----
+let wxSeq = 0;
+let wxKey = '';
+let wxAt = 0;
+async function refreshWx(force = false) {
+  const ss = ui.state?.session;
+  if (!ss) return;
+  const t = tripById(ss.tripId);
+  const site = siteConfig(ss.siteKey || t.city) || siteConfig(t.city);
+  if (!site) return;
+  const key = `${t.id}:${site.key}:${ss.simStorm || ''}`;
+  const sim = Boolean(ss.simStorm);
+  if (!force && key === wxKey && Date.now() - wxAt < (sim ? 20e3 : 120e3))
+    return;
+  wxKey = key;
+  wxAt = Date.now();
+  const seq = ++wxSeq;
+  const center = {
+    lat: site.center.lat,
+    lon: site.center.lon ?? site.center.lng,
+  };
+  const region = regionOf(site.timezone);
+  const us = region === 'us';
+  const dist = (m) =>
+    us
+      ? `${(m / 1609.344).toFixed(1)} mi`
+      : m < 1000
+        ? `${Math.round(m)} m`
+        : `${(m / 1000).toFixed(1)} km`;
+  const speed = (k) =>
+    us ? `${Math.round(k / 1.609)} mph` : `${Math.round(k)} km/h`;
+  const clock = (ms) =>
+    ms
+      ? new Date(ms).toLocaleTimeString('en-US', {
+          timeZone: site.timezone,
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+          timeZoneName: 'short',
+        })
+      : '';
+  const noun = site.kind === 'lodging' ? 'hotel' : 'venue';
+  const [nc, alerts, ltg] = await Promise.all([
+    runNowcast({ center, region, simStart: ss.simStorm || null }).catch(
+      () => null,
+    ),
+    us
+      ? loadNwsAlerts(center)
+          .then((list) => loadAlertAreas(list, center))
+          .catch(() => 'unavailable')
+      : Promise.resolve([]),
+    sim
+      ? Promise.resolve(null)
+      : loadLightningNearest(region, center).catch(() => 'unavailable'),
+  ]);
+  if (seq !== wxSeq) return;
+  const text =
+    !nc || nc.status !== 'live'
+      ? {
+          status: 'unavailable',
+          level: 'info',
+          text: `Storm approach unavailable · the ${nc?.source || 'radar'} frame did not load`,
+        }
+      : approachText(nc.ap, {
+          dist,
+          speed,
+          siteNoun: noun,
+          frame: clock(nc.frameAt),
+          source: nc.source,
+          simulated: nc.simulated,
+          boxKm: 160,
+          boxText: us ? '50 mi' : '80 km',
+        });
+  const lines = [];
+  if (ss.simStorm) {
+    const a = simulatedAlert(center, Date.now(), ss.simStorm);
+    lines.push({
+      text: `SIMULATED · ${a.event} · until ${clock(Date.parse(a.ends))}${a.inside ? ` · the ${noun} is inside the area` : ''}`,
+      sim: true,
+    });
+  }
+  if (alerts === 'unavailable')
+    lines.push({ text: 'NWS alerts unavailable right now' });
+  else if (us && !alerts.length && !ss.simStorm)
+    lines.push({
+      text: `NWS checked ${clock(Date.now())}: no active alerts returned for this point`,
+    });
+  else if (!us)
+    lines.push({
+      text: 'MeteoAlarm alerts are on the walls (no area shapes in Europe)',
+    });
+  for (const a of Array.isArray(alerts) ? alerts : [])
+    lines.push({
+      text: `NWS: ${a.event}${a.ends ? ` · until ${new Date(a.ends).toLocaleString('en-GB', { timeZone: site.timezone, weekday: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}${a.inside ? ` · the ${noun} is inside the area` : ''}`,
+    });
+  let ltgText = '';
+  if (sim && nc?.strikes?.length)
+    ltgText = 'SIMULATED lightning rides with the storm (on the walls)';
+  else if (ltg === 'unavailable')
+    ltgText = 'Lightning grid unavailable right now';
+  else if (ltg)
+    ltgText = `Lightning · nearest grid cell ${dist(ltg.distKm * 1000)} ${ltg.dir} · ${ltg.source} ${clock(ltg.at)}`;
+  else
+    ltgText = `Lightning · none within ${us ? '25 mi' : '40 km'} in the latest grid`;
+  ui.wx = {
+    text,
+    lines,
+    ltgText,
+    sim,
+    clock,
+    site,
+    frameAt: nc?.frameAt,
+    motion: nc?.motion,
+  };
+  renderRail();
+  if (ui.station === 'weather') renderContent(true);
+}
 function renderRail() {
   if (!ui.state) return;
   const st = STATIONS.find((s) => s.id === ui.station) || STATIONS[0];
@@ -591,6 +719,7 @@ function renderRail() {
   const incidentOpen =
     (Boolean(ui.state.session.report) && !ui.state.session.incidentAck) ||
     otherTripIncident();
+  const wxT = ui.wx?.text;
   for (const s of STATIONS) {
     const t = btn(
       `rm-tile${s.later ? ' later' : ''}`,
@@ -609,6 +738,23 @@ function renderRail() {
     t.append(el('span', 'num', s.num), el('span', 'lab', s.label));
     if (s.id === 'incident' && incidentOpen)
       t.append(el('span', 'pill', 'OPEN'));
+    // A core on its way to the site shows on the Weather tile (amber).
+    if (s.id === 'weather' && wxT?.status === 'arriving' && wxT.eta <= 90)
+      t.append(
+        el(
+          'span',
+          `pill ${wxT.level === 'attention' ? 'attn' : 'watch'}`,
+          `~${Math.max(1, Math.round(wxT.eta / 5) * 5)} MIN`,
+        ),
+      );
+    if (s.id === 'weather' && wxT?.status === 'over')
+      t.append(
+        el(
+          'span',
+          `pill ${wxT.level === 'attention' ? 'attn' : 'watch'}`,
+          'OVER',
+        ),
+      );
     g.append(t);
   }
   rail.replaceChildren(h, active, list, g);
@@ -698,6 +844,7 @@ const sync = connectSync({
       }
       ui.controller = Boolean(m.controller);
       ui.state = m.state;
+      setTimeout(() => refreshWx(true), 0);
       ui.presence = m.presence;
       ui.presence = m.presence;
       if (ui.target !== 'all' && !ui.state.screens[ui.target])
@@ -706,6 +853,7 @@ const sync = connectSync({
     },
     state(m) {
       ui.state = m.state;
+      setTimeout(() => refreshWx(), 0);
       ui.presence = m.presence || ui.presence;
       ui.controller = Boolean(ui.presence?.youControl);
       if (ui.target !== 'all' && !ui.state.screens[ui.target]) setTarget('all');
@@ -775,5 +923,6 @@ setInterval(() => {
   renderBar();
   renderPreview();
 }, 1000);
+setInterval(() => refreshWx(), 20e3);
 app.replaceChildren(head, grid, aperture);
 head.append(el('span', 'rm-note', 'Connecting to the Trip Twin computer…'));

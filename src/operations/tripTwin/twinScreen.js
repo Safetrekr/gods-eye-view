@@ -54,6 +54,10 @@ export function createScreenMode({ api, slot = null, setup = null }) {
   visitorMark.hidden = true;
   right.append(time, chip, visitorMark, sample);
   head.append(left, badge, right);
+  // Phase 12: the approach line and the lens line, under the header.
+  const wxStrip = el('div', 'tt-wall-wx');
+  wxStrip.hidden = true;
+  wxStrip.setAttribute('role', 'status');
   const stale = el('div', 'tt-wall-stale');
   stale.hidden = true;
   const panel = el('section', 'tt-wall-panel tt-panel');
@@ -69,7 +73,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
   // The dot grid sits above the 3D view and below every panel (brand F12).
   const grid = el('div', 'tt-wall-grid');
   grid.setAttribute('aria-hidden', 'true');
-  document.body.append(grid, head, stale, panel, banner, pair, ident);
+  document.body.append(grid, head, wxStrip, stale, panel, banner, pair, ident);
 
   let state = null;
   let presence = null;
@@ -259,6 +263,8 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       api.spotlight(ss.spotlight);
     }
     if (ss.wxAt !== applied.wxAt) api.setWxTime(ss.wxAt);
+    if ((ss.simStorm || null) !== (applied.simStorm || null))
+      api.setSimStorm?.(ss.simStorm || null);
     applied = {
       ...applied,
       rev: next.rev,
@@ -267,6 +273,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       report: ss.report,
       spotlight: ss.spotlight,
       wxAt: ss.wxAt,
+      simStorm: ss.simStorm || null,
     };
     if (prev && info.by) {
       lastChangeAt = Date.now();
@@ -339,6 +346,20 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         stale.textContent = `STALE · last update ${clock(Date.now() - since * 1000)} · ${mmss(since)} ago · showing the last state`;
         stale.classList.toggle('heavy', since > 120);
       }
+    }
+    // The approach line (arriving or over) and the lens line, every wall.
+    const ap = api.approachLine?.();
+    const lens = api.lensLine?.() || '';
+    const showAp = ['arriving', 'over'].includes(ap?.status);
+    wxStrip.hidden = !(showAp || lens);
+    document.body.classList.toggle('tt-wx-strip-on', !wxStrip.hidden);
+    if (!wxStrip.hidden) {
+      // While the lens is away the strip says so first, then the short form.
+      const text = lens
+        ? [lens, showAp ? ap.short : ''].filter(Boolean).join(' · ')
+        : ap.text;
+      if (wxStrip.textContent !== text) wxStrip.textContent = text;
+      wxStrip.className = `tt-wall-wx ${showAp ? ap.level : 'info'}${lens ? ' lens' : ''}`;
     }
     // Incident banner: from this screen's own data, remote or not. An
     // acknowledgement belongs to one report (review R4).

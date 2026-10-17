@@ -306,6 +306,14 @@ export function createHud({
     if (m.subLine) head.append(el('div', 'tt-subline', m.subLine));
     if (ctx.siteLine)
       head.append(el('div', 'tt-subline tt-site-line', ctx.siteLine));
+    if (ctx.weather?.approach)
+      head.append(
+        el(
+          'div',
+          `tt-subline tt-wx-approach ${ctx.weather.approach.level}`,
+          ctx.weather.approach.text,
+        ),
+      );
     if (m.mode !== 'incident')
       for (const o of ctx.weather?.official || [])
         head.append(el('div', 'tt-subline tt-wx-official', o));

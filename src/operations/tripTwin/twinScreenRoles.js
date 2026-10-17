@@ -143,6 +143,8 @@ export const LAYER_CATALOG = Object.freeze([
   {
     group: 'Hazards',
     layers: [
+      { key: 'radar3d', label: 'Radar with height (3D)', def: false },
+      { key: 'alertAreas', label: 'Official alert areas', def: true },
       { key: 'fires', label: 'Satellite heat detections', def: true },
       { key: 'lightning', label: 'Lightning', def: false },
       { key: 'precip', label: 'Rain & snow map', def: false },

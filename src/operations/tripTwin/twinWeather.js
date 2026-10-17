@@ -202,6 +202,7 @@ export function parseNwsAlerts(geojson) {
     headline: f.properties.headline,
     ends: f.properties.ends || f.properties.expires || null,
     geometry: f.geometry || null,
+    zones: f.properties.affectedZones || [],
   }));
 }
 

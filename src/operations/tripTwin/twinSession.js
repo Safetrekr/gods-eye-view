@@ -15,6 +15,7 @@ const SESSION_FIELDS = new Set([
   'incidentAck', // id of the report the remote acknowledged, or null
   'spotlight', // {kind: 'person'|'place', id} or null
   'visitor', // visitor mode: walls show initials and counts only
+  'simStorm', // demo: start (ms) of the simulated storm, or null (phase 12)
 ]);
 /** Per screen: the target picker decides which screens. */
 const SCREEN_FIELDS = new Set([
@@ -63,6 +64,7 @@ export function createSession({ count = 4, tripId = null, epochMs = 0 } = {}) {
       incidentAck: null,
       spotlight: null,
       visitor: false,
+      simStorm: null,
       epochMs,
     },
     screens,

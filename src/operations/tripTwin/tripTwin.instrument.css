@@ -766,3 +766,113 @@ textarea {
 .tt-crumb-trip:hover {
   color: var(--tt-text);
 }
+
+/* ---------- phase 12: see it coming ---------- */
+/* The approach chip: steel while it is a watch, amber when a heavy core is
+   under an hour out (attention); never red (red is incidents). */
+.tt-chip.wx {
+  color: var(--tt-text);
+  border-color: var(--tt-edge-ctl);
+  font-family: var(--tt-mono);
+  letter-spacing: 0.02em;
+}
+.tt-chip.wx.attention {
+  color: var(--tt-attention);
+  border-color: var(--tt-attention);
+  background: rgba(245, 158, 11, 0.08);
+}
+.tt-subline.tt-wx-approach {
+  color: var(--tt-text);
+  border-left: 2px solid var(--tt-edge-ctl);
+  padding-left: 8px;
+}
+.tt-subline.tt-wx-approach.attention {
+  color: var(--tt-attention);
+  border-left-color: var(--tt-attention);
+}
+.tt-wall-line.tt-wx-approach {
+  font-family: var(--tt-display);
+  font-weight: 300;
+}
+.tt-wall-line.tt-wx-approach.attention {
+  color: var(--tt-attention);
+}
+/* Wall strip under the header: the approach and the lens, every wall. */
+.tt-wall-wx {
+  position: fixed;
+  top: 96px;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  padding: 0 28px;
+  font: 400 24px var(--tt-display);
+  color: var(--tt-text);
+  background: rgba(4, 12, 18, 0.88);
+  border-bottom: 1px solid var(--tt-border);
+  backdrop-filter: blur(var(--tt-blur));
+  -webkit-backdrop-filter: blur(var(--tt-blur));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tt-wall-wx.attention {
+  color: var(--tt-attention);
+  border-bottom: 2px solid var(--tt-attention);
+}
+.tt-wall-wx.lens {
+  font-family: var(--tt-mono);
+  font-size: 20px;
+  letter-spacing: 0.06em;
+}
+.tt-wall-wx[hidden] {
+  display: none !important;
+}
+body[data-view='screen'].tt-wx-strip-on {
+  --bar: calc((96px + 56px) / var(--wall-scale));
+}
+body[data-view='screen'].tt-wx-strip-on .tt-chips {
+  top: calc((96px + 56px + 12px) / var(--wall-scale));
+}
+.tt-m-event .tt-wall-wx:not([hidden]) {
+  animation: ttBand 0.32s cubic-bezier(0, 0, 0.2, 1) both;
+}
+/* Inspect card: value, source, age, place. */
+.tt-wx-inspect {
+  position: fixed;
+  left: calc(var(--rail) + 2 * var(--g));
+  bottom: calc(var(--foot) + var(--g) + 64px);
+  z-index: 14;
+  width: 340px;
+  padding: 12px 14px;
+  display: grid;
+  gap: 6px;
+}
+.tt-wx-inspect[hidden] {
+  display: none;
+}
+.tt-wx-inspect-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.tt-wx-inspect-line {
+  font-size: 13px;
+  color: var(--tt-text-2);
+}
+.tt-wx-inspect-line:first-of-type {
+  font: 300 18px/1.25 var(--tt-display);
+  color: var(--tt-text);
+}
+/* The timeline's projection: steel hatching the other way, dashed edge. */
+.seg.projected,
+.lg.projected i {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(184, 195, 199, 0.55) 0 2px,
+    transparent 2px 6px
+  );
+  border: 1px dashed var(--tt-text-2);
+}

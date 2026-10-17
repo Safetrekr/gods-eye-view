@@ -752,14 +752,127 @@ function layers(ctx) {
   return out;
 }
 
-const later = (title) => () => [
-  ...head(title, 'Next phase'),
-  el(
-    'div',
-    'rm-note',
-    'This station comes next phase. The Weather & alerts screen already shows official alerts, sensed hazards and the time.',
-  ),
-];
+// --------------------------------------------------------------- 03 Weather
+/** See it coming: the approach, the time lens, official alerts, lightning. */
+function weather(ctx) {
+  const { state } = ctx;
+  const ss = state.session;
+  const t = tripById(ss.tripId);
+  const wx = ctx.ui.wx;
+  const out = [...head('Weather', `${t.title} · see it coming`)];
+  out.push(kick('Approach', WALL));
+  if (!wx) {
+    out.push(el('div', 'rm-note', 'Radar loading…'));
+  } else {
+    out.push(el('div', `rm-wx-line ${wx.text.level || 'info'}`, wx.text.text));
+    out.push(
+      el(
+        'div',
+        'rm-note',
+        wx.sim
+          ? 'SIMULATED storm (prototype) · every wall shows it labelled SIMULATED.'
+          : wx.motion
+            ? 'Observed motion from two radar frames 20 min apart. A track, not a forecast model.'
+            : 'Motion needs two frames with rain in them; until then only the position is known.',
+      ),
+    );
+  }
+  // Time lens: one time for every wall (session wxAt); people stay live.
+  out.push(kick('Time lens', WALL));
+  const now = Date.now();
+  const at = ss.wxAt;
+  const lens = el('div', 'rm-actions');
+  for (const [label, min] of [
+    ['−30 min', -30],
+    ['Now', null],
+    ['+15', 15],
+    ['+30', 30],
+    ['+45', 45],
+    ['+60', 60],
+  ]) {
+    const target = min == null ? null : now + min * 60e3;
+    const on =
+      min == null ? at == null : at != null && Math.abs(at - target) < 4 * 60e3;
+    lens.append(
+      btn(
+        `rm-btn${on ? ' on' : ''}`,
+        label,
+        () =>
+          ctx.send(
+            { type: 'session', patch: { wxAt: target } },
+            min == null
+              ? 'Every wall: weather now'
+              : `Every wall: weather ${label} min`,
+          ),
+        { 'aria-pressed': String(on) },
+      ),
+    );
+  }
+  out.push(lens);
+  out.push(
+    el(
+      'div',
+      'rm-note',
+      at == null
+        ? 'Walls show the weather now.'
+        : `Walls show ${wx?.clock ? wx.clock(at) : 'another time'} · ${at > now ? (at - now <= 60 * 60e3 ? 'projection on the current track, not a forecast model' : 'forecast') : 'observed radar'} · people and incidents stay live.`,
+    ),
+  );
+  out.push(kick('Official alerts', WALL));
+  for (const l of wx?.lines || [])
+    out.push(el('div', `rm-wx-alert${l.sim ? ' sim' : ''}`, l.text));
+  out.push(kick('Lightning', WALL));
+  out.push(el('div', 'rm-note', wx?.ltgText || 'Lightning grid loading…'));
+  out.push(kick('Demo', WALL));
+  const demo = el('div', 'rm-actions');
+  demo.append(
+    btn(
+      `rm-btn${ss.simStorm ? ' on' : ''}`,
+      ss.simStorm
+        ? 'Simulated storm on · stop'
+        : 'Simulated storm approaching · start',
+      () =>
+        ctx.send(
+          {
+            type: 'session',
+            patch: { simStorm: ss.simStorm ? null : Date.now() },
+          },
+          ss.simStorm
+            ? 'Simulated storm stopped'
+            : 'Simulated storm started (labelled SIMULATED)',
+        ),
+      { 'aria-pressed': String(Boolean(ss.simStorm)) },
+    ),
+    btn('rm-btn', 'Refresh', () => ctx.wxRefresh?.()),
+  );
+  out.push(demo);
+  // Frame the storm on the Weather wall (an operator's camera request).
+  const wxSlot = slotWithRole(state, 'weather');
+  if (wxSlot && ['arriving', 'over', 'passing'].includes(wx?.text?.status))
+    out.splice(
+      out.indexOf(lens) - 1,
+      0,
+      (() => {
+        const a = el('div', 'rm-actions');
+        a.append(
+          btn('rm-btn primary', `Frame the storm on S${wxSlot} (Weather)`, () =>
+            ctx.send(
+              {
+                type: 'screens',
+                target: wxSlot,
+                patch: {
+                  frame: { subject: { kind: 'storm' }, nonce: Date.now() },
+                },
+              },
+              `S${wxSlot} frames the storm`,
+            ),
+          ),
+        );
+        return a;
+      })(),
+    );
+  return out;
+}
 
 export const STATIONS = [
   {
@@ -782,10 +895,9 @@ export const STATIONS = [
     id: 'weather',
     num: '03',
     label: 'Weather',
-    sub: 'Next phase',
+    sub: 'See it coming · alerts · lightning',
     icon: ICON.weather,
-    render: later('Weather'),
-    later: true,
+    render: weather,
   },
   {
     id: 'trip',
