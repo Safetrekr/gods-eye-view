@@ -1113,7 +1113,7 @@ export function createTripTwin({
         point: {
           pixelSize: 8,
           color: Cesium.Color.fromCssColorString('#3b82f6'),
-          outlineColor: Cesium.Color.fromCssColorString('#eff7f3'),
+          outlineColor: Cesium.Color.fromCssColorString('#eef5f3'),
           outlineWidth: 2,
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },

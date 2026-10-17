@@ -237,7 +237,7 @@ export function drawPaths(
             width: primary ? 18 : 15,
             arcType: Cesium.ArcType.NONE,
             material: new Cesium.PolylineGlowMaterialProperty({
-              color: css('#eff7f3', 0.42),
+              color: css('#eef5f3', 0.42),
               glowPower: 0.22,
             }),
           },
@@ -282,7 +282,7 @@ export function drawPaths(
         arcType: Cesium.ArcType.NONE,
         material: unavailable
           ? new Cesium.PolylineDashMaterialProperty({
-              color: css('#9aa8ac', 0.7),
+              color: css('#7f949b', 0.7),
               dashLength: 12,
             })
           : primary

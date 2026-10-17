@@ -15,9 +15,9 @@ export const TWIN_PALETTE = Object.freeze({
   edgeApprox: ['#80959b', 0.25],
   subjectGlass: ['#b8c3c7', 0.14],
   subjectRim: ['#b8c3c7', 0.2],
-  subjectEdge: '#e3e7e9',
+  subjectEdge: '#eef5f3',
   floorLine: ['#b8c3c7', 0.22],
-  gridMinor: ['#1e404f', 0.55],
+  gridMinor: ['#415e6b', 0.55],
   gridMajor: ['#365462', 0.9],
   street: ['#415e6b', 0.9],
 });

@@ -9,9 +9,9 @@
   --tt-edge-ctl: #80959b;
   --tt-muted: #2a4a59;
   --tt-ring: #365462;
-  --tt-text: #eff7f3;
+  --tt-text: #eef5f3;
   --tt-text-2: #b8c3c7;
-  --tt-text-dim: #9aa8ac;
+  --tt-text-dim: #7f949b;
   --tt-green: #4ba467;
   --tt-green-text: #81bf95;
   --tt-attention: #f59e0b;
@@ -19,7 +19,7 @@
   --tt-hazard-text: #f299a6;
   --tt-path: #3b82f6;
   --tt-path-text: #93bafa;
-  --tt-focus: #e3e7e9;
+  --tt-focus: #eef5f3;
   --tt-font:
     Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --tt-mono: 'Intel One Mono', ui-monospace, 'SF Mono', Menlo, monospace;
@@ -936,10 +936,10 @@ button.tt-bar-hotel:hover {
   text-align: left;
 }
 .tt-cut-floor.range::after {
-  background: rgba(239, 247, 243, 0.08);
+  background: rgba(238, 245, 243, 0.08);
 }
 .tt-cut-floor[data-state='occupied']::after {
-  background: rgba(239, 247, 243, var(--fill));
+  background: rgba(238, 245, 243, var(--fill));
 }
 .tt-cut-floor[data-state='occupied'] .t {
   color: var(--tt-text);
@@ -1142,11 +1142,11 @@ button.tt-bar-hotel:hover {
   background: rgba(128, 149, 155, 0.14);
 }
 .tt-cut-floor[data-state='occupied']::after {
-  background: rgba(239, 247, 243, var(--fill));
+  background: rgba(238, 245, 243, var(--fill));
 }
 .tt-cut-floor[data-state='possible']::after {
-  background: rgba(239, 247, 243, 0.07);
-  box-shadow: inset 0 0 0 1px rgba(239, 247, 243, 0.35);
+  background: rgba(238, 245, 243, 0.07);
+  box-shadow: inset 0 0 0 1px rgba(238, 245, 243, 0.35);
 }
 .tt-cut-floor[data-state='possible'] .t {
   color: var(--tt-text-2);
@@ -1241,7 +1241,7 @@ button.tt-bar-hotel:hover {
   scrollbar-gutter: stable;
   background-image:
     linear-gradient(var(--tt-card), var(--tt-card)),
-    linear-gradient(rgba(0, 0, 0, 0), rgba(239, 247, 243, 0.12));
+    linear-gradient(rgba(0, 0, 0, 0), rgba(238, 245, 243, 0.12));
   background-repeat: no-repeat;
   background-size:
     100% 24px,
@@ -1993,7 +1993,7 @@ body.tt-editing .tt-edit-chip {
    One button-role system; stepped path section; popover anatomy.
    =================================================================== */
 :root {
-  --tt-sel-bg: rgba(239, 247, 243, 0.12);
+  --tt-sel-bg: rgba(238, 245, 243, 0.12);
   --tt-hover-bg: rgba(42, 74, 89, 0.6);
   --tt-path-tint: rgba(59, 130, 246, 0.12);
   --tt-attn-tint: rgba(245, 158, 11, 0.12);
@@ -2713,7 +2713,7 @@ body.tt-editing .tt-edit-chip {
   color: var(--tt-text);
   background: var(--tt-sel-bg);
   border-color: var(--tt-text);
-  box-shadow: 0 0 10px rgba(239, 247, 243, 0.35);
+  box-shadow: 0 0 10px rgba(238, 245, 243, 0.35);
 }
 .tt-layer-opt-note {
   margin: -4px 0 8px 38px;
@@ -3204,7 +3204,7 @@ button.tt-path-open:focus-visible {
   font-size: 11px;
 }
 .tt-drawn-row[aria-current='true'] {
-  background: rgba(239, 247, 243, 0.08);
+  background: rgba(238, 245, 243, 0.08);
   box-shadow: inset 2px 0 0 var(--tt-path);
 }
 .tt-index-empty {
@@ -3321,7 +3321,7 @@ button.tt-path-open:focus-visible {
 .tt-entry-count .tt-tb.on {
   border-color: var(--tt-text);
   color: var(--tt-text);
-  box-shadow: 0 0 9px rgba(239, 247, 243, 0.12);
+  box-shadow: 0 0 9px rgba(238, 245, 243, 0.12);
 }
 .tt-entry-sub,
 .tt-entry-step {
@@ -3353,7 +3353,7 @@ button.tt-path-open:focus-visible {
   width: 180px;
   height: 180px;
   border-radius: 10px;
-  background: #eff7f3;
+  background: #eef5f3;
 }
 .tt-entry-url {
   font: 12px var(--tt-mono);

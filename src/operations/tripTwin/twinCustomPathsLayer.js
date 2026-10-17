@@ -122,7 +122,7 @@ export function createCustomPathsLayer(viewer, site) {
             width: 3,
             arcType: Cesium.ArcType.NONE,
             material: new Cesium.PolylineDashMaterialProperty({
-              color: css('#eff7f3', 0.45),
+              color: css('#eef5f3', 0.45),
               gapColor: css('#040c12', 0),
               dashLength: 10,
             }),
@@ -138,7 +138,7 @@ export function createCustomPathsLayer(viewer, site) {
             // path's glow, never the saved path's long dash.
             material: new Cesium.PolylineOutlineMaterialProperty({
               color: css('#3b82f6', 1),
-              outlineColor: css('#eff7f3', 0.9),
+              outlineColor: css('#eef5f3', 0.9),
               outlineWidth: 1.5,
             }),
           },
@@ -152,7 +152,7 @@ export function createCustomPathsLayer(viewer, site) {
           point: {
             pixelSize: end ? 9 : 14,
             color: end ? css('#3b82f6') : css('#040c12'),
-            outlineColor: css('#eff7f3'),
+            outlineColor: css('#eef5f3'),
             outlineWidth: 2,
             disableDepthTestDistance: Number.POSITIVE_INFINITY,
           },
@@ -160,7 +160,7 @@ export function createCustomPathsLayer(viewer, site) {
             text: end
               ? `${i === 0 ? 'Start' : 'End'} · ${i === 0 ? fromLabel : toLabel}`
               : `${i}`,
-            ...plate(end ? '#93bafa' : '#eff7f3'),
+            ...plate(end ? '#93bafa' : '#eef5f3'),
             pixelOffset: new Cesium.Cartesian2(0, end ? -16 : -15),
           },
         });

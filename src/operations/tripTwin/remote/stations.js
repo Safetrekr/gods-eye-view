@@ -98,7 +98,7 @@ function incident(ctx) {
   const out = [
     ...head(
       'Incident',
-      `${t.title} · ${report ? 'reported · not verified' : 'no incident open'}`,
+      `${t.title} · ${report ? 'reported · not verified' : 'no incident reported'}`,
     ),
   ];
   if (report) {
@@ -278,7 +278,11 @@ function trip(ctx) {
         x.orgShort,
         x.title,
         x.org,
-        x.id === t.id ? 'IN FOCUS' : 'FOCUS',
+        x.id === t.id
+          ? 'IN FOCUS'
+          : ctx.tripData(x)?.snapshot?.reported_incidents?.length
+            ? 'REPORTED · FOCUS'
+            : 'FOCUS',
         () =>
           x.id !== t.id &&
           ctx.send(
@@ -664,8 +668,42 @@ function layers(ctx) {
       ),
     );
   out.push(sc);
+  for (const g of LAYER_CATALOG) {
+    out.push(kick(g.group, scopeOf(target)));
+    for (const L of g.layers) {
+      const v = value(L.key, L.def);
+      const r = el('div', 'rm-layer');
+      const lab = el('div', 'lab', L.label);
+      if (v === null) lab.append(el('small', '', 'differs between screens'));
+      const seg = el('div', 'rm-seg');
+      seg.setAttribute('role', 'group');
+      seg.setAttribute('aria-label', L.label);
+      for (const [on, tx] of [
+        [true, 'On'],
+        [false, 'Off'],
+      ])
+        seg.append(
+          btn(
+            '',
+            tx,
+            () =>
+              ctx.send(
+                {
+                  type: 'screens',
+                  target,
+                  patch: { layers: { [L.key]: on } },
+                },
+                `${L.label} ${on ? 'on' : 'off'}`,
+              ),
+            { 'aria-pressed': String(v === on) },
+          ),
+        );
+      r.append(lab, seg);
+      out.push(r);
+    }
+  }
   // Motion tiers (phase 11): each has its own switch, per wall or for all.
-  out.push(kick('Motion', scopeOf(target)));
+  out.push(kick('Display · Motion', scopeOf(target)));
   const mvalue = (key) => {
     const vals = slots.map((s) => state.screens[s]?.motion?.[key] !== false);
     return vals.every((v) => v === vals[0]) ? vals[0] : null;
@@ -704,40 +742,6 @@ function layers(ctx) {
       'A wall whose system asks for reduced motion stays still whatever these say.',
     ),
   );
-  for (const g of LAYER_CATALOG) {
-    out.push(kick(g.group, scopeOf(target)));
-    for (const L of g.layers) {
-      const v = value(L.key, L.def);
-      const r = el('div', 'rm-layer');
-      const lab = el('div', 'lab', L.label);
-      if (v === null) lab.append(el('small', '', 'differs between screens'));
-      const seg = el('div', 'rm-seg');
-      seg.setAttribute('role', 'group');
-      seg.setAttribute('aria-label', L.label);
-      for (const [on, tx] of [
-        [true, 'On'],
-        [false, 'Off'],
-      ])
-        seg.append(
-          btn(
-            '',
-            tx,
-            () =>
-              ctx.send(
-                {
-                  type: 'screens',
-                  target,
-                  patch: { layers: { [L.key]: on } },
-                },
-                `${L.label} ${on ? 'on' : 'off'}`,
-              ),
-            { 'aria-pressed': String(v === on) },
-          ),
-        );
-      r.append(lab, seg);
-      out.push(r);
-    }
-  }
   const a = el('div', 'rm-actions');
   a.append(
     btn('rm-btn', `Reset ${tgtName(target)} to role defaults`, () =>

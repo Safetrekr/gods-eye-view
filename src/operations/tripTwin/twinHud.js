@@ -312,7 +312,11 @@ export function createHud({
 
     peopleHead.replaceChildren(
       el('span', 'tt-kicker', 'PEOPLE'),
-      el('span', 'tt-kicker num', `of ${a.rows.length} loaded`),
+      el(
+        'span',
+        'tt-kicker num',
+        `of ${a.rows.length} loaded${ctx.asOf ? ` · as of ${ctx.asOf}` : ''}`,
+      ),
     );
     roster.replaceChildren();
     roster.setAttribute('aria-label', a.rosterText);
@@ -554,7 +558,11 @@ export function createHud({
         );
     }
     const names = el('ul', 'tt-inc-names');
-    for (const r of g1?.rows || []) {
+    // A wall lists six names and says how many more; the roster has them.
+    const wall = document.body.dataset.view === 'screen';
+    const allRows = g1?.rows || [];
+    const shownRows = wall ? allRows.slice(0, 6) : allRows;
+    for (const r of shownRows) {
       const li = el('li');
       const b = el('button');
       b.type = 'button';
@@ -568,6 +576,14 @@ export function createHud({
       li.append(b);
       names.append(li);
     }
+    if (allRows.length > shownRows.length)
+      names.append(
+        el(
+          'li',
+          'more',
+          `+${allRows.length - shownRows.length} more · listed in the rail`,
+        ),
+      );
     incident.append(names);
     const inB = m.groups.find((g) => g.key === 'in_building');
     if (inB)

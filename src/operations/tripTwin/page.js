@@ -4,7 +4,7 @@
 import * as Cesium from 'cesium';
 import './tripTwin.css';
 import './tripTwin.instrument.css';
-import { createMotion, MOTION_DEFAULTS } from './twinMotion.js';
+import { createMotion, MOTION_DEFAULTS, flash } from './twinMotion.js';
 import { createStandaloneScene } from '../../standalone/scene.js';
 import { createTripTwin, flightMs } from './tripTwin.js';
 import { TWIN_CITIES } from './twinCities.js';
@@ -962,6 +962,11 @@ async function main() {
       );
       lastA = a;
       logChanges(a, mode, sampleClock(snap));
+      if (document.body.dataset.view !== 'screen')
+        document.body.classList.toggle(
+          'tt-incident-open',
+          mode?.mode === 'incident',
+        );
       lastCtx = {
         mode,
         numbering,
@@ -3466,20 +3471,20 @@ async function main() {
   // A function so legend distances follow Display › Units (phase 5b).
   const keys = () => ({
     people: [
-      ['', '#eff7f3', 'Live / stopped · current'],
+      ['', '#eef5f3', 'Live / stopped · current'],
       ['dash', '#f59e0b', 'Aging'],
-      ['dot', '#9aa8ac', 'Last known'],
+      ['dot', '#7f949b', 'Last known'],
     ],
     floors: [
-      ['', '#eff7f3', 'Likely floor range'],
-      ['dash', '#eff7f3', 'Rough range'],
+      ['', '#eef5f3', 'Likely floor range'],
+      ['dash', '#eef5f3', 'Rough range'],
       ['', '#ee7789', 'Reported floor'],
     ],
     // Sensor resolution stays as the source publishes it (review/phase5b IA F1).
     fires: [['', '#ee7789', 'Heat detection (375 m pixel)']],
     safety: [
       ['', '#4ba467', 'Approved place'],
-      ['dash', '#9aa8ac', 'Draft · not approved'],
+      ['dash', '#7f949b', 'Draft · not approved'],
     ],
     paths: [
       ['', '#3b82f6', 'Suggested path'],
@@ -3497,9 +3502,9 @@ async function main() {
     ],
     elevation: [['', '#80959b', 'Contour · relative to hotel street level']],
     streets: [
-      ['thick', '#eff7f3', 'Major street'],
+      ['thick', '#eef5f3', 'Major street'],
       ['', '#b8c3c7', 'Minor street'],
-      ['thin', '#9aa8ac', 'Alley or service road'],
+      ['thin', '#7f949b', 'Alley or service road'],
       ['thick', '#415e6b', 'No walking (motorway, private)'],
       [
         'note',
@@ -3541,8 +3546,8 @@ async function main() {
     ],
     walkways: [
       ['thin', '#b8c3c7', 'Walkway · pedestrian area'],
-      ['stairs', '#e3e7e9', 'Steps'],
-      ['door', '#eff7f3', 'Mapped entrance (OSM, unverified)'],
+      ['stairs', '#eef5f3', 'Steps'],
+      ['door', '#eef5f3', 'Mapped entrance (OSM, unverified)'],
       [
         'note',
         '',
@@ -5063,8 +5068,15 @@ async function main() {
   const pois = poisBySite[cityKey] || [];
   // SOC multi-view: screens count scenario time from the session's epoch.
   let scenarioEpoch = null;
+  // Snapshot sweep (Live tier, 05 §4.1): one faint band rises over the
+  // twin as a snapshot is applied; never when the feed is frozen or reduced.
+  const sweep = document.createElement('div');
+  sweep.className = 'tt-sweep';
+  sweep.setAttribute('aria-hidden', 'true');
+  document.body.append(sweep);
   const feed = () => {
     lastFeed = Date.now();
+    if (motion.on('live') && !document.hidden) flash(sweep, 'go');
     twin.setSnapshot(
       applyOperatorNumbering(
         tripTwinDemoSnapshot(cityKey, scenario, {
@@ -5119,6 +5131,7 @@ async function main() {
   let lastSessionReport = null; // the remote's report this wall shows
   /** What a wall screen can ask of this page (twinScreen.js). */
   let driftOff = null;
+  let anyIncCache = { at: 0, v: false };
   const screenApi = {
     cityKey,
     tripCity: (id) => tripById(id).city,
@@ -5201,15 +5214,21 @@ async function main() {
         twin.scene?.hotelBase || 0,
       );
       const frame = Cesium.Transforms.eastNorthUpToFixedFrame(center);
-      const RATE = Cesium.Math.toRadians(0.5); // degrees per second
-      let last = performance.now();
+      // Eased (motion review): heading = h0 + 10°·(1 − cos 2πt/125 s), so
+      // it starts from rest, peaks at 0.5°/s and returns to the operator's
+      // heading. Roll and pitch are never touched (05 §6.4).
+      const AMP = Cesium.Math.toRadians(10);
+      const PERIOD = 125000;
+      const t0 = performance.now();
+      let turned = 0;
       const off = viewer.scene.preRender.addEventListener(() => {
-        const now = performance.now();
-        const dt = Math.min(0.1, (now - last) / 1000);
-        last = now;
+        const t = performance.now() - t0;
+        const target = AMP * (1 - Math.cos((2 * Math.PI * t) / PERIOD));
+        const step = target - turned;
+        turned = target;
         const cam = viewer.camera;
         cam.lookAtTransform(frame);
-        cam.rotateRight(RATE * dt);
+        cam.rotateRight(step);
         cam.lookAtTransform(Cesium.Matrix4.IDENTITY);
       });
       driftOff = () => off();
@@ -5298,6 +5317,25 @@ async function main() {
         ? `${sampleClock(lastCtx.snapshot)} local · sample`
         : '',
     incidentOpen: () => lastCtx?.mode?.mode === 'incident',
+    /** A report open on any trip on watch (drift stops for all of them). */
+    anyIncidentOpen() {
+      const now = Date.now();
+      if (anyIncCache.at > now - 30000) return anyIncCache.v;
+      const v =
+        screenApi.incidentOpen() ||
+        DEMO_TRIPS.some(
+          (t) =>
+            t.id !== focusTrip.id &&
+            (
+              tripTwinDemoSnapshot(t.city, t.scenario, {
+                now,
+                startMs: scenarioEpoch,
+              }).reported_incidents || []
+            ).length > 0,
+        );
+      anyIncCache = { at: now, v };
+      return v;
+    },
     /** What a hands-on operator picked on this wall (for the remote). */
     selectionText() {
       const s = selection;
@@ -5329,12 +5367,26 @@ async function main() {
         node.append(n);
       };
       node.replaceChildren();
-      add('tt-kicker', 'NO INCIDENT OPEN');
+      add(
+        'tt-kicker',
+        `NO INCIDENT REPORTED · ${focusTrip.title.toUpperCase()}`,
+      );
       add(
         'tt-wall-note',
         'A reported floor opens the board here · needs attention is on the left',
       );
-      add('tt-kicker', 'CHANGED · LAST 10 MIN');
+      if (lastA?.counts)
+        add(
+          'tt-wall-line',
+          Object.entries(lastA.counts)
+            .map(([k, v]) => `${k === 'Away' ? 'Away from this site' : k} ${v}`)
+            .join(' · '),
+        );
+      if (lastSiteCounts) {
+        add('tt-kicker', 'PEOPLE BY SITE');
+        add('tt-wall-line', siteCountsLine(lastSiteCounts, siteKey));
+      }
+      add('tt-kicker', 'CHANGED · LAST 10 MIN · SAMPLE CLOCK');
       const recent = changeLog.filter((e) => Date.now() - e.at < 600000);
       if (!recent.length)
         add(
@@ -5388,6 +5440,61 @@ async function main() {
       } catch {
         /* no sunset line */
       }
+    },
+    /** S5 · Day plan: the day's schedule, sunset, official alerts. */
+    dayPanel(node) {
+      const add = (cls, t) => {
+        const n = document.createElement('div');
+        n.className = cls;
+        n.textContent = t;
+        node.append(n);
+      };
+      node.replaceChildren();
+      const d = shownDay() ?? todayDay();
+      add('tt-kicker', `SCHEDULE · DAY ${d}`);
+      const evs = advEvents().filter((e) => e.day === d);
+      if (!evs.length)
+        add('tt-wall-line', 'No events on the plan for this day');
+      for (const e of evs) {
+        const site = SITES.find((x) => x.key === e.siteKey);
+        add(
+          'tt-wall-line',
+          `${e.start}${e.end ? `–${e.end}` : ''} · ${e.title}${site && !String(e.title).includes(site.short || '§') ? ` · ${site.short || site.label || ''}` : ''}`,
+        );
+      }
+      try {
+        const c = city.anchors?.inside || city.center;
+        const date = evs[0]?.date || new Date().toISOString().slice(0, 10);
+        const { set } = sunTimes(date, c.lat, c.lon ?? c.lng);
+        if (set)
+          add(
+            'tt-wall-line',
+            `Sunset ${new Date(set).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: city.timezone })} local`,
+          );
+      } catch {
+        /* no sunset line */
+      }
+      add(
+        'tt-kicker',
+        `OFFICIAL · ${WX.warnings === 'nws' ? 'NWS' : 'MeteoAlarm'}`,
+      );
+      if (wx.warningsStatus === 'unavailable')
+        add(
+          'tt-wall-line warn',
+          'Official warnings unavailable right now — not checked',
+        );
+      else if (!wx.warnings.length)
+        add(
+          'tt-wall-line',
+          `Checked ${wx.warningsAt ? hhmm(new Date(wx.warningsAt).toISOString()) : 'at load'}: no active alerts returned for this point`,
+        );
+      else
+        for (const w of wx.warnings)
+          add('tt-wall-line official', warningLine(w, city.timezone));
+      add(
+        'tt-wall-note',
+        'Checks and notes for each stop are in the brief on the left · reviewed on the All-in-one',
+      );
     },
     /** Weather & alerts: official first, then sensed, then now (S4). */
     weatherPanel(node) {
@@ -5495,11 +5602,25 @@ async function main() {
         ck.append(sm);
         c.append(ck);
         if (t.incident) line('i', t.incident);
-        if (!t.noData)
-          line(
-            'n',
-            `${t.people} people · ${t.notCurrent} not current · ${t.notLocated} not located`,
-          );
+        if (!t.noData) {
+          const st = document.createElement('div');
+          st.className = 'stats';
+          for (const [v, l, attn] of [
+            [t.people, 'people', false],
+            [t.notCurrent, 'not current', t.notCurrent > 0],
+            [t.notLocated, 'not located', t.notLocated > 0],
+          ]) {
+            const cell = document.createElement('div');
+            const b = document.createElement('b');
+            b.textContent = String(v);
+            if (attn) b.className = 'attn';
+            const sp = document.createElement('span');
+            sp.textContent = l;
+            cell.append(b, sp);
+            st.append(cell);
+          }
+          c.append(st);
+        }
         line('x', t.noData ? t.line : `Next: ${t.next}`);
         line('d', t.noData ? '' : t.data);
         grid.append(c);

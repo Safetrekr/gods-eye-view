@@ -8,6 +8,7 @@
 | Select any path, see details, edit it | **Done:** phase 9 (`review/phase9`). "Edit a copy of this path" |
 | Help overlay regrouped · frame-whole-trip honours Reduce motion | **Done** (phase 9 commit) |
 | Leader lines for moved labels | Deferred |
+| Full UX · UI · IA · brand · motion polish (phase 11) | **Done:** Instrument skin, three motion tiers with switches, S3/S5/S6 boards, launch cards, remote rail card; six reviews and F1–F24 (`review/phase11`). Deferred: echo, reticle, cascade, placed wordmark, scene label scale, shared feed clock |
 | Saved path vs automatic suggestion | **Decided (Jesse): faded**, built in phase 9 (O19) |
 
 ## Next round: streets, walkways and a "ways out" view (Jesse, 16 Oct 2026)

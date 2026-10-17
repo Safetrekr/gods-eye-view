@@ -9,10 +9,10 @@
   --rm-well: rgba(4, 12, 17, 0.45);
   --rm-line: #1e404f;
   --rm-line-2: #2b4e59;
-  --rm-text: #eff7f3;
+  --rm-text: #eef5f3;
   --rm-text-2: #b8c3c7;
   --rm-dim: #8ea3aa;
-  --rm-active: #eff7f3;
+  --rm-active: #eef5f3;
   --rm-attn: #f59e0b;
   --rm-hazard: #ee7789;
   --rm-path: #93bafa;
@@ -175,8 +175,8 @@ button {
   border-color: var(--rm-active);
   color: var(--rm-active);
   box-shadow:
-    inset 0 0 8px rgba(239, 247, 243, 0.08),
-    0 0 9px rgba(239, 247, 243, 0.1);
+    inset 0 0 8px rgba(238, 245, 243, 0.08),
+    0 0 9px rgba(238, 245, 243, 0.1);
 }
 .rm-target.off {
   border-style: dashed;
@@ -311,7 +311,7 @@ button {
 }
 .rm-btn.on {
   border-color: var(--rm-active);
-  box-shadow: 0 0 9px rgba(239, 247, 243, 0.12);
+  box-shadow: 0 0 9px rgba(238, 245, 243, 0.12);
 }
 .rm-btn[disabled] {
   opacity: 0.45;
@@ -379,7 +379,7 @@ button {
 }
 .rm-screen[aria-current='true'] {
   border-color: var(--rm-active);
-  box-shadow: 0 0 9px rgba(239, 247, 243, 0.1);
+  box-shadow: 0 0 9px rgba(238, 245, 243, 0.1);
 }
 .rm-screen.offline {
   border-style: dashed;
@@ -433,7 +433,7 @@ button {
   cursor: pointer;
 }
 .rm-seg button[aria-pressed='true'] {
-  background: rgba(239, 247, 243, 0.12);
+  background: rgba(238, 245, 243, 0.12);
   color: var(--rm-active);
 }
 .rm-input {
@@ -605,11 +605,11 @@ button {
   text-transform: uppercase;
 }
 .rm-tile[aria-current='true'] {
-  border-color: rgba(239, 247, 243, 0.8);
+  border-color: rgba(238, 245, 243, 0.8);
   color: var(--rm-active);
   box-shadow:
-    inset 0 0 8px rgba(239, 247, 243, 0.08),
-    0 0 9px rgba(239, 247, 243, 0.1),
+    inset 0 0 8px rgba(238, 245, 243, 0.08),
+    0 0 9px rgba(238, 245, 243, 0.1),
     inset 0 1px 0 rgba(203, 228, 238, 0.04);
 }
 .rm-tile.later {

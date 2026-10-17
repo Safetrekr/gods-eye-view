@@ -786,3 +786,16 @@ Every motion in Trip Twin, with job, trigger and reduced fallback. A motion not 
 | M-A10 | Three simultaneous ripples and the priority order in 4.3 are the right attention budget for an expert operator under stress | Demo A scenario run with 5–8 operators (06 section 7): any operator who misses an at-or-above person or a not-current person within 60 s, or reports the scene as busy, triggers a review |
 | M-A11 | The film's floor-explode moment is better served by the schematic ruler than by lifting floors in 3D | Same scenario run; ask whether the ruler reads as "not a floor plan" |
 | M-A12 | Durations (1.2 s dissolve, 480 ms camera, 3-cycle ripples, 1.6 s sweep) are starting values; they must be tuned on the reference laptop at 30 fps, not judged in a 60 fps mock | Prototype review by Jesse and Justin against the reference frames |
+
+
+## 11. Phase 11 amendment (16 Oct 2026): the three tiers and the approved idle drift
+Decided by Jesse on 16 Oct 2026; built in `twinMotion.js` and the Instrument skin. This section records the exceptions to §4.2 and §6.4 V5 and binds them.
+
+| Item | Rule |
+|---|---|
+| Tiers | Every motion belongs to one tier: **Live** (live dot, snapshot sweep), **Event** (count highlight, band entrance), **Cinematic** (fog-in panels, the remote's rail wavefront, idle drift). Each tier has its own switch per wall (remote 06 Layers › Display · Motion) and on the All-in-one (Display › Motion). Reduce motion, system or in-app, turns all three off and cannot be overridden. |
+| Idle drift (exception to §4.2 and V5) | Site wall only, Cinematic tier on, after 60 s with no hands on and no pending camera command. Never while a report is open on any trip on watch, while the link is stale, or while the remote is offline. Any input, camera command, site switch, spotlight or report stops it at once and restarts the 60 s clock. Profile: heading = h0 + 10°·(1 − cos 2πt/125 s), peak 0.5°/s, no roll, no pitch change; it returns to the operator's heading. The wall chip reads "· drifting" and the remote's card and preview read "drifting · idle camera". |
+| Calm budget while drifting | §4.4 is measured with drift excluded; the sweep and the live dot stay inside the budget. |
+| Sweep | DOM band over the 3D view, transform only, α 0.2, 1.6 s linear, once per applied snapshot; never on a stale wall or a wall without 3D. |
+| Live dot | 4.6 s breath; stops while the wall is STALE or the remote is offline. |
+| Not yet built (declared, next motion phase) | Echo at the old fix, selection reticle, identify pulse, static "+n at hh:mm:ss" deltas, the cross-wall incident cascade. |

@@ -11,7 +11,7 @@ export const GLOW_STYLES = Object.freeze({
   beacon: 'Aura + beacon',
 });
 export const DEFAULT_GLOW = 'aura-pool';
-const SELECT = '#eff7f3'; // twin-select (05 §2.5)
+const SELECT = '#eef5f3'; // twin-select (05 §2.5)
 const TINT = '#b8c3c7'; // slate-teal ramp top: keeps the glow on-brand
 
 const GLOW_SOURCE = `

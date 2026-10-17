@@ -925,3 +925,60 @@ Amends PTH-02: paths rank **Main / Alternate**; "primary / secondary" rank rally
 | `Return all to Live + defaults` | The wall-wide reset | "panic", "kill" |
 | `Pair a screen` · `Identify screens` | Pairing by 4-digit code; flash every screen's number | — |
 | `NWS checked 14:02: no active alerts returned for this point` | Weather & alerts when the official feed is empty | "no alerts", "all clear" |
+
+
+## 19. Phase 11 — the visual system "Instrument" and the motion tiers (16 Oct 2026)
+Decided by Jesse from the two proposal pages (`review/phase11/brand-directions.html`). Applied in `tripTwin.instrument.css` and `remote/remote.instrument.css`, loaded after the base stylesheets.
+
+### 19.1 Tokens
+| Token | Value | Use |
+|---|---|---|
+| Field | `#040c12` | Every surface, the Cesium scene, label backgrounds (moved from `#061a23` across the engine) |
+| Steel text | `#b8c3c7` · `#7f949b` dim | Body on the field, kickers, sources, ages |
+| Light | `#eef5f3` | Text, selection rings, the LIVE badge and its dot, primary buttons, the hotel outline. White is what is on and what is chosen |
+| Hairline | `rgba(184,195,199,.12)` inside panels · `.22` on edges | Every rule and border; no solid `#1e404f` borders remain |
+| Glass | `rgba(8,22,30,.72)` · blur 16 px · top highlight `rgba(203,228,238,.06)` · glow `0 0 24px rgba(184,195,199,.07)` | Rail, cards, popovers, toolbar, wall panels, remote panels |
+| Dot grid | `rgba(184,195,199,.2)` dots, 44 px pitch | Walls only, never the All-in-one or the remote |
+| Radius | 6 px (8 px popovers and launch cards) | |
+| Meaning colours | green `#4ba467` approved places · blue `#3b82f6` paths · red `#ee7789` incidents · amber `#f59e0b` attention | Unchanged; the only saturated elements; never chrome |
+
+### 19.2 Type
+| Face | Role | Rule |
+|---|---|---|
+| Manrope 200 / 300 | Display: headcounts, incident counts, S6 clocks, wall and remote headings, trip titles | Never below 26 px on a wall; tabular numerals; tracking −0.02 em |
+| Inter 400–600 | Body: roster lines, notes, buttons, remote content | Never above 28 px; above that it is a readout and moves to Manrope |
+| Intel One Mono | Readouts: kickers, chips, ages, sources, the wall chip, station labels, the SAMPLE mark | Anything with a timestamp or a source |
+
+Wall sizes before the wall scale (×1.5–2): kicker 30 px mono; headcount numerals 34 px (reads 56–68 px); roster name 14 / line 12; chip 22; band title 30 display; S6 local clock 64 px display.
+
+### 19.3 Motion tiers
+Three tiers, each with its own switch (remote: 06 Layers › Motion, per wall or All, pins respected; All-in-one: Display › Motion). The system's Reduce motion, or the in-app override, turns all three off and cannot be overridden. Body classes `tt-m-live`, `tt-m-event`, `tt-m-cine`, `tt-m-reduced` (`twinMotion.js`).
+| Tier | Moves | Defaults |
+|---|---|---|
+| Live | The live dot on the LIVE badge (4.6 s breath); the snapshot sweep (1.6 s, once per applied snapshot); fix ages on the 5 s tick | On everywhere |
+| Event | A changed headcount flashes once (1.2 s); the incident band enters from its slot (0.62 s) | On everywhere |
+| Cinematic | Panels fog in (0.32–0.8 s, podium's curve `cubic-bezier(.33,0,.18,1)`); the remote's rail wavefront on a station change (0.52 s, 50 ms per tile); idle drift on the Site wall: 0.5°/s around the site after 60 s with no hands on, never during an incident, stopped by any input or camera command, named "· drifting" in the chip | On for walls and the remote; off on the All-in-one |
+
+### 19.4 Vocabulary added
+| Term | Meaning |
+|---|---|
+| Instrument | The visual system: steel and white on teal-black |
+| Motion tier | Live, Event or Cinematic; a switchable group of animations |
+| Drifting | The Site wall's idle orbit under the Cinematic tier |
+| Changed · last 10 min | The S3 idle board's log of count and attention changes, stamped with the sample clock |
+| Next on the plan | The S3 idle board's upcoming events |
+
+### 19.5 Rules for the brand page (from review/phase11/06-brand)
+1. The field is `#040c12` on every surface, and nothing is shown before the field is set.
+2. Chrome is steel only: `#b8c3c7` text and hairlines, `#80959b` secondary lines and the sweep, `#415e6b` faintest grid and wireframe; no other teal or navy in CSS or scene code.
+3. Hairlines sit between 12 % and 22 % alpha; a stronger edge means on, chosen or focused.
+4. The light is one token, `#eef5f3`, used only for what is on or chosen.
+5. Green, blue, red and amber keep their meanings and are never chrome; a control turns red only while an incident exists.
+6. One glass recipe: `rgba(8,22,30,.72)`, 16 px blur, a 1 px top light, 6 px radius (8 px for cards).
+7. The 44 px dot grid at 20 % alpha appears on the field of every wall and never on the All-in-one or the remote.
+8. Manrope for numerals (200) and headings (300), Inter for body, Intel One Mono for kickers, chips, ages and sources; on a wall after the wall scale, Manrope never below 26 px and Inter never above 28 px.
+9. The SafeTrekr mark is placed from the asset, never retyped (pending: the app's wordmark files need re-export).
+10. Every colour, including scene colours in JS, comes from one token table; each phase ends with a sampled-screenshot check of field, light, grid and type on all four surfaces.
+
+### 19.6 Names superseded in §18
+`Travelers` → `People`, `The day` → `Day plan` (review/phase10 R16). "No incident open" → "No incident reported · {trip}" (review/phase11 F10).

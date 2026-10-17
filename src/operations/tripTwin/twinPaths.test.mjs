@@ -60,7 +60,9 @@ test('path cards never call a route safe and say "unverified"', () => {
 
 test('no detections is never presented as an all-clear', () => {
   const s = fireSummary({ lat: 30.26, lon: -97.74 }, []);
-  assert.match(s.text, /not an all-clear/);
+  assert.match(s.text, /none in the last pass/);
+  assert.doesNotMatch(s.text, /all[- ]clear/i);
+  assert.match(s.text, /FIRMS/);
 });
 
 test('simulated detections are labelled and summarised with nearest first', () => {

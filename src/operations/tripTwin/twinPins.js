@@ -3,11 +3,11 @@
 import { initials } from '../participantPins.js';
 
 export const RING = Object.freeze({
-  live: { color: '#eff7f3', dash: null, hollow: false },
-  stopped: { color: '#eff7f3', dash: null, hollow: false, still: true },
+  live: { color: '#eef5f3', dash: null, hollow: false },
+  stopped: { color: '#eef5f3', dash: null, hollow: false, still: true },
   aging: { color: '#f59e0b', dash: [7, 5], hollow: false },
-  last: { color: '#9aa8ac', dash: [2, 5], hollow: true },
-  unknown: { color: '#9aa8ac', dash: [2, 5], hollow: true, ghost: true },
+  last: { color: '#7f949b', dash: [2, 5], hollow: true },
+  unknown: { color: '#7f949b', dash: [2, 5], hollow: true, ghost: true },
 });
 
 export function ringKind(pos) {
@@ -45,7 +45,7 @@ export function pinCanvas(
   g.lineTo(cx, H - 4);
   g.lineTo(cx + 7, cy + r - 4);
   g.closePath();
-  g.fillStyle = style.hollow ? 'rgba(6,26,35,0.85)' : style.color;
+  g.fillStyle = style.hollow ? 'rgba(4,12,18,0.85)' : style.color;
   g.fill();
   // Halo for contrast on any background (04 --tt-halo).
   g.beginPath();
@@ -55,7 +55,7 @@ export function pinCanvas(
   // Disc.
   g.beginPath();
   g.arc(cx, cy, r - 5, 0, Math.PI * 2);
-  g.fillStyle = style.hollow ? 'rgba(18,54,70,0.6)' : '#123646';
+  g.fillStyle = style.hollow ? 'rgba(10,26,34,0.6)' : '#0a1a22';
   g.fill();
   // Freshness ring.
   g.beginPath();
@@ -66,14 +66,14 @@ export function pinCanvas(
   g.stroke();
   g.setLineDash([]);
   // Initials.
-  g.fillStyle = style.hollow ? '#9aa8ac' : '#eff7f3';
+  g.fillStyle = style.hollow ? '#7f949b' : '#eef5f3';
   g.font = '600 20px Inter, ui-sans-serif, system-ui, sans-serif';
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.fillText(style.ghost ? '?' : initials(person.name), cx, cy + 1);
   // Still glyph (stopped · current): two short bars at the top.
   if (style.still) {
-    g.fillStyle = '#eff7f3';
+    g.fillStyle = '#eef5f3';
     g.fillRect(cx - 7, cy - r - 2, 4, 8);
     g.fillRect(cx + 3, cy - r - 2, 4, 8);
   }
@@ -83,7 +83,7 @@ export function pinCanvas(
   g.strokeStyle = '#80959b';
   g.lineWidth = 1.5;
   g.strokeRect(cx + 12, cy + 12, 18, 16);
-  g.fillStyle = '#eff7f3';
+  g.fillStyle = '#eef5f3';
   g.font = '700 11px ui-monospace, Menlo, monospace';
   g.fillText(person.role === 'chaperone' ? 'C' : 'T', cx + 21, cy + 20.5);
   g.globalAlpha = 1;
@@ -92,7 +92,7 @@ export function pinCanvas(
     g.beginPath();
     g.arc(cx, cy, r + 6, 0, Math.PI * 2);
     g.lineWidth = 3;
-    g.strokeStyle = selected ? '#eff7f3' : '#f59e0b';
+    g.strokeStyle = selected ? '#eef5f3' : '#f59e0b';
     g.stroke();
   }
   cache.set(key, c);

@@ -9,7 +9,7 @@ export function createSiteBeacons(viewer, site) {
   const ds = new Cesium.CustomDataSource('trip-twin-site-beacons');
   viewer.dataSources.add(ds);
   const base = site.field.at(0, 0);
-  const text = Cesium.Color.fromCssColorString('#eff7f3');
+  const text = Cesium.Color.fromCssColorString('#eef5f3');
   return {
     /** sites: siteConfig list; counts: {key → n}; activeKey: this site. */
     update(sites, { activeKey, counts = {} } = {}) {

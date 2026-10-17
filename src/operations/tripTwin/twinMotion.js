@@ -14,17 +14,17 @@ export const MOTION_TIERS = Object.freeze([
   {
     key: 'live',
     label: 'Live',
-    sub: 'Live dot, fix ages, the snapshot sweep',
+    sub: 'The live dot and the snapshot sweep',
   },
   {
     key: 'event',
     label: 'Event',
-    sub: 'Number swaps, the echo at the old fix, a band entering',
+    sub: 'Count highlights and a band entering',
   },
   {
     key: 'cine',
     label: 'Cinematic',
-    sub: 'Fog-in panels, the rail wavefront, idle drift on Site',
+    sub: 'Fog-in panels; idle drift on Site: stops on any touch, never during an incident',
   },
 ]);
 

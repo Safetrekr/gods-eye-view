@@ -7,7 +7,7 @@ import './remote.instrument.css';
 import { connectSync } from '../twinSync.js';
 import { ROLES, screenSummary } from '../twinScreenRoles.js';
 import { needsConfirm, previewAll } from '../twinSession.js';
-import { tripById, tripDays } from '../demoTrips.js';
+import { DEMO_TRIPS, tripById, tripDays } from '../demoTrips.js';
 import { tripTwinDemoSnapshot } from '../demoTripTwin.js';
 import { sitesForCity } from '../twinSites.js';
 import { STATIONS, btn } from './stations.js';
@@ -283,7 +283,7 @@ function renderHead() {
   const plate = el('div', 'rm-plate');
   plate.append(
     el('span', 'mono', t.orgShort),
-    el('span', 'org', `${t.org} · ${t.title}`),
+    el('span', 'org', `${t.title} · ${t.org}`),
   );
   const ctl = ui.presence?.remotes?.find((r) => r.controller && !r.you);
   const link = el(
@@ -292,7 +292,7 @@ function renderHead() {
     ui.link !== 'online'
       ? 'Not connected · retrying'
       : ui.controller
-        ? `In control · ${device}`
+        ? `In control · this ${device}`
         : `View only · ${ctl ? `${ctl.name || 'another remote'} in control` : 'no remote in control'}`,
   );
   const extra = [];
@@ -321,6 +321,8 @@ function renderHead() {
       ),
     );
   head.replaceChildren(plate, link, ...extra, el('span', 'rm-seal', 'OP'));
+  // Write controls dim while this remote only views (F20).
+  document.body.classList.toggle('rm-viewonly', !ui.controller);
 }
 function renderTargets() {
   if (!ui.state) return;
@@ -344,6 +346,14 @@ function renderTargets() {
             : `${ROLES[ui.state.screens[t].role]?.label} · ${online ? 'online' : 'not connected'}`,
       },
     );
+    if (t !== 'all')
+      b.append(
+        el(
+          'small',
+          '',
+          (ROLES[ui.state.screens[t].role] || ROLES.site).kicker.split(' ')[0],
+        ),
+      );
     b.addEventListener('keydown', (e) => {
       const i = items.indexOf(t);
       const d =
@@ -385,17 +395,14 @@ function renderPreview() {
         p?.online ? 'Waiting for a snapshot' : 'Screen not connected',
       );
   if (img.tagName === 'IMG') img.dataset.thumb = String(slot);
-  // The role and badge are drawn over the snapshot (phase 11).
-  const wrap = el('div', 'img-wrap');
-  wrap.append(
-    img,
+  // The role and badge sit in a strip above the snapshot, never over the
+  // wall's own header (F7).
+  const strip = el('div', 'strip');
+  strip.append(
+    k,
+    el('span', 'role', s ? (ROLES[s.role] || ROLES.site).kicker : ''),
     el(
-      'div',
-      'ov',
-      s ? `S${slot} · ${(ROLES[s.role] || ROLES.site).kicker}` : '',
-    ),
-    el(
-      'div',
+      'span',
       'ovb',
       s?.mode === 'advance'
         ? `ADVANCE${s.day ? ` · DAY ${s.day}` : ''}`
@@ -405,8 +412,8 @@ function renderPreview() {
     ),
   );
   preview.replaceChildren(
-    k,
-    wrap,
+    strip,
+    img,
     el(
       'div',
       'sum',
@@ -502,16 +509,64 @@ function renderContent(force = false) {
       ?.focus();
 }
 function swap() {
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches)
-    return renderContent(true);
-  content.classList.add('sw-out');
-  setTimeout(() => {
-    content.classList.remove('sw-out');
-    renderContent(true);
-    content.scrollTop = 0;
-    content.classList.add('sw-in');
-    setTimeout(() => content.classList.remove('sw-in'), 340);
-  }, 230);
+  // Information never waits for motion (05 P1): the new content lands at
+  // once; only the fog-in plays, and only with this remote's animation on.
+  renderContent(true);
+  content.scrollTop = 0;
+  if (!document.body.classList.contains('rm-m-cine')) return;
+  content.classList.remove('sw-in');
+  void content.offsetWidth;
+  content.classList.add('sw-in');
+  setTimeout(() => content.classList.remove('sw-in'), 340);
+}
+/** A report open on a trip that is not in focus (S6 shows it; so must we). */
+function otherTripIncident() {
+  const id = ui.state?.session?.tripId;
+  return DEMO_TRIPS.some(
+    (x) => x.id !== id && tripData(x)?.snapshot?.reported_incidents?.length,
+  );
+}
+/** The target's card for the rail when a station has no list (F19). */
+function targetCard() {
+  const t = ui.target;
+  const c = el('div', 'r-card');
+  if (t === 'all') {
+    c.append(
+      el('div', 'k', 'TARGET · ALL SCREENS'),
+      el('div', 'v', `${Object.keys(ui.state.screens).length} screens`),
+      el('div', 's', 'Pinned screens are left as they are'),
+    );
+    return c;
+  }
+  const s = ui.state.screens[t];
+  const p = ui.presence?.screens?.[t];
+  const role = ROLES[s?.role] || ROLES.site;
+  const m = s?.motion || {};
+  const tiers =
+    ['live', 'event', 'cine']
+      .filter((k) => m[k] !== false)
+      .map((k) => (k === 'cine' ? 'cinematic' : k))
+      .join(' · ') || 'none';
+  const local = ui.local[t]?.text;
+  c.append(
+    el('div', 'k', `TARGET · S${t}`),
+    el('div', 'v', role.label),
+    el(
+      'div',
+      's',
+      `${s?.mode === 'advance' ? `Advance${s.day ? ` · Day ${s.day}` : ''}` : 'Live'}${s?.pinned ? ' · pinned' : ''}`,
+    ),
+    el('div', 's', `Motion: ${tiers}`),
+    el(
+      'div',
+      's',
+      p?.online
+        ? `Link · ${p.lastSeen ? `${Math.round((Date.now() - p.lastSeen) / 1000)} s ago` : 'now'}`
+        : 'Not connected',
+    ),
+    ...(local ? [el('div', 's', `At the wall: ${local}`)] : []),
+  );
+  return c;
 }
 function renderRail() {
   if (!ui.state) return;
@@ -531,9 +586,11 @@ function renderRail() {
   active.append(k, el('div', 'v', st.label), el('div', 's', st.sub));
   const list = el('div', 'r-context');
   if (st.context) list.append(...st.context(ctx()));
+  else list.append(targetCard());
   const g = el('div', 'r-grid');
   const incidentOpen =
-    Boolean(ui.state.session.report) && !ui.state.session.incidentAck;
+    (Boolean(ui.state.session.report) && !ui.state.session.incidentAck) ||
+    otherTripIncident();
   for (const s of STATIONS) {
     const t = btn(
       `rm-tile${s.later ? ' later' : ''}`,

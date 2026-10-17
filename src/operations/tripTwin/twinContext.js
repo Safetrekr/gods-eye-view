@@ -276,7 +276,7 @@ export function createContextLayer(
               : cls === 'minor'
                 ? { w: 1, c: '#415e6b', a: 0.35 }
                 : cls === 'nowalk'
-                  ? { w: 1, c: '#2a4a59', a: 0.5 }
+                  ? { w: 1, c: '#415e6b', a: 0.5 }
                   : null,
           (pts) =>
             clipRuns(
@@ -306,7 +306,7 @@ export function createContextLayer(
           : cls === 'service'
             ? { w: 1, c: '#415e6b', a: 0.6 }
             : cls === 'nowalk'
-              ? { w: 1, c: '#2a4a59', a: 0.6 }
+              ? { w: 1, c: '#415e6b', a: 0.6 }
               : cls === 'walk' || cls === 'steps'
                 ? { w: 1, c: '#415e6b', a: 0.5, far: 1500 }
                 : null,

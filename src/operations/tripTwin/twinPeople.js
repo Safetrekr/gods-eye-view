@@ -187,7 +187,7 @@ export function createPeopleLayer(viewer, site, twin) {
           toCart(foot, zTop(top - 1) + 2),
         ],
         width: 1,
-        material: css('#e3e7e9', 0.6),
+        material: css('#eef5f3', 0.6),
         arcType: Cesium.ArcType.NONE,
       },
     });
@@ -199,7 +199,7 @@ export function createPeopleLayer(viewer, site, twin) {
         polyline: {
           positions: [toCart(a, z), toCart(b, z)],
           width: 1,
-          material: css('#e3e7e9', 0.5),
+          material: css('#eef5f3', 0.5),
           arcType: Cesium.ArcType.NONE,
         },
       });
@@ -225,7 +225,7 @@ export function createPeopleLayer(viewer, site, twin) {
               ? '600 11px ui-monospace, Menlo, monospace'
               : '11px ui-monospace, Menlo, monospace',
             // The reported floor's tag is the incident's (red).
-            fillColor: isReported ? css('#f299a6', 1) : css('#e3e7e9', 0.9),
+            fillColor: isReported ? css('#f299a6', 1) : css('#eef5f3', 0.9),
             showBackground: true,
             backgroundColor: isReported
               ? css('#3a1219', 0.95)
@@ -250,7 +250,7 @@ export function createPeopleLayer(viewer, site, twin) {
       const z0 = zBase(e.level_low);
       const z1 = zTop(e.level_high);
       const last = r.floor.kind === 'last';
-      const color = last ? '#9aa8ac' : r.floor.aging ? '#f59e0b' : '#eff7f3';
+      const color = last ? '#7f949b' : r.floor.aging ? '#f59e0b' : '#eef5f3';
       const dashed = last || r.floor.aging || e.confidence !== 'high';
       const mat = dashed
         ? new Cesium.PolylineDashMaterialProperty({
@@ -379,7 +379,7 @@ export function createPeopleLayer(viewer, site, twin) {
             ? '#ee7789'
             : state === 'floor-not-known'
               ? '#f59e0b'
-              : '#eff7f3';
+              : '#eef5f3';
         focusDs.entities.add({
           id: 'twin-floor-focus',
           polygon: {
@@ -416,7 +416,7 @@ export function createPeopleLayer(viewer, site, twin) {
             label: {
               text: `Floor ${label}`,
               font: '500 12px "Intel One Mono", ui-monospace, monospace',
-              fillColor: css('#eff7f3', 1),
+              fillColor: css('#eef5f3', 1),
               showBackground: true,
               backgroundColor: css('#0b1416', 0.8),
               horizontalOrigin: Cesium.HorizontalOrigin.RIGHT,

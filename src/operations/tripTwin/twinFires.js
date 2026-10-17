@@ -83,7 +83,7 @@ export function fireSummary(center, records, now = Date.now()) {
   if (!near.length)
     return {
       count: 0,
-      text: `Heat detections within ${formatRadius(NEAR_KM * 1000)}: 0 (not an all-clear)`,
+      text: `Heat detections within ${formatRadius(NEAR_KM * 1000)}: none in the last pass${records.length ? ` · newest ${formatAge(Math.min(...records.map((r) => (now - r.acqMs) / 1000)))} ago` : ''} · FIRMS`,
     };
   const newest = Math.min(...near.map((r) => (now - r.acqMs) / 1000));
   const n = near[0];

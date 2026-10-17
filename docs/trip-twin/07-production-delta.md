@@ -242,3 +242,13 @@ The prototype uses a dev-server WebSocket relay (`server/tripTwin/syncRelay.js`)
 - A session service (not the dev server) holding session and screen state, with presence and alerting when a wall screen drops.
 - Wall rendering budget: six 3D screens on one machine need a GPU per one or two screens or a render server; screens without 3D (incident board, trips) should not load Cesium at all (today they load it and pause the render loop).
 - Multi-trip data from Core for Trips on watch (today: three sample trips from recorded cities).
+
+
+## Phase 11 — polish: Instrument skin, motion tiers (16 Oct 2026)
+| Mocked or local behaviour | Used by | Production source today | Status | Change needed | Effort |
+|---|---|---|---|---|---|
+| Motion tier switches per wall (`screens[n].motion`) | Walls, remote 06 Layers | None | Prototype only | Store with the wall session in the SOC service; audit who changed a tier and when | S |
+| Motion switches on the All-in-one (`tripTwin.motionLive/Event/Cine`, localStorage) | Display popover | None | Device preference | Keep per device; no server state | — |
+| Change log for the S3 idle board (count and attention deltas from the data tick) | S3 idle board | None (the snapshot has no change feed) | Derived client-side | Core: a change feed per trip (counts, attention transitions) with server timestamps, so every wall shows the same log | M |
+| Idle drift on the Site wall | S1 under the Cinematic tier | None | Client only | None; a production SOC may disable the Cinematic tier by policy | — |
+| Fonts from Google Fonts (Inter, Manrope, Intel One Mono) | Every page | CDN | Prototype | Self-host the three faces in the app's static assets (offline SOC) | S |

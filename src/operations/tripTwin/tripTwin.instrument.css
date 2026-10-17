@@ -579,3 +579,210 @@ body[data-view='screen'][data-role='incident']
 .tt-entry-stepcard .tt-note {
   margin: 0;
 }
+
+/* Live: the snapshot sweep, ground to roof, once per applied snapshot. */
+.tt-sweep {
+  position: fixed;
+  left: var(--wall-left, 0px);
+  right: var(--wall-right, 0px);
+  bottom: -4px;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(128, 149, 155, 0.55) 15%,
+    rgba(128, 149, 155, 0.55) 85%,
+    transparent
+  );
+  opacity: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+.tt-m-live .tt-sweep.go {
+  animation: ttSweep 1.6s linear both;
+}
+@keyframes ttSweep {
+  0% {
+    bottom: 0;
+    opacity: 0;
+  }
+  6% {
+    opacity: 1;
+  }
+  94% {
+    opacity: 1;
+  }
+  100% {
+    bottom: 100%;
+    opacity: 0;
+  }
+}
+
+/* ---------- review/phase11 fixes (00-FIX-LIST.md) ---------- */
+/* F3: the band enters on the enter curve, opacity and translateY only. */
+.tt-m-event .tt-wall-banner:not([hidden]) {
+  animation: ttBand 0.32s cubic-bezier(0, 0, 0.2, 1) both;
+}
+/* F4: "Add reported floor" is steel at rest; red once a floor is reported. */
+.tt-toolbar .tt-tb.accent {
+  border-color: var(--tt-border);
+  color: var(--tt-text-2);
+}
+body.tt-incident-open .tt-toolbar .tt-tb.accent {
+  border-color: var(--tt-hazard);
+  color: var(--tt-hazard-text);
+}
+/* F5: wall rails fade at the bottom edge instead of cutting a line. */
+body[data-view='screen'] .tt-rail-scroll {
+  -webkit-mask-image: linear-gradient(#000 90%, transparent);
+  mask-image: linear-gradient(#000 90%, transparent);
+  padding-bottom: 24px;
+}
+.tt-inc-names .more {
+  font: 500 12px var(--tt-mono);
+  color: var(--tt-text-dim);
+  padding: 6px 0;
+}
+/* F6: the compass clears the weather timeline. */
+body[data-view='screen'][data-role='weather'] .tt-compass {
+  bottom: calc(var(--foot) + 260px);
+}
+/* F9: S3's left column is Needs attention only. */
+body[data-view='screen'][data-role='incident'] .tt-roster,
+body[data-view='screen'][data-role='incident'] .tt-rail-fixed > .tt-line,
+body[data-view='screen'][data-role='incident'] .tt-rail-fixed > .tt-find {
+  display: none !important;
+}
+body[data-view='screen'][data-role='incident'] .tt-rail-fixed {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+/* F11: Inter never above 28 px after the wall scale; headings in Manrope. */
+body[data-view='screen'] .tt-wall-line,
+body[data-view='screen'] .tt-topline,
+body[data-view='screen'] .tt-roster .lbl,
+body[data-view='screen'] .tt-trip .n,
+body[data-view='screen'] .tt-trip .x {
+  font-size: calc(28px / var(--wall-scale));
+}
+body[data-view='screen'] .tt-topline {
+  font: 300 calc(32px / var(--wall-scale)) / 1.25 var(--tt-display);
+  color: var(--tt-text);
+}
+body[data-view='screen'] .tt-topline.incident {
+  color: var(--tt-hazard-text);
+}
+.tt-card-name {
+  font: 300 18px/22px var(--tt-display);
+}
+/* F12: the dot grid above the 3D view and below every panel. */
+.tt-wall-grid {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background-image: radial-gradient(
+    rgba(184, 195, 199, 0.22) 1.3px,
+    transparent 1.6px
+  );
+  background-size: 44px 44px;
+}
+body[data-view='screen'] {
+  background-image: none;
+}
+/* F13: a stale wall's live dot stops; so does the sweep. */
+.tt-stale .tt-livedot {
+  animation: none !important;
+  opacity: 0.35;
+}
+.tt-stale .tt-sweep,
+body[data-view='screen'][data-role='incident'] .tt-sweep,
+body[data-view='screen'][data-role='trips'] .tt-sweep {
+  display: none;
+}
+/* F14: the sweep moves by transform only, at α 0.2. */
+.tt-sweep {
+  bottom: auto;
+  top: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(128, 149, 155, 0.2) 15%,
+    rgba(128, 149, 155, 0.2) 85%,
+    transparent
+  );
+  will-change: transform, opacity;
+}
+.tt-m-live .tt-sweep.go {
+  animation: ttSweep2 1.6s linear both;
+}
+@keyframes ttSweep2 {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  6% {
+    opacity: 1;
+  }
+  94% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-100vh);
+    opacity: 0;
+  }
+}
+/* F8: S5 gains a right panel; S6 tiles carry a count grid. */
+body[data-view='screen'][data-role='day'] {
+  --wall-right: calc(30vw + 24px);
+}
+body[data-view='screen'][data-role='day'] .tt-wall-panel {
+  top: calc((96px + 12px) / var(--wall-scale));
+  right: calc(12px / var(--wall-scale));
+  bottom: calc(40px / var(--wall-scale));
+  width: calc(30vw / var(--wall-scale));
+}
+body[data-view='screen'][data-role='day'] .tt-wall-panel .tt-wall-line {
+  font-size: calc(28px / var(--wall-scale));
+  padding: 9px 0;
+}
+body[data-view='screen'][data-role='day'] .tt-wall-panel .tt-kicker {
+  margin-top: 16px;
+}
+.tt-trip .stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 14px;
+  margin: 6px 0;
+}
+.tt-trip .stats div {
+  border-top: 1px solid var(--tt-hair);
+  padding-top: 8px;
+  min-width: 0;
+}
+.tt-trip .stats b {
+  display: block;
+  font: 200 44px/1 var(--tt-display);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.tt-trip .stats b.attn {
+  color: var(--tt-attention);
+}
+.tt-trip .stats span {
+  font-size: 12px;
+  color: var(--tt-text-2);
+}
+.tt-trip {
+  grid-template-rows: auto auto auto auto 1fr auto auto;
+}
+/* F24: the entry veil is the field, never an olive globe. */
+.tt-entry {
+  background: rgba(4, 12, 18, 0.94);
+  backdrop-filter: blur(10px) saturate(0);
+  -webkit-backdrop-filter: blur(10px) saturate(0);
+}
+/* Light is one value. */
+:root {
+  --tt-focus: #eef5f3;
+}

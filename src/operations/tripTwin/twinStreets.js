@@ -166,12 +166,12 @@ export function doorPlan(entrances, roads, hotelRing) {
 }
 
 const STYLE = {
-  major: { width: 4.5, color: '#eff7f3', alpha: 0.9 },
+  major: { width: 4.5, color: '#eef5f3', alpha: 0.9 },
   minor: { width: 2.5, color: '#b8c3c7', alpha: 0.85 },
-  service: { width: 1.5, color: '#9aa8ac', alpha: 0.85, far: 2000 },
+  service: { width: 1.5, color: '#7f949b', alpha: 0.85, far: 2000 },
   nowalk: { width: 3, color: '#415e6b', alpha: 0.95 },
   walk: { width: 1.25, color: '#b8c3c7', alpha: 0.5, far: 1500 },
-  steps: { width: 2.5, color: '#e3e7e9', alpha: 0.95, far: 1500 },
+  steps: { width: 2.5, color: '#eef5f3', alpha: 0.95, far: 1500 },
 };
 
 function glyphCanvas(draw) {
@@ -188,7 +188,7 @@ function glyphs() {
   DOOR ||= glyphCanvas((g) => {
     g.translate(16, 16);
     g.rotate(Math.PI / 4);
-    g.fillStyle = '#eff7f3';
+    g.fillStyle = '#eef5f3';
     g.strokeStyle = '#040c12';
     g.lineWidth = 3;
     g.fillRect(-7, -7, 14, 14);
@@ -198,7 +198,7 @@ function glyphs() {
   STAIRS ||= glyphCanvas((g) => {
     g.fillStyle = 'rgba(6,26,35,0.9)';
     g.fillRect(2, 2, 28, 28);
-    g.strokeStyle = '#e3e7e9';
+    g.strokeStyle = '#eef5f3';
     g.lineWidth = 3;
     g.beginPath();
     g.moveTo(6, 25);
@@ -296,9 +296,9 @@ export function createStreetsLayer(viewer, site) {
         font: `${l.cls === 'major' ? '600 ' : ''}11px Inter, sans-serif`,
         fillColor: css(
           l.cls === 'major'
-            ? '#eff7f3'
+            ? '#eef5f3'
             : l.cls === 'nowalk'
-              ? '#9aa8ac'
+              ? '#7f949b'
               : '#b8c3c7',
           1,
         ),
@@ -349,7 +349,7 @@ export function createStreetsLayer(viewer, site) {
             label: {
               text: d.label,
               font: '500 11px Inter, sans-serif',
-              fillColor: css('#eff7f3', 1),
+              fillColor: css('#eef5f3', 1),
               showBackground: true,
               backgroundColor: css('#040c12', 0.88),
               pixelOffset: new Cesium.Cartesian2(0, -16),

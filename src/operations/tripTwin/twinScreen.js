@@ -66,7 +66,10 @@ export function createScreenMode({ api, slot = null, setup = null }) {
   const banner = el('div', 'tt-wall-banner');
   banner.hidden = true;
   banner.setAttribute('role', 'alert');
-  document.body.append(head, stale, panel, banner, pair, ident);
+  // The dot grid sits above the 3D view and below every panel (brand F12).
+  const grid = el('div', 'tt-wall-grid');
+  grid.setAttribute('aria-hidden', 'true');
+  document.body.append(grid, head, stale, panel, banner, pair, ident);
 
   let state = null;
   let presence = null;
@@ -93,6 +96,16 @@ export function createScreenMode({ api, slot = null, setup = null }) {
   let sync = null;
 
   const me = () => (state && mySlot ? state.screens[mySlot] : null);
+  /** Stop the idle drift at once and restart its 60 s clock (F2). */
+  const stopDrift = () => {
+    lastActivity = Date.now();
+    if (!drifting) return;
+    drifting = false;
+    api.drift?.(false);
+    document.body.classList.remove('tt-drifting');
+  };
+  const linkLost = () =>
+    !sync?.online || (sync?.linkAgeS != null && sync.linkAgeS > 15);
 
   function showPair(code) {
     pair.replaceChildren(
@@ -129,17 +142,19 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     panel.hidden = !(
       role === 'weather' ||
       role === 'trips' ||
-      role === 'incident'
+      role === 'incident' ||
+      role === 'day'
     );
     if (role === 'weather') api.weatherPanel(panel);
     else if (role === 'trips') api.tripsPanel(panel);
+    else if (role === 'day') api.dayPanel?.(panel);
     else if (role === 'incident') {
       // Idle: say so plainly; the board fills when a floor is reported.
       const open = api.incidentOpen();
       document.body.classList.toggle('tt-incident-open', open);
       if (open)
         panel.replaceChildren(
-          el('div', 'tt-kicker', 'INCIDENT OPEN'),
+          el('div', 'tt-kicker', 'INCIDENT REPORTED · NOT VERIFIED'),
           el(
             'div',
             'tt-wall-note',
@@ -193,7 +208,10 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     if (ss.epochMs && ss.epochMs !== applied.epochMs) api.setEpoch(ss.epochMs);
     // No site chosen (e.g. just after a trip switch): the trip's hotel.
     const site = ss.siteKey || api.cityKey;
-    if (site !== applied.siteKey) api.switchSite(site);
+    if (site !== applied.siteKey) {
+      stopDrift();
+      api.switchSite(site);
+    }
     setNameStyle(
       ss.visitor ? (n) => wallName(n, { visitor: true }) : (n) => wallName(n),
     );
@@ -222,20 +240,24 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         const sc = s.scale;
         camera(() => api.scale(sc));
         applied.scaleRev = s.meta.scale.rev;
-        lastActivity = Date.now(); // a camera change restarts the drift clock
+        stopDrift();
       }
       // Camera intent: only an operator's explicit request, once.
       if (s.frame?.nonce && s.frame.nonce !== applied.frameNonce) {
         const subject = s.frame.subject;
         camera(() => api.frame(subject));
         applied.frameNonce = s.frame.nonce;
-        lastActivity = Date.now();
+        stopDrift();
       }
     }
-    if (JSON.stringify(ss.report) !== JSON.stringify(applied.report))
+    if (JSON.stringify(ss.report) !== JSON.stringify(applied.report)) {
+      stopDrift();
       api.report(ss.report);
-    if (JSON.stringify(ss.spotlight) !== JSON.stringify(applied.spotlight))
+    }
+    if (JSON.stringify(ss.spotlight) !== JSON.stringify(applied.spotlight)) {
+      stopDrift();
       api.spotlight(ss.spotlight);
+    }
     if (ss.wxAt !== applied.wxAt) api.setWxTime(ss.wxAt);
     applied = {
       ...applied,
@@ -307,6 +329,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     // Link age, separate from data age (supervision spec).
     const link = sync?.linkAgeS ?? null;
     const lost = !sync?.online || (link != null && link > 15);
+    document.body.classList.toggle('tt-stale', Boolean(lost && state));
     stale.hidden = !lost || !state;
     if (lost && state) {
       if (link == null && restoredAt)
@@ -342,12 +365,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     if (e.type === 'pointermove') return;
     if (e.type === 'pointerdown') dragging = true;
     lastInput = Date.now();
-    lastActivity = Date.now();
-    if (drifting) {
-      drifting = false;
-      api.drift?.(false);
-      b.classList.remove('tt-drifting');
-    }
+    stopDrift();
     if (!b.classList.contains('tt-hands-on')) {
       b.classList.add('tt-hands-on');
       paint();
@@ -391,7 +409,9 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       !dragging &&
       !pendingCamera.length &&
       now - lastActivity > DRIFT_AFTER_MS &&
-      !api.incidentOpen(),
+      !api.incidentOpen() &&
+      !api.anyIncidentOpen?.() &&
+      !linkLost(),
     );
     if (wantDrift !== drifting) {
       drifting = wantDrift;
@@ -400,9 +420,13 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     }
     const text = handsOn()
       ? ['hands-on', api.selectionText?.()].filter(Boolean).join(' · ')
-      : api.selectionText?.()
-        ? `shows: ${api.selectionText()}`
-        : '';
+      : drifting
+        ? ['drifting · idle camera', api.selectionText?.()]
+            .filter(Boolean)
+            .join(' · ')
+        : api.selectionText?.()
+          ? `shows: ${api.selectionText()}`
+          : '';
     if (text !== sentLocal && sync?.online && mySlot) {
       sentLocal = text;
       sync.send({ t: 'local', on: handsOn(), text });

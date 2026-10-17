@@ -50,7 +50,7 @@ function glyph(category, draft) {
   if (draft) {
     g.setLineDash([5, 4]);
     g.lineWidth = 3;
-    g.strokeStyle = '#9aa8ac';
+    g.strokeStyle = '#7f949b';
     g.stroke();
   } else {
     g.fillStyle = '#4ba467';
@@ -60,7 +60,7 @@ function glyph(category, draft) {
     g.stroke();
   }
   g.setLineDash([]);
-  g.fillStyle = draft ? '#9aa8ac' : '#edf6f0';
+  g.fillStyle = draft ? '#7f949b' : '#edf6f0';
   g.font = `700 ${GLYPH[category]?.length > 1 ? 13 : 17}px Inter, ui-sans-serif, sans-serif`;
   g.textAlign = 'center';
   g.textBaseline = 'middle';
@@ -101,7 +101,7 @@ export function createSafetyLayer(viewer, site) {
   let lastArgs = null;
   const glowMat = (a = 0.95, power = 0.25) =>
     new Cesium.PolylineGlowMaterialProperty({
-      color: css('#eff7f3', a),
+      color: css('#eef5f3', a),
       glowPower: power,
     });
   return {
@@ -165,8 +165,8 @@ export function createSafetyLayer(viewer, site) {
               ? '600 12px Inter, ui-sans-serif, sans-serif'
               : '11px Inter, ui-sans-serif, sans-serif',
             fillColor: sel
-              ? css('#eff7f3')
-              : css(draft ? '#9aa8ac' : '#81bf95'),
+              ? css('#eef5f3')
+              : css(draft ? '#7f949b' : '#81bf95'),
             showBackground: true,
             backgroundColor: sel ? css('#0d2d3a', 0.98) : css('#040c12', 0.92),
             backgroundPadding: new Cesium.Cartesian2(5, 3),
@@ -189,7 +189,7 @@ export function createSafetyLayer(viewer, site) {
               ? glowMat()
               : draft
                 ? new Cesium.PolylineDashMaterialProperty({
-                    color: css('#9aa8ac', 0.6),
+                    color: css('#7f949b', 0.6),
                     dashLength: 8,
                   })
                 : css('#81bf95', 0.5),
@@ -210,7 +210,7 @@ export function createSafetyLayer(viewer, site) {
                 ? glowMat(0.9, 0.3)
                 : draft
                   ? new Cesium.PolylineDashMaterialProperty({
-                      color: css('#9aa8ac', 0.7),
+                      color: css('#7f949b', 0.7),
                       dashLength: 8,
                     })
                   : css('#4ba467', 0.7),

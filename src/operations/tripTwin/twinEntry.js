@@ -290,7 +290,7 @@ export function showEntry(o) {
     QRCode.toDataURL(remoteUrl, {
       margin: 1,
       width: 220,
-      color: { dark: '#040c12', light: '#eff7f3' },
+      color: { dark: '#040c12', light: '#eef5f3' },
     })
       .then((src) => (qr.src = src))
       .catch(() => {});
