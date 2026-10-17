@@ -308,3 +308,14 @@ body:not(.rm-m-cine) .rm-rail {
 select.rm-input {
   background: rgba(2, 7, 11, 0.6);
 }
+
+/* A question is unmissable: the light edge and a standing glow. */
+.rm-bar.ask {
+  border-color: var(--rm-text);
+  box-shadow:
+    0 0 0 1px rgba(238, 245, 243, 0.35),
+    0 0 24px rgba(238, 245, 243, 0.12);
+}
+.rm-bar.ask .t {
+  font-weight: 600;
+}

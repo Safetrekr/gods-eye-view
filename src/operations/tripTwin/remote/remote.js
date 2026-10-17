@@ -631,8 +631,10 @@ function renderBar() {
       }),
     );
     // Focus the new question once; the 1 s repaint must not steal focus.
+    // The bar also scrolls into view, so a question is never off screen.
     if (!ui.confirm.focused) {
       ui.confirm.focused = true;
+      bar.scrollIntoView?.({ block: 'nearest' });
       bar.querySelector('.primary')?.focus();
     }
     return;

@@ -756,3 +756,13 @@ textarea {
   color: var(--tt-text);
   border: 1px solid var(--tt-border);
 }
+
+/* The trip crumb is a switch too. */
+.tt-crumb-trip {
+  cursor: pointer;
+  text-decoration: underline dotted rgba(184, 195, 199, 0.4);
+  text-underline-offset: 3px;
+}
+.tt-crumb-trip:hover {
+  color: var(--tt-text);
+}

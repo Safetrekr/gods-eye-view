@@ -883,7 +883,11 @@ async function main() {
       $('tt-clock').textContent = `${clock} sample clock`;
       $('tt-clock').title =
         'Sample trip clock (fictional). Weather times are real local time with their zone.';
-      $('tt-crumb-trip').textContent = snap.trips[0].title;
+      // The trip on watch for this city names the crumb; the sample
+      // snapshot's own title is generic.
+      $('tt-crumb-trip').textContent =
+        tripForCity(cityKey)?.title || snap.trips[0].title;
+      $('tt-crumb-trip').title = 'Trips on watch · switch trip (S)';
       const reportBtn = $('tt-report-btn');
       reportBtn.textContent = Number.isFinite(info.reportedLabel)
         ? `Reported floor ${info.reportedLabel}`
@@ -1118,7 +1122,44 @@ async function main() {
       closePops();
       frameWholeTrip();
     });
-    root.replaceChildren(title, list, whole);
+    // Trips on watch (Jesse, 16 Oct): the All-in-one switches trip and city
+    // here too, not only from the remote or the URL. A switch reloads the
+    // twin into that trip's city with its own sample scenario.
+    const CITY_LABEL = {
+      austin: 'Austin',
+      dc: 'Washington DC',
+      london: 'London',
+    };
+    const tripsHead = document.createElement('div');
+    tripsHead.className = 'tt-kicker tt-pop-group';
+    tripsHead.textContent = 'TRIPS ON WATCH · SWITCH TRIP AND CITY';
+    const trips = document.createElement('ul');
+    trips.className = 'tt-site-list';
+    for (const t of DEMO_TRIPS) {
+      const li = document.createElement('li');
+      const b = document.createElement('button');
+      b.type = 'button';
+      const here = t.id === focusTrip.id;
+      b.className = here ? 'on' : '';
+      const name = document.createElement('span');
+      name.textContent = `${t.title} · ${t.org}`;
+      const meta = document.createElement('span');
+      meta.className = 'tt-dim';
+      meta.textContent = `${CITY_LABEL[t.city] || t.city}${here ? ' · on screen' : ' · switch (reloads the twin)'}`;
+      b.append(name, meta);
+      b.addEventListener('click', () => {
+        closePops();
+        if (here) return;
+        const q = new URLSearchParams(location.search);
+        q.set('city', t.city);
+        q.set('scenario', t.scenario);
+        q.set('site', t.city); // land on that trip's hotel
+        location.search = `?${q}`;
+      });
+      li.append(b);
+      trips.append(li);
+    }
+    root.replaceChildren(title, list, whole, tripsHead, trips);
     setTimeout(() => list.querySelector('button.on')?.focus(), 0);
   }
   /** Operator action: fit every site of the trip in the clear map area. */
@@ -4754,6 +4795,11 @@ async function main() {
       if (pop === 'tt-sites') renderSites();
     });
   $('tt-help-link').addEventListener('click', () => openPop('tt-help'));
+  // The trip crumb opens the same popover as the hotel: sites and trips.
+  $('tt-crumb-trip').addEventListener('click', () => {
+    openPop('tt-sites');
+    renderSites();
+  });
   $('tt-help-close').addEventListener('click', closePops);
   $('tt-report-cancel').addEventListener('click', () => {
     $('tt-report-floor').value = '';

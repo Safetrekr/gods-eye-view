@@ -281,8 +281,8 @@ function trip(ctx) {
         x.id === t.id
           ? 'IN FOCUS'
           : ctx.tripData(x)?.snapshot?.reported_incidents?.length
-            ? 'REPORTED · FOCUS'
-            : 'FOCUS',
+            ? 'REPORTED · SWITCH ALL SCREENS'
+            : 'SWITCH ALL SCREENS',
         () =>
           x.id !== t.id &&
           ctx.send(
