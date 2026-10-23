@@ -187,13 +187,77 @@ export function createHud({
   onCopy,
   onOpenFloor = () => {},
   onSetNumbering = () => {},
+  onCardToggle = () => {},
 }) {
-  // Persistent rail skeleton: the find input is never re-created.
+  // Persistent rail skeleton: the Summary stays pinned, every other section
+  // is a collapsible card in one scroll column (shell review, 23 Oct 2026).
+  // The cards and the find input are never re-created; only bodies refill.
   const head = el('div', 'tt-rail-head');
-  const fixed = el('div', 'tt-rail-fixed');
   const scroll = el('div', 'tt-rail-scroll');
-  rail.replaceChildren(head, fixed, scroll);
-  const peopleHead = el('div', 'tt-section-head');
+  rail.replaceChildren(head, scroll);
+  const wall = () => document.body.dataset.view === 'screen';
+  let openState = {};
+  let incidentNow = false;
+  const cards = {};
+  function card(key, title) {
+    const sec = el('section', `tt-sec tt-sec-${key}`);
+    const hd = el('button', 'tt-sec-head');
+    hd.type = 'button';
+    const cnt = el('span', 'tt-sec-count num');
+    hd.append(
+      el('span', 'tt-sec-title', title),
+      cnt,
+      el('span', 'tt-sec-chev'),
+    );
+    const line = el('div', 'tt-sec-line');
+    const body = el('div', 'tt-sec-body');
+    body.id = `tt-sec-${key}`;
+    hd.setAttribute('aria-controls', body.id);
+    sec.append(hd, line, body);
+    const c = { key, sec, hd, cnt, line, body };
+    hd.addEventListener('click', () => {
+      // Needs attention never closes during an incident.
+      if (key === 'needs' && incidentNow) return;
+      openState[key] = !isOpen(c);
+      if (key !== 'needs') onCardToggle(key, openState[key]);
+      applyCard(c);
+    });
+    cards[key] = c;
+    return c;
+  }
+  function isOpen(c) {
+    if (c.key === 'needs' && incidentNow) return true;
+    // Walls are display-only: their People and Needs attention stay open.
+    if (wall() && (c.key === 'needs' || c.key === 'people')) return true;
+    return Boolean(openState[c.key]);
+  }
+  function applyCard(c) {
+    const on = isOpen(c);
+    c.sec.classList.toggle('open', on);
+    c.hd.setAttribute('aria-expanded', String(on));
+    const locked = c.key === 'needs' && incidentNow;
+    c.hd.setAttribute('aria-disabled', String(locked));
+    c.hd.title = locked ? 'Stays open during an incident' : '';
+    c.body.hidden = !on;
+    c.line.hidden = on || !c.line.textContent;
+  }
+  const needsCard = card('needs', 'Needs attention');
+  const peopleCard = card('people', 'People');
+  const hazardsCard = card('hazards', 'Hazards');
+  const safetyCard = card('safety', 'Safety & paths');
+  const sourcesCard = card('sources', 'Sources');
+  scroll.append(
+    needsCard.sec,
+    peopleCard.sec,
+    hazardsCard.sec,
+    safetyCard.sec,
+    sourcesCard.sec,
+  );
+  // People body keeps the old class so the wall role rules still apply.
+  const fixed = el('div', 'tt-rail-fixed');
+  peopleCard.body.append(fixed);
+  const peopleHead = el('div', 'tt-line tt-people-asof');
+  const siteSplit = el('div', 'tt-line tt-site-line');
   const roster = el('div', 'tt-roster');
   const zone = el('div', 'tt-line');
   const chap = el('div', 'tt-line');
@@ -206,7 +270,7 @@ export function createHud({
   const findList = el('ul', 'tt-find-list');
   findList.hidden = true;
   find.append(findInput, findList);
-  fixed.append(peopleHead, roster, zone, chap, find);
+  fixed.append(peopleHead, roster, zone, chap, siteSplit, find);
 
   let last = null;
   const showAll = new Set();
@@ -281,13 +345,30 @@ export function createHud({
   }
 
   const prevCounts = new Map();
-  function renderRail(a, ctx) {
-    const m = ctx.mode;
+  let prevNeeds = null;
+  function renderSummary(m, ctx) {
     // The top line reads in two lines: the state, then who / what first.
     // "First: Name" is a button, like the A key (review/phase5 J12).
     const [status, ...rest] = m.topLine.split(' — ');
     const detail = rest.join(' — ');
-    head.replaceChildren(el('div', `tt-topline ${m.mode}`, status));
+    // All-in-one: a big thin count leads the calm and watch states (shell
+    // review 02-ui §5). Incident, delayed data and walls keep the sentence.
+    const hero = !wall() && m.mode !== 'incident' && !m.degraded && m.total > 0;
+    if (hero) {
+      const box = el('div', `tt-sum-hero ${m.mode}`);
+      const n = el('span', 'tt-sum-n', String(m.total).padStart(2, '0'));
+      const txt = el('div', 'tt-sum-txt');
+      txt.append(
+        el('div', 'tt-sum-k', 'to check on'),
+        el(
+          'div',
+          `tt-topline ${m.mode}`,
+          m.mode === 'watch' ? status : status.split(' · ')[0],
+        ),
+      );
+      box.append(n, txt);
+      head.replaceChildren(box);
+    } else head.replaceChildren(el('div', `tt-topline ${m.mode}`, status));
     if (detail) {
       const d = el('div', 'tt-topdetail');
       const first = m.groups?.[0]?.rows?.[0]?.person;
@@ -304,7 +385,9 @@ export function createHud({
       head.append(d);
     }
     if (m.subLine) head.append(el('div', 'tt-subline', m.subLine));
-    if (ctx.siteLine)
+    // Walls keep the group split in the head; the All-in-one moves it into
+    // People, where the counts it repeats live (04-ia §2).
+    if (ctx.siteLine && wall())
       head.append(el('div', 'tt-subline tt-site-line', ctx.siteLine));
     if (ctx.weather?.approach)
       head.append(
@@ -317,15 +400,21 @@ export function createHud({
     if (m.mode !== 'incident')
       for (const o of ctx.weather?.official || [])
         head.append(el('div', 'tt-subline tt-wx-official', o));
+  }
 
-    peopleHead.replaceChildren(
-      el('span', 'tt-kicker', 'PEOPLE'),
-      el(
-        'span',
-        'tt-kicker num',
-        `of ${a.rows.length} loaded${ctx.asOf ? ` · as of ${ctx.asOf}` : ''}`,
-      ),
-    );
+  function renderRail(a, ctx) {
+    const m = ctx.mode;
+    openState = ctx.open;
+    incidentNow = m.mode === 'incident';
+    // Needs attention opens on every load and reopens once when it grows.
+    if (prevNeeds !== null && m.total > prevNeeds) openState.needs = true;
+    prevNeeds = m.total;
+    renderSummary(m, ctx);
+    const top = scroll.scrollTop;
+
+    // ---- People ----
+    peopleHead.textContent = `${a.rows.length} loaded${ctx.asOf ? ` · as of ${ctx.asOf}` : ''}`;
+    peopleCard.cnt.textContent = String(a.rows.length);
     roster.replaceChildren();
     roster.setAttribute('aria-label', a.rosterText);
     for (const b of ROSTER_BUCKETS) {
@@ -357,17 +446,36 @@ export function createHud({
     const ch = a.chaperones;
     const cur = ch.filter((r) => r.pos.current).length;
     chap.textContent = `Chaperones ${ch.length} · ${cur} current${ch.length - cur ? ` · ${ch.length - cur} not current` : ''}`;
+    siteSplit.textContent = !wall() && ctx.siteLine ? ctx.siteLine : '';
+    siteSplit.hidden = !siteSplit.textContent;
+    {
+      const c = a.counts;
+      const inside = ctx.hotelApproximate ? '—' : c['Inside (likely)'];
+      const line = peopleCard.line;
+      line.replaceChildren(`${inside} inside · `);
+      for (const [b, label] of [
+        ['Not current', 'not current'],
+        ['Not located', 'not located'],
+      ]) {
+        const s = el('span', c[b] ? 'warn' : '', `${c[b]} ${label}`);
+        line.append(s, b === 'Not current' ? ' · ' : '');
+      }
+    }
 
-    const top = scroll.scrollTop;
-    scroll.replaceChildren();
-    const needsHead = el('div', 'tt-section-head');
-    needsHead.append(
-      el('span', 'tt-kicker', 'NEEDS ATTENTION'),
-      el('span', 'tt-kicker num', String(m.total).padStart(2, '0')),
-    );
-    scroll.append(needsHead);
+    // ---- Needs attention ----
+    needsCard.cnt.textContent = String(m.total).padStart(2, '0');
+    needsCard.sec.classList.toggle('has-items', m.total > 0);
+    {
+      const g = m.groups[0];
+      const r = g?.rows[0];
+      needsCard.line.textContent = r
+        ? `${nm(r.person.name)} · ${rowReason(r, g.key, ctx)}${m.total > 1 ? ` · +${m.total - 1} more` : ''}`
+        : 'No one needs a check-in right now';
+    }
+    const needs = needsCard.body;
+    needs.replaceChildren();
     if (!m.groups.length)
-      scroll.append(
+      needs.append(
         el(
           'div',
           'tt-note',
@@ -428,52 +536,46 @@ export function createHud({
         box.append(more);
       }
       shown += rows.length;
-      scroll.append(box);
+      needs.append(box);
     }
 
+    // ---- Hazards (above Safety & paths, as in Layers; 04-ia §4) ----
+    hazardsCard.line.textContent =
+      ctx.fires?.line || 'Satellite heat detections · loading';
+    hazardsCard.body.replaceChildren(
+      el('div', 'tt-line', hazardsCard.line.textContent),
+      ...(ctx.fires?.details || []).map((l) => el('div', 'tt-line', l)),
+    );
+
+    // ---- Safety & paths (hidden during an incident, as before) ----
+    safetyCard.sec.hidden = m.mode === 'incident';
     if (m.mode !== 'incident') {
-      const cards = pathCards(ctx.paths, {
+      const pc = pathCards(ctx.paths, {
         night: ctx.night,
         simulated: ctx.fires?.simulated,
         pace: ctx.weather?.pace,
         areas: ctx.avoidAreas || [],
       });
-      const first = cards[0];
-      scroll.append(
-        el(
-          'div',
-          'tt-safety-line',
-          first
-            ? first.title
-            : ctx.pathsLoading
-              ? 'Planning walking paths…'
-              : 'No rally point path yet',
-        ),
-        disclose('Safety & paths', 'safety', ctx, [
-          ...cards.map(cardEl),
-          ...(ctx.safetyLines || []).map((l) => el('div', 'tt-line', l)),
-        ]),
+      safetyCard.cnt.textContent = pc.length ? String(pc.length) : '';
+      safetyCard.line.textContent = pc[0]
+        ? pc[0].title
+        : ctx.pathsLoading
+          ? 'Planning walking paths…'
+          : 'No rally point path yet';
+      safetyCard.body.replaceChildren(
+        ...pc.map(cardEl),
+        ...(ctx.safetyLines || []).map((l) => el('div', 'tt-line', l)),
       );
     }
-    scroll.append(
-      el(
-        'div',
-        'tt-line',
-        ctx.fires?.line || 'Satellite heat detections · loading',
-      ),
-      disclose(
-        'Hazards',
-        'hazards',
-        ctx,
-        (ctx.fires?.details || []).map((l) => el('div', 'tt-line', l)),
-      ),
-      disclose(
-        'Sources',
-        'sources',
-        ctx,
-        ctx.sources.map((l) => el('div', 'tt-line', l)),
-      ),
+
+    // ---- Sources ----
+    sourcesCard.cnt.textContent = String(ctx.sources.length);
+    sourcesCard.line.textContent = ctx.sources[0] || '';
+    sourcesCard.body.replaceChildren(
+      ...ctx.sources.map((l) => el('div', 'tt-line', l)),
     );
+
+    for (const c of Object.values(cards)) applyCard(c);
     scroll.scrollTop = top;
   }
 
@@ -755,6 +857,12 @@ export function createHud({
       if (document.activeElement === findInput) renderFind();
     },
     focusFind() {
+      // "/" opens People first when it is collapsed.
+      if (!isOpen(peopleCard)) {
+        openState.people = true;
+        onCardToggle('people', true);
+        applyCard(peopleCard);
+      }
       findInput.focus();
     },
   };

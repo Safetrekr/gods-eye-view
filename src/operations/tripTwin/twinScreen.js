@@ -315,7 +315,10 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         badgeText,
       );
     }
-    badge.classList.toggle('demo', Boolean(ss.simStorm) && !advance && !dayPlan);
+    badge.classList.toggle(
+      'demo',
+      Boolean(ss.simStorm) && !advance && !dayPlan,
+    );
     badge.classList.toggle('adv', advance || dayPlan);
     document.body.classList.toggle('tt-dayplan-live', dayPlan && !advance);
     time.textContent = api.clockText();
@@ -359,7 +362,13 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     document.body.classList.toggle('tt-wx-strip-on', !wxStrip.hidden);
     if (!wxStrip.hidden) {
       const who = s?.role === 'trips' ? api.tripTitle?.() : '';
-      const key = JSON.stringify([lens, showAp && ap.lead, showAp && ap.claim, showAp && ap.detail, who]);
+      const key = JSON.stringify([
+        lens,
+        showAp && ap.lead,
+        showAp && ap.claim,
+        showAp && ap.detail,
+        who,
+      ]);
       if (wxStrip.dataset.key !== key) {
         wxStrip.dataset.key = key;
         const parts = [];
@@ -368,8 +377,11 @@ export function createScreenMode({ api, slot = null, setup = null }) {
           const row = el('div', 'tt-wx-tiers');
           if (ap.lead) row.append(el('div', 'tt-wx-lead', ap.lead));
           const txt = el('div', 'tt-wx-text');
-          txt.append(el('div', 'tt-wx-claim', who ? `${who} · ${ap.claim}` : ap.claim));
-          if (ap.detail && !lens) txt.append(el('div', 'tt-wx-detail', ap.detail));
+          txt.append(
+            el('div', 'tt-wx-claim', who ? `${who} · ${ap.claim}` : ap.claim),
+          );
+          if (ap.detail && !lens)
+            txt.append(el('div', 'tt-wx-detail', ap.detail));
           row.append(txt);
           parts.push(row);
         }
@@ -448,7 +460,9 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       now - lastActivity > DRIFT_AFTER_MS &&
       !api.incidentOpen() &&
       !api.anyIncidentOpen?.() &&
-      !linkLost(),
+      !linkLost() &&
+      // Phase 11 F2: no drift while the controlling remote is offline.
+      Boolean(presence?.remotes?.some((r) => r.controller)),
     );
     if (wantDrift !== drifting) {
       drifting = wantDrift;

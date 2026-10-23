@@ -214,6 +214,8 @@ const POPS = {
   'tt-report': 'tt-report-btn',
   'tt-proto': 'tt-proto-btn',
   'tt-help': 'tt-help-btn',
+  // The top bar's ⋯ menu holds the Prototype and shortcut buttons.
+  'tt-more': 'tt-more-btn',
   'tt-sites': 'tt-hotel',
 };
 let popTrigger = null;
@@ -341,10 +343,15 @@ async function main() {
     if (changeLog.length > 30) changeLog.length = 30;
   }
   let selection = null;
+  // Rail cards (shell review, 23 Oct 2026): Needs attention opens on every
+  // load; People, Hazards, Safety & paths and Sources remember the viewer's
+  // choice (browser-only convenience).
   const open = {
-    safety: false,
-    hazards: false,
-    sources: false,
+    needs: true,
+    people: pref('card.people', '1') === '1',
+    safety: pref('card.safety', '0') === '1',
+    hazards: pref('card.hazards', '0') === '1',
+    sources: pref('card.sources', '0') === '1',
     why: false,
     hotelCard: false,
   };
@@ -387,6 +394,7 @@ async function main() {
   const hud = createHud({
     rail: $('tt-rail'),
     incident: $('tt-incident'),
+    onCardToggle: (key, on) => save(`card.${key}`, on ? '1' : '0'),
     onSelectPerson: (id, opts) => {
       floorReturn = null;
       twin.selectPerson(id, opts);
@@ -908,7 +916,7 @@ async function main() {
       $('tt-age').title = `Traveler data ${formatAge(ageS)} old`;
       $('tt-age').classList.toggle('warn', mode.degraded);
       // The trip clock is fictional; weather times are real (phase 6 UX P0-1).
-      $('tt-clock').textContent = `${clock} sample clock`;
+      $('tt-clock').textContent = `${clock} sample`;
       $('tt-clock').title =
         'Sample trip clock (fictional). Weather times are real local time with their zone.';
       // The trip on watch for this city names the crumb; the sample
@@ -1310,6 +1318,11 @@ async function main() {
     b.title = on
       ? 'Simulated data is on — Prototype controls (`)'
       : 'Prototype controls (`)';
+    // The menu button carries the flag while its contents are hidden.
+    $('tt-more-btn').classList.toggle('sim', on);
+    $('tt-more-btn').title = on
+      ? 'Simulated data is on · Prototype controls (`) · Keyboard shortcuts (?)'
+      : 'Prototype controls (`) · Keyboard shortcuts (?)';
   }
   // ---- paths from any place or person (phase 3 Part C; review/phase5) ----
   // The card owns the choice (J1); a drawn path outlives its card (J6) until
@@ -2355,7 +2368,7 @@ async function main() {
       const chip = $('tt-mode');
       chip.textContent = 'PLANNING';
       chip.className = 'tt-mode advance';
-      $('tt-age').textContent = '';
+      // The live data age stays visible while planning (shell review 03).
       renderAdvance();
     }
   }
@@ -4699,12 +4712,18 @@ async function main() {
       };
     if (r.status !== 'live') {
       const t = `Storm approach unavailable · the ${r.source} frame${r.frameAt ? ` for ${wxTime(r.frameAt)}` : ''} did not load`;
-      return { status: 'unavailable', level: 'info', lead: '', claim: t, detail: '', text: t, short: '' };
+      return {
+        status: 'unavailable',
+        level: 'info',
+        lead: '',
+        claim: t,
+        detail: '',
+        text: t,
+        short: '',
+      };
     }
     const ageMin = r.simulated ? 0 : (Date.now() - r.frameAt) / 60e3;
-    const ap = r.simulated
-      ? r.ap
-      : approachNow(r.apFrame || r.ap, ageMin);
+    const ap = r.simulated ? r.ap : approachNow(r.apFrame || r.ap, ageMin);
     return approachText(ap, {
       dist: (m) => formatDistance(m),
       speed: speedText,
@@ -4738,7 +4757,10 @@ async function main() {
         text: `SIMULATED (demo) · ${a.event} · until ${untilText(a.ends)}${a.inside ? ` · the ${noun} is inside the area` : ''}`,
       });
     if (wx.warningsStatus === 'unavailable')
-      list.push({ warn: true, text: `${src} alerts unavailable right now · not checked` });
+      list.push({
+        warn: true,
+        text: `${src} alerts unavailable right now · not checked`,
+      });
     else if (!wx.warnings.length)
       list.push({
         text: `${src} checked ${wx.warningsAt ? ago(wx.warningsAt) : 'at load'}: no active alerts returned for this point`,
@@ -5011,7 +5033,9 @@ async function main() {
       inspect: line.text,
       lensMin: lensMin > 0 ? lensMin : null,
       lensText:
-        wx.at != null ? `${hhmm(new Date(wx.at).toISOString())} on this track` : '',
+        wx.at != null
+          ? `${hhmm(new Date(wx.at).toISOString())} on this track`
+          : '',
       alerts: alertList(),
       showAlerts: wx.layers.alertAreas,
       lightning: ltgLine(),
@@ -5045,7 +5069,8 @@ async function main() {
   function radar3dNote() {
     const v = ncView();
     if (!v) return 'Radar frames loading';
-    if (v.status !== 'live') return `The ${v.source} frame did not load · not drawn`;
+    if (v.status !== 'live')
+      return `The ${v.source} frame did not load · not drawn`;
     if (v.simulated) return `SIMULATED storm (prototype) · ${HEIGHT_RULE}`;
     const k = nc.lensKind;
     const rule = v.latest?.tops ? HEIGHT_RULE : HEIGHT_RULE_EST;
@@ -5104,7 +5129,8 @@ async function main() {
           lat: core.lat - (km * Math.cos(h)) / 111.32,
           lon:
             core.lon -
-            (km * Math.sin(h)) / (111.32 * Math.cos((core.lat * Math.PI) / 180)),
+            (km * Math.sin(h)) /
+              (111.32 * Math.cos((core.lat * Math.PI) / 180)),
         });
       }
     }
@@ -5326,7 +5352,8 @@ async function main() {
       simulated: simLtg,
       gridKm: simLtg ? null : WX.lightning?.gridKm,
     });
-    if (live) wx.lastLightning = { ex: live, at: Date.now(), simulated: simLtg };
+    if (live)
+      wx.lastLightning = { ex: live, at: Date.now(), simulated: simLtg };
     else if (!simLtg && wx.lastLightning?.simulated) wx.lastLightning = null;
     const lightning =
       live ||
@@ -5945,7 +5972,7 @@ async function main() {
       await twin.close();
       $('tt-exit').textContent = 'Open Trip Twin';
     } else if (twin.state === 'idle') {
-      $('tt-exit').textContent = 'Exit Trip Twin';
+      $('tt-exit').textContent = '‹ World View';
       await twin.open(siteKey, { osmMode });
     }
   }

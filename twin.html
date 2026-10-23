@@ -40,60 +40,97 @@
     <div id="cesiumContainer" aria-label="Trip Twin 3D view"></div>
     <div id="tt-veil" aria-hidden="true"></div>
 
-    <!-- R1: top bar -->
+    <!-- R1: top bar — three zones (shell review, 23 Oct 2026):
+         place (left) · status, always visible (centre) · conditions (right).
+         Every id is kept; page.js writes them on each refresh. -->
     <header id="tt-bar" class="tt-bar">
-      <button id="tt-exit" class="tt-btn ghost" type="button">
-        Exit Trip Twin
-      </button>
-      <span class="tt-kicker">TRIP TWIN</span>
-      <!-- One trail: World View › Trip › Hotel › Floor › Person. The hotel
-           segment becomes the phase-3 site switcher (#tt-site slot). -->
-      <nav class="tt-crumbs" aria-label="Location">
-        <span class="tt-crumb-wv">World View ›</span>
-        <span id="tt-crumb-trip" class="tt-crumb-trip">Trip</span> ›
+      <div class="tt-bar-place">
+        <span class="tt-kicker">TRIP TWIN</span>
         <button
-          id="tt-hotel"
-          class="tt-bar-hotel"
+          id="tt-exit"
+          class="tt-crumb-exit"
           type="button"
-          title="Sites on this trip (S)"
+          title="Exit Trip Twin, back to World View"
         >
-          —
+          ‹ World View
         </button>
-        <span id="tt-site" class="tt-site" hidden></span>
-        <span id="tt-crumb-focus" class="tt-crumb-focus"></span>
-      </nav>
-      <span class="tt-spacer"></span>
-      <div
-        id="tt-appmode"
-        class="tt-appmode"
-        role="group"
-        aria-label="Live or advance planning"
-      >
-        <button type="button" data-mode="live" aria-pressed="true">Live</button>
-        <button type="button" data-mode="advance" aria-pressed="false">
-          Advance
+        <!-- One trail: World View › Trip › Hotel › Floor › Person. The hotel
+             segment becomes the phase-3 site switcher (#tt-site slot). -->
+        <nav class="tt-crumbs" aria-label="Location">
+          <span class="tt-crumb-sep" aria-hidden="true">›</span>
+          <span id="tt-crumb-trip" class="tt-crumb-trip">Trip</span>
+          <span class="tt-crumb-sep" aria-hidden="true">›</span>
+          <button
+            id="tt-hotel"
+            class="tt-bar-hotel"
+            type="button"
+            title="Sites on this trip (S)"
+          >
+            —
+          </button>
+          <span id="tt-site" class="tt-site" hidden></span>
+          <span id="tt-crumb-focus" class="tt-crumb-focus"></span>
+        </nav>
+      </div>
+      <div class="tt-bar-status" aria-label="Status">
+        <div
+          id="tt-appmode"
+          class="tt-appmode"
+          role="group"
+          aria-label="Live or advance planning"
+        >
+          <button type="button" data-mode="live" aria-pressed="true">
+            Live
+          </button>
+          <button type="button" data-mode="advance" aria-pressed="false">
+            Advance
+          </button>
+        </div>
+        <span id="tt-mode" class="tt-mode" role="status">—</span>
+        <span id="tt-edit-chip" class="tt-edit-chip">EDITING PATH</span>
+        <button id="tt-live-alert" class="tt-live-alert" type="button" hidden>
+          INCIDENT · switch to Live
+        </button>
+        <span class="tt-bar-read">
+          <span
+            id="tt-age"
+            class="tt-age num"
+            title="Age of the traveler data"
+          ></span>
+          <span id="tt-clock" class="tt-clock num"></span>
+        </span>
+      </div>
+      <div class="tt-bar-cond">
+        <span
+          id="tt-wx"
+          class="tt-wx"
+          title="Weather at the site · click or T: weather layers and timeline"
+        ></span>
+        <button
+          id="tt-more-btn"
+          class="tt-btn icon tt-more-btn"
+          type="button"
+          aria-expanded="false"
+          aria-controls="tt-more"
+          aria-label="More: prototype controls and keyboard shortcuts"
+          title="Prototype controls (`) · Keyboard shortcuts (?)"
+        >
+          <span aria-hidden="true">⋯</span>
         </button>
       </div>
-      <span id="tt-mode" class="tt-mode" role="status">—</span>
-      <span id="tt-edit-chip" class="tt-edit-chip">EDITING PATH</span>
-      <button id="tt-live-alert" class="tt-live-alert" type="button" hidden>
-        INCIDENT · switch to Live
-      </button>
-      <span
-        id="tt-age"
-        class="tt-age num"
-        title="Age of the traveler data"
-      ></span>
-      <span id="tt-clock" class="tt-clock num"></span>
-      <span
-        id="tt-wx"
-        class="tt-wx"
-        title="Weather at the site · click or T: weather layers and timeline"
-      ></span>
+    </header>
+    <div
+      id="tt-more"
+      class="tt-pop tt-panel tt-more"
+      role="menu"
+      aria-label="More"
+      hidden
+    >
       <button
         id="tt-proto-btn"
-        class="tt-pill"
+        class="tt-more-item"
         type="button"
+        role="menuitem"
         aria-expanded="false"
         aria-controls="tt-proto"
         title="Prototype controls (`)"
@@ -102,14 +139,15 @@
       </button>
       <button
         id="tt-help-btn"
-        class="tt-btn icon"
+        class="tt-more-item"
         type="button"
+        role="menuitem"
         aria-label="Keyboard shortcuts"
         title="Keyboard shortcuts (?)"
       >
-        ?
+        Keyboard shortcuts<span class="kbd">?</span>
       </button>
-    </header>
+    </div>
 
     <!-- R2: rail (left) -->
     <aside
