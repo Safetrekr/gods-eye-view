@@ -151,7 +151,9 @@ textarea {
   body.tt-body:not([data-view='screen']) .tt-compass,
   body.tt-body:not([data-view='screen']) .tt-status,
   body.tt-body:not([data-view='screen']) .tt-wxtl,
-  body.tt-body:not([data-view='screen']) .tt-entry-card {
+  body.tt-body:not([data-view='screen']) .tt-entry-card,
+  body.tt-body:not([data-view='screen']) .tt-st,
+  body.tt-body:not([data-view='screen']) .tt-aperture {
     zoom: 1.2;
   }
 }
@@ -1335,4 +1337,370 @@ body:not([data-view='screen']) #tt-rail .tt-sec {
 }
 body.tt-incident-open:not([data-view='screen']) #tt-rail > .tt-rail-head {
   border-color: var(--tt-hazard);
+}
+
+/* ---------- stations rail (shell step B, 23 Oct 2026; review/shell) ----------
+   The Serras rail in Instrument dress: docked in the right column, the
+   active station on top, the selection card (#tt-rcol) laid over the
+   middle, six station tiles at the bottom, the Signal Aperture below.
+   Active = selection white, never amber (amber = attention). */
+:root {
+  --ap: 52px;
+  --st-pad: 14px;
+  --st-tile: 88px;
+}
+@media (max-height: 1000px) {
+  :root {
+    --st-tile: 72px;
+  }
+}
+body.tt-st-open {
+  --rcol: 368px;
+}
+@media (max-width: 1439px) {
+  body.tt-st-open {
+    --rcol: 328px;
+  }
+}
+.tt-st {
+  position: fixed;
+  right: var(--g);
+  top: calc(var(--bar) + var(--g));
+  bottom: calc(var(--foot) + var(--g) * 2 + var(--ap));
+  width: var(--rcol);
+  display: flex;
+  flex-direction: column;
+  padding: var(--st-pad);
+  z-index: 9;
+  border-radius: 14px;
+  background: var(--tt-glass);
+  border: 1px solid var(--tt-border);
+  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  box-shadow:
+    0 20px 44px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 var(--tt-light);
+}
+.tt-st[hidden] {
+  display: none;
+}
+.tt-st-top {
+  flex: none;
+}
+.tt-st-head {
+  display: flex;
+  justify-content: space-between;
+  font: 500 11px/14px var(--tt-mono);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--tt-text-dim);
+}
+.tt-st-active {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: var(--tt-radius);
+  border: 1px solid var(--tt-hair);
+  background: rgba(4, 12, 18, 0.45);
+}
+.tt-st-k {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font: 500 10px/14px var(--tt-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--tt-text-dim);
+}
+.tt-st-status {
+  letter-spacing: 0.08em;
+  color: var(--tt-text-2);
+  white-space: nowrap;
+}
+.tt-st-status.stale {
+  color: var(--tt-attention);
+}
+.tt-st-name {
+  font: 300 20px/26px var(--tt-display);
+  letter-spacing: -0.01em;
+  color: var(--tt-text);
+  margin-top: 4px;
+}
+.tt-st-sub {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--tt-text-dim);
+}
+.tt-st-middle {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.tt-st-grid {
+  flex: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding-top: 12px;
+}
+.tt-st-tile {
+  all: unset;
+  box-sizing: border-box;
+  position: relative;
+  height: var(--st-tile);
+  border-radius: var(--tt-radius);
+  padding: 12px;
+  background: rgba(4, 11, 16, 0.45);
+  border: 1px solid var(--tt-hair);
+  box-shadow: inset 0 1px 0 rgba(203, 228, 238, 0.04);
+  color: var(--tt-text-dim);
+  cursor: pointer;
+  transition:
+    border-color 0.3s,
+    background 0.2s,
+    color 0.2s,
+    transform 0.12s var(--press);
+}
+.tt-st-tile:hover {
+  border-color: var(--tt-border);
+  color: var(--tt-text-2);
+}
+.tt-st-tile:active {
+  transform: translateY(1px);
+}
+.tt-st-tile:focus-visible {
+  outline: 2px solid var(--tt-focus);
+  outline-offset: 2px;
+}
+.tt-st-tile svg {
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tt-st-tile .num {
+  position: absolute;
+  top: 11px;
+  right: 12px;
+  font: 500 10px var(--tt-mono);
+  letter-spacing: 0.08em;
+  color: rgba(151, 179, 192, 0.6);
+  font-variant-numeric: tabular-nums;
+}
+.tt-st-tile .lab {
+  position: absolute;
+  bottom: 11px;
+  left: 12px;
+  right: 10px;
+  font: 500 10px/13px var(--tt-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.tt-st-tile[aria-current='true'] {
+  border-color: rgba(238, 245, 243, 0.8);
+  color: var(--tt-text);
+  background: rgba(238, 245, 243, 0.06);
+  box-shadow:
+    inset 0 0 8px rgba(238, 245, 243, 0.08),
+    0 0 9px rgba(238, 245, 243, 0.1);
+}
+.tt-st-pill {
+  position: absolute;
+  top: 9px;
+  right: 34px;
+  height: 15px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font: 600 9px/15px var(--tt-mono);
+  letter-spacing: 0.06em;
+}
+.tt-st-pill[hidden] {
+  display: none;
+}
+.tt-st-pill.hazard {
+  background: var(--tt-hazard);
+  color: #1b0508;
+}
+.tt-st-pill.attn {
+  background: var(--tt-attention);
+  color: #1b1203;
+}
+.tt-st-pill.watch {
+  background: rgba(184, 195, 199, 0.85);
+  color: #04090c;
+}
+/* The selection card sits in the rail's middle while the rail is open. */
+body.tt-st-open .tt-rcol {
+  right: calc(var(--g) + var(--st-pad));
+  width: calc(var(--rcol) - var(--st-pad) * 2);
+  top: calc(
+    var(--bar) + var(--g) + var(--st-pad) + var(--st-top, 120px) + 12px
+  );
+  bottom: calc(
+    var(--foot) + var(--g) * 2 + var(--ap) + var(--st-pad) +
+      var(--st-grid, 290px) + 12px
+  );
+  z-index: 11;
+}
+body:not([data-view='screen']):not(.tt-st-open) .tt-rcol {
+  bottom: calc(var(--foot) + var(--g) * 2 + var(--ap));
+}
+/* Signal Aperture: steel ring and nodes; the bead carries the signal —
+   steel when calm, amber when someone needs attention, red on an incident. */
+.tt-aperture {
+  all: unset;
+  box-sizing: border-box;
+  position: fixed;
+  right: var(--g);
+  bottom: calc(var(--foot) + var(--g));
+  width: var(--ap);
+  height: var(--ap);
+  padding: 9px;
+  border-radius: 50%;
+  cursor: pointer;
+  z-index: 21;
+  background: rgba(4, 12, 18, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.tt-aperture:focus-visible {
+  outline: 2px solid var(--tt-focus);
+  outline-offset: 2px;
+}
+.tt-aperture:active .tt-ap {
+  transform: translateY(1px);
+}
+.tt-ap {
+  width: 34px;
+  height: 34px;
+  display: block;
+  overflow: visible;
+  transition: transform 0.12s ease;
+}
+.tt-ap-ring {
+  fill: none;
+  stroke: rgba(184, 195, 199, 0.55);
+  stroke-width: 1.25;
+  transition: stroke 0.5s ease;
+}
+body.tt-st-open .tt-ap-ring {
+  stroke: rgba(238, 245, 243, 0.95);
+}
+.tt-ap-scan {
+  fill: none;
+  stroke: rgba(238, 245, 243, 0.5);
+  stroke-width: 1.25;
+  stroke-linecap: round;
+  stroke-dasharray: 24 70.2;
+  opacity: 0;
+  transform-origin: center;
+}
+.tt-ap-nodes {
+  fill: rgba(184, 195, 199, 0.45);
+  transform-origin: center;
+  transition: transform 0.7s var(--fog-in);
+}
+body.tt-st-open .tt-ap-nodes {
+  transform: scale(1.14);
+  fill: rgba(238, 245, 243, 0.7);
+}
+.tt-ap-rotor {
+  transform-origin: center;
+  transition: transform 0.7s var(--fog-in);
+}
+body.tt-st-open .tt-ap-rotor {
+  transform: rotate(38deg);
+}
+.tt-ap-baton {
+  stroke: rgba(184, 195, 199, 0.7);
+  stroke-width: 1.25;
+  stroke-linecap: round;
+}
+.tt-ap-bead {
+  fill: var(--tt-text-2);
+  transition: fill 0.4s ease;
+}
+.tt-aperture[data-signal='attention'] .tt-ap-bead {
+  fill: var(--tt-attention);
+}
+.tt-aperture[data-signal='incident'] .tt-ap-bead {
+  fill: var(--tt-hazard);
+}
+.tt-aperture[data-signal='incident'] .tt-ap-ring {
+  stroke: var(--tt-hazard);
+}
+/* Motion (Event tier): the rail fogs in, tiles arrive as a wavefront,
+   the ring runs one scan on open. Reduce motion wins. */
+.tt-m-event .tt-st:not([hidden]) {
+  animation: ttStIn 0.62s var(--fog-in) both;
+}
+@keyframes ttStIn {
+  0% {
+    opacity: 0;
+    transform: translateX(18px);
+    filter: blur(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+.tt-m-event .tt-st.tt-st-wave .tt-st-tile {
+  animation: ttStTile 0.52s var(--fog-in) var(--rd, 0s) both;
+}
+@keyframes ttStTile {
+  0% {
+    opacity: 0;
+    transform: translateX(14px);
+    filter: blur(5px) brightness(0.75);
+  }
+  55% {
+    opacity: 0.85;
+    transform: translateX(4px);
+    filter: blur(2px) brightness(0.88);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+.tt-m-event.tt-st-open .tt-ap-scan {
+  animation: ttApScan 0.9s var(--fog-in) 1;
+}
+@keyframes ttApScan {
+  0% {
+    opacity: 0.9;
+    transform: rotate(-90deg);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(200deg);
+  }
+}
+body[data-view='screen'] .tt-st,
+body[data-view='screen'] .tt-aperture {
+  display: none;
+}
+
+/* Jesse, 23 Oct: the compass sits at the top right of the map, clear of
+   the dock and the timeline; the place chips stop short of it. The
+   Summary card (with Find a person) stacks above the cards so the find
+   results drop over them. */
+body:not([data-view='screen']) .tt-compass {
+  top: calc(var(--bar) + var(--g) + 4px);
+  bottom: auto;
+}
+body:not([data-view='screen']) .tt-chips {
+  right: calc(var(--rcol) + 2 * var(--g) + 160px);
+}
+body:not([data-view='screen']) #tt-rail > .tt-rail-head {
+  position: relative;
+  z-index: 3;
+}
+body:not([data-view='screen']) #tt-rail > .tt-rail-head .tt-find {
+  margin-top: 12px;
 }

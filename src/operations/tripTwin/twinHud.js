@@ -195,7 +195,11 @@ export function createHud({
   const head = el('div', 'tt-rail-head');
   const scroll = el('div', 'tt-rail-scroll');
   rail.replaceChildren(head, scroll);
+  // The summary text is rebuilt each render; the find box beside it is not.
+  const sum = el('div', 'tt-sum');
+  head.append(sum);
   const wall = () => document.body.dataset.view === 'screen';
+  const onWall = new URLSearchParams(location.search).get('view') === 'screen';
   let openState = {};
   let incidentNow = false;
   const cards = {};
@@ -270,7 +274,12 @@ export function createHud({
   const findList = el('ul', 'tt-find-list');
   findList.hidden = true;
   find.append(findInput, findList);
-  fixed.append(peopleHead, roster, zone, chap, siteSplit, find);
+  // All-in-one: Find a person lives in the pinned Summary card so its
+  // results drop over the column instead of being cut off inside People
+  // (Jesse, 23 Oct). Walls keep it in People.
+  fixed.append(peopleHead, roster, zone, chap, siteSplit);
+  if (onWall) fixed.append(find);
+  else head.append(find);
 
   let last = null;
   const showAll = new Set();
@@ -367,8 +376,8 @@ export function createHud({
         ),
       );
       box.append(n, txt);
-      head.replaceChildren(box);
-    } else head.replaceChildren(el('div', `tt-topline ${m.mode}`, status));
+      sum.replaceChildren(box);
+    } else sum.replaceChildren(el('div', `tt-topline ${m.mode}`, status));
     if (detail) {
       const d = el('div', 'tt-topdetail');
       const first = m.groups?.[0]?.rows?.[0]?.person;
@@ -382,15 +391,15 @@ export function createHud({
         d.append('First: ', b, detail.slice(`first: ${first.name}`.length));
         d.append(el('span', 'kbd', 'A'));
       } else d.textContent = detail.replace(/^./, (c) => c.toUpperCase());
-      head.append(d);
+      sum.append(d);
     }
-    if (m.subLine) head.append(el('div', 'tt-subline', m.subLine));
+    if (m.subLine) sum.append(el('div', 'tt-subline', m.subLine));
     // Walls keep the group split in the head; the All-in-one moves it into
     // People, where the counts it repeats live (04-ia §2).
     if (ctx.siteLine && wall())
-      head.append(el('div', 'tt-subline tt-site-line', ctx.siteLine));
+      sum.append(el('div', 'tt-subline tt-site-line', ctx.siteLine));
     if (ctx.weather?.approach)
-      head.append(
+      sum.append(
         el(
           'div',
           `tt-subline tt-wx-approach ${ctx.weather.approach.level}`,
@@ -399,7 +408,7 @@ export function createHud({
       );
     if (m.mode !== 'incident')
       for (const o of ctx.weather?.official || [])
-        head.append(el('div', 'tt-subline tt-wx-official', o));
+        sum.append(el('div', 'tt-subline tt-wx-official', o));
   }
 
   function renderRail(a, ctx) {
@@ -856,11 +865,21 @@ export function createHud({
       if (!typing) renderIncident(a, ctx);
       if (document.activeElement === findInput) renderFind();
     },
+    /** Open a rail card and bring it into view (a station was picked). */
+    openCard(key) {
+      const c = cards[key];
+      if (!c) return;
+      if (!isOpen(c)) {
+        openState[key] = true;
+        if (key !== 'needs') onCardToggle(key, true);
+        applyCard(c);
+      }
+      c.sec.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    },
     focusFind() {
-      // "/" opens People first when it is collapsed.
-      if (!isOpen(peopleCard)) {
+      // Walls keep the box in People: "/" opens People first there.
+      if (onWall && !isOpen(peopleCard)) {
         openState.people = true;
-        onCardToggle('people', true);
         applyCard(peopleCard);
       }
       findInput.focus();

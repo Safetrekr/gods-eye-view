@@ -148,6 +148,8 @@ import {
   timeSources,
 } from './twinWeatherTime.js';
 import { createScreenMode } from './twinScreen.js';
+import { STATIONS, createStationRail, stationKey } from './twinStations.js';
+import { ROLES } from './twinScreenRoles.js';
 import { showEntry, showLaunch } from './twinEntry.js';
 import {
   DEMO_TRIPS,
@@ -355,6 +357,83 @@ async function main() {
     why: false,
     hotelCard: false,
   };
+  // ---- stations rail (shell step B, 23 Oct 2026; review/shell) ----
+  // The All-in-one's right-hand rail: six stations = the six wall roles.
+  // Step B: a station sets its scale and opens its rail card; full redraws
+  // and each station's own tiles come in step C. An incident never moves
+  // the camera or switches station by itself: it badges (Jesse, 23 Oct).
+  let stations = null;
+  let station = STATIONS.some((s) => s.id === pref('station', 'site'))
+    ? pref('station', 'site')
+    : 'site';
+  let stationsOpen = pref('stationsOpen', '1') === '1';
+  const STATION_CARD = {
+    travelers: 'people',
+    incident: 'needs',
+    weather: 'hazards',
+    day: 'safety',
+  };
+  function setStationsOpen(on) {
+    stationsOpen = on;
+    save('stationsOpen', on ? '1' : '0');
+    renderStations();
+  }
+  function pickStation(id) {
+    if (!stationsOpen) setStationsOpen(true);
+    if (id === station) return renderStations();
+    station = id;
+    save('station', id);
+    stations?.wave();
+    const role = ROLES[id];
+    if (role?.scale)
+      document.querySelector(`[data-scale="${role.scale}"]`)?.click();
+    if (STATION_CARD[id]) hud.openCard(STATION_CARD[id]);
+    if (id === 'trips') {
+      openPop('tt-sites');
+      renderSites();
+    }
+    renderStations();
+  }
+  function renderStations() {
+    if (!stations) return;
+    const m = lastCtx?.mode;
+    const incident =
+      m && (m.mode === 'incident' || m.mode === 'incident_elsewhere');
+    const total = m?.total || 0;
+    const ap = lastCtx?.weather?.approach;
+    const age = formatAge((Date.now() - lastFeed) / 1000);
+    const advance = appMode === 'advance';
+    const badges = {};
+    if (incident) badges.incident = { text: 'OPEN', level: 'hazard' };
+    else if (total)
+      badges.incident = { text: String(total).padStart(2, '0'), level: 'attn' };
+    if (ap)
+      badges.weather = {
+        text: ap.level === 'attention' ? 'ALERT' : 'WATCH',
+        level: ap.level === 'attention' ? 'attn' : 'watch',
+      };
+    stations.render({
+      station,
+      open: stationsOpen,
+      statusText: advance
+        ? `ADVANCE · data ${age}`
+        : m?.degraded
+          ? `● STALE · data ${age}`
+          : `● LIVE · data ${age}`,
+      statusLevel: advance ? 'advance' : m?.degraded ? 'stale' : 'live',
+      badges,
+      signal: incident
+        ? 'incident'
+        : total || ap?.level === 'attention'
+          ? 'attention'
+          : 'calm',
+      signalText: incident
+        ? 'incident reported'
+        : total
+          ? `${total} to check on`
+          : '',
+    });
+  }
   // Operator floor numbering per site (Part E): browser-only convenience.
   let numberingEntries = {};
   try {
@@ -1055,6 +1134,7 @@ async function main() {
           : null;
       renderCutaways();
       hud.render(a, lastCtx);
+      renderStations();
       if (twin.floorFocus !== null && lastOcc.available)
         twin.setFloorFocus(
           twin.floorFocus,
@@ -1285,7 +1365,7 @@ async function main() {
   };
   twin.setSafeArea(() => {
     const left = visibleBox('tt-rail') || visibleBox('tt-advance');
-    const right = ['tt-editor', 'tt-incident', 'tt-card']
+    const right = ['tt-editor', 'tt-incident', 'tt-card', 'tt-st']
       .map(visibleBox)
       .filter(Boolean);
     const bar = $('tt-bar').getBoundingClientRect();
@@ -2371,6 +2451,7 @@ async function main() {
       // The live data age stays visible while planning (shell review 03).
       renderAdvance();
     }
+    renderStations();
   }
   function setAppMode(next, { confirmed = false } = {}) {
     if (next === appMode) return;
@@ -5744,6 +5825,15 @@ async function main() {
     ']',
   ]);
   window.addEventListener('keydown', (e) => {
+    // Stations (shell step B): Option+1–6 and Option+0, never on walls,
+    // never while typing in a field.
+    const sk = stations && stationKey(e);
+    if (sk && !e.target.closest?.('input, textarea, select')) {
+      e.preventDefault();
+      if (sk === 'rail') setStationsOpen(!stationsOpen);
+      else pickStation(sk);
+      return;
+    }
     if (params.get('view') === 'screen' && !WALL_KEYS.has(e.key)) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     // Esc answers an open question with Stay (review/phase5b supervision F4).
@@ -6481,7 +6571,16 @@ async function main() {
     cleanups.push(() => screen?.dispose());
   } else if (VIEW === 'launch')
     showLaunch({ setup: params.get('setup'), cityKey, scenario });
-  else if (!params.has('freeze'))
+  else {
+    // The All-in-one gets the stations rail (shell step B).
+    stations = createStationRail({
+      onPick: (id) => pickStation(id),
+      onToggle: (on) => setStationsOpen(on),
+    });
+    cleanups.push(() => stations?.dispose());
+    renderStations();
+  }
+  if (!VIEW && !params.has('freeze'))
     showEntry({
       cityKey,
       scenario,
