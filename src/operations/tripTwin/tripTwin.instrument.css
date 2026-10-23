@@ -2093,3 +2093,56 @@ body.tt-incident-open .tt-st .tt-st-tile svg {
   font-size: 12px;
   color: var(--tt-text-dim);
 }
+/* D7: the aperture is the SafeTrekr shield; the bead carries the signal. */
+.tt-ap-shield {
+  fill: rgba(184, 195, 199, 0.62);
+  transition: fill 0.3s ease;
+}
+body.tt-st-open .tt-ap-shield {
+  fill: var(--tt-text);
+}
+.tt-ap-ring {
+  stroke: rgba(184, 195, 199, 0.35);
+}
+.tt-ap-bead {
+  stroke: var(--tt-field);
+  stroke-width: 1.2;
+}
+/* D7: the SafeTrekr lockup leads the top bar. */
+.tt-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+.tt-brand-clip {
+  display: inline-block;
+  overflow: hidden;
+  height: 16px;
+  width: 89px;
+}
+.tt-brand-mark {
+  display: block;
+  height: 16px;
+  width: 89px;
+}
+.tt-brand-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--tt-border);
+}
+.tt-brand-name {
+  font: 300 15px/1 var(--tt-display);
+  letter-spacing: 0.01em;
+  color: var(--tt-text);
+  white-space: nowrap;
+}
+@media (max-width: 1599px) {
+  .tt-brand-clip {
+    width: 14px;
+  }
+  .tt-brand-sep,
+  .tt-brand-name {
+    display: none;
+  }
+}
