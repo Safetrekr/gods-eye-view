@@ -6,7 +6,8 @@
 // 2. Prints the Node version (the shared runner skips its allocation probes
 //    off Node 24; Trip Twin tests do not depend on that).
 // 3. Wiring checks: no `/api/route` in Trip Twin source; no `Math.random` in
-//    the relay or the session host. Warnings until K7, failures after.
+//    the relay, the session host or the client identity (twinSync.js,
+//    twinIdentity.js; K4). Warnings until K7, failures after.
 // 4. Shared-file guard: no CF commit (on top of the CF base) touches one of
 //    Justin's seven shared paths, and neither does the working tree.
 // 5. Repo tests: runs the shared `npm test` runner as it is (never edits
@@ -28,10 +29,11 @@ const rel = (p) => path.relative(ROOT, p).split(path.sep).join('/');
 /**
  * 150 tests at 3431392; K1 adds three upgrade tests; K2 adds thirteen store
  * tests (twinStore.test.mjs); K3 adds eleven host-rule tables
- * (twinHosts.test.mjs) and thirteen host-check tests (twinHostCheck.test.mjs).
- * Raise per slice.
+ * (twinHosts.test.mjs) and thirteen host-check tests (twinHostCheck.test.mjs);
+ * K4 adds twenty-three identity tests (twinIdentity.test.mjs). Raise per
+ * slice.
  */
-export const BASELINE = 190;
+export const BASELINE = 213;
 /** The commit CF-core branches from (cf/core). */
 export const CF_BASE = process.env.TRIP_TWIN_CF_BASE || '3431392';
 /** CF slice commits say so in their subject ("Trip Twin CF K1: …"). */
@@ -151,6 +153,8 @@ export function wiringFindings() {
   for (const f of [
     'server/tripTwin/syncRelay.js',
     'src/operations/tripTwin/twinSessionHost.js',
+    'src/operations/tripTwin/twinSync.js',
+    'src/operations/tripTwin/twinIdentity.js',
   ]) {
     let text = '';
     try {
@@ -161,7 +165,7 @@ export function wiringFindings() {
     text.split('\n').forEach((line, i) => {
       if (/\bMath\.random\b/.test(line))
         found.push({
-          rule: 'no Math.random in the relay or the session host (S-7: crypto ids)',
+          rule: 'no Math.random in the relay, the session host or the client identity (S-7: crypto ids)',
           at: `${f}:${i + 1}`,
         });
     });

@@ -1,47 +1,55 @@
 // SOC multi-view client (phase 10): one WebSocket to the dev-server relay
 // (/api/twin-sync). Reconnects with backoff, heartbeats every 5 s, keeps
 // the time of the last message so a screen can say how old its link is.
-// The device id lives in sessionStorage (one per window or tab, kept across
-// reloads); tokens live in localStorage so a reload rejoins on its own.
+// Phase CF K4 (CF-2): the device id and token come from twinIdentity.js
+// (a wall window's slot record, the remote's record, Web Locks where they
+// exist), so a window opened again rejoins as the same device. Refusals
+// carry a code (twinProtocol.js): a copied id takes a fresh one and asks
+// again; a terminal code (S-16) drops that token or link and stops
+// reconnecting with it — a wall falls to a fresh id and the pair card, a
+// remote shows its refusal. A replaced window (another window took this
+// identity) stops reconnecting and never touches storage (C16).
+import {
+  acquireIdentity,
+  browserEnv,
+  hasIdentity,
+  localhostUrl,
+  safeStorage,
+} from './twinIdentity.js';
+import { CLOSE, DENY, REPLACED, isTerminalDeny } from './twinProtocol.js';
 
-const store = {
-  get(k) {
-    try {
-      return localStorage.getItem(`tripTwin.soc.${k}`);
-    } catch {
-      return null;
-    }
-  },
-  set(k, v) {
-    try {
-      if (v == null) localStorage.removeItem(`tripTwin.soc.${k}`);
-      else localStorage.setItem(`tripTwin.soc.${k}`, v);
-    } catch {
-      /* private mode: pairing lasts for this page only */
-    }
-  },
-};
-
-function deviceId(kind) {
-  const key = `tripTwin.soc.device.${kind}`;
-  try {
-    let id = sessionStorage.getItem(key);
-    if (!id) {
-      id = `${kind}-${Math.random().toString(36).slice(2, 10)}`;
-      sessionStorage.setItem(key, id);
-    }
-    return id;
-  } catch {
-    return `${kind}-${Math.random().toString(36).slice(2, 10)}`;
-  }
-}
+const store = (() => {
+  const s = safeStorage(() => globalThis.localStorage);
+  return {
+    get: (k) => s.get(`tripTwin.soc.${k}`),
+    set: (k, v) => s.set(`tripTwin.soc.${k}`, v),
+  };
+})();
 
 export const socStore = store;
 
+/** A client that never connects: the page is on its way to localhost. */
+function inert(id) {
+  return {
+    id,
+    send: () => false,
+    request: () =>
+      Promise.resolve({
+        ok: false,
+        error: 'Not connected to the Trip Twin computer',
+      }),
+    linkAgeS: null,
+    online: false,
+    forget() {},
+    close() {},
+  };
+}
+
 /**
  * connectSync({kind: 'screen'|'remote'|'launcher', slot?, setup?, name?,
- *   on: {welcome, state, presence, thumb, identify, paired, control,
- *   setup, status}}) → {send, request, close, id, get linkAgeS}
+ *   on: {welcome, state, presence, thumb, identify, paired, unpaired,
+ *   replaced, control, setup, status}, env?}) → {send, request, close,
+ *   forget, id, online, get linkAgeS}
  */
 export function connectSync({
   kind,
@@ -49,45 +57,95 @@ export function connectSync({
   setup = null,
   name = '',
   on = {},
+  env = browserEnv(),
 }) {
-  const id = deviceId(kind);
+  // S-23: 127.0.0.1 and [::1] are their own origins; go to localhost,
+  // unless this origin already holds this window's pairing (migration).
+  const away = localhostUrl(env.location);
+  if (away && !hasIdentity({ kind, slot, env })) {
+    env.location.replace(away);
+    return inert(null);
+  }
+  const identity = acquireIdentity({ kind, slot, env });
+  let ticket = setup; // the setup link, until it is refused
   let ws = null;
   let closed = false;
+  let stopped = null; // 'replaced' | 'denied' | 'closed'
   let retry = 0;
   let beat = null;
   let lastMsgAt = 0;
   let reqSeq = 0;
+  let asked = 0; // hellos on this socket after a refusal
+  let sent = null; // the token the last hello carried
   const pending = new Map();
-  const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/twin-sync`;
+  const url = `${env.location.protocol === 'https:' ? 'wss' : 'ws'}://${env.location.host}/api/twin-sync`;
 
   const status = (s) => on.status?.(s);
+  /** No more reconnects. Storage is left exactly as it is. */
+  function stop(why) {
+    if (stopped) return;
+    stopped = why;
+    closed = true;
+    env.clearInterval(beat);
+  }
+  function hello() {
+    sent = identity.token ?? null;
+    ws.send(
+      JSON.stringify({
+        t: 'hello',
+        id: identity.id,
+        kind,
+        name,
+        slot: identity.slot ?? slot,
+        setup: ticket,
+        token: sent,
+      }),
+    );
+  }
+  /** True when the refusal was handled here (a new hello was sent). */
+  function refused(m) {
+    const code = m.code;
+    if (code === DENY.ID_COPIED && asked < 3) {
+      // Another window here holds this id: take a fresh one, ask again.
+      identity.renew({ sent, shared: false });
+      asked += 1;
+      hello();
+      return true;
+    }
+    if (!isTerminalDeny(code)) return false;
+    if (code === DENY.TICKET_EXPIRED || code === DENY.TICKET_USED)
+      ticket = null; // drop the link, keep the id
+    else identity.renew({ sent }); // drop the token: a fresh id
+    if (kind === 'screen' && asked < 3) {
+      // A wall falls to the pair card (or joins by a still-valid link).
+      asked += 1;
+      hello();
+      return true;
+    }
+    // A remote or a launcher shows its refusal and stops retrying.
+    stop('denied');
+    env.setTimeout(() => ws?.close(), 0);
+    return false;
+  }
   function open() {
     if (closed) return;
     status('connecting');
     try {
-      ws = new WebSocket(url);
+      ws = new env.WebSocket(url);
     } catch {
       return schedule();
     }
+    asked = 0;
     ws.addEventListener('open', () => {
+      if (closed) return ws.close();
       retry = 0;
       status('online');
-      ws.send(
-        JSON.stringify({
-          t: 'hello',
-          id,
-          kind,
-          name,
-          slot,
-          setup,
-          token: store.get(`token.${id}`),
-        }),
-      );
-      clearInterval(beat);
-      beat = setInterval(() => send({ t: 'hb' }), 5000);
+      hello();
+      env.clearInterval(beat);
+      beat = env.setInterval(() => send({ t: 'hb' }), 5000);
     });
     ws.addEventListener('message', (e) => {
-      lastMsgAt = Date.now();
+      lastMsgAt = env.now();
       let m;
       try {
         m = JSON.parse(e.data);
@@ -98,12 +156,23 @@ export function connectSync({
         pending.get(m.reqId)(m);
         pending.delete(m.reqId);
       }
-      if (m.t === 'welcome' && m.token) store.set(`token.${id}`, m.token);
-      if (m.t === 'paired' && m.token) store.set(`token.${id}`, m.token);
+      if (m.t === 'welcome' && m.type === 'denied' && refused(m)) return;
+      if (m.t === 'welcome' && m.type !== 'denied') {
+        asked = 0;
+        // A paired device rejoins by its token; a launcher keeps its link.
+        if (m.type === 'paired' || m.type === 'remote') ticket = null;
+      }
+      if ((m.t === 'welcome' || m.t === 'paired') && m.token)
+        identity.save(m.token, m.slot);
+      if (m.t === REPLACED) stop('replaced');
       on[m.t]?.(m);
     });
-    ws.addEventListener('close', () => {
-      clearInterval(beat);
+    ws.addEventListener('close', (e) => {
+      env.clearInterval(beat);
+      if (e?.code === CLOSE.REPLACED && !stopped) {
+        stop('replaced');
+        on.replaced?.({ t: REPLACED });
+      }
       status('offline');
       schedule();
     });
@@ -112,7 +181,7 @@ export function connectSync({
   function schedule() {
     if (closed) return;
     retry = Math.min(retry + 1, 6);
-    setTimeout(open, 500 * 2 ** retry);
+    env.setTimeout(open, 500 * 2 ** retry);
   }
   function send(msg) {
     if (ws?.readyState === 1) {
@@ -134,7 +203,7 @@ export function connectSync({
         });
         return;
       }
-      setTimeout(() => {
+      env.setTimeout(() => {
         if (pending.has(reqId)) {
           pending.delete(reqId);
           resolve({
@@ -145,25 +214,39 @@ export function connectSync({
       }, 5000);
     });
   }
-  open();
+  // A newer window on this computer took this slot: stop reconnecting and
+  // wait for the relay to replace this socket (no flicker on the wall).
+  identity.onStolen(() => {
+    if (stopped) return;
+    stop('replaced');
+    on.replaced?.({ t: REPLACED, local: true });
+  });
+  identity.ready.then(open);
   return {
-    id,
+    get id() {
+      return identity.id;
+    },
     send,
     request,
     /** Seconds since the relay last said anything (link age). */
     get linkAgeS() {
-      return lastMsgAt ? (Date.now() - lastMsgAt) / 1000 : null;
+      return lastMsgAt ? (env.now() - lastMsgAt) / 1000 : null;
     },
     get online() {
       return ws?.readyState === 1;
     },
+    /** Why this client stopped reconnecting (null while it still does). */
+    get stopped() {
+      return stopped;
+    },
+    /** The relay unpaired this device (slot taken, forgotten). */
     forget() {
-      store.set(`token.${id}`, null);
+      identity.clear();
     },
     close() {
-      closed = true;
-      clearInterval(beat);
+      stop('closed');
       ws?.close();
+      identity.release();
     },
   };
 }

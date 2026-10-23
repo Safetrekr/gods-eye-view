@@ -67,5 +67,6 @@ For every CF slice and every shell-track deploy (PHASE-CF-PLAN §6.2, CF-D10; cf
 | Slice | Rollback | Store effect |
 |---|---|---|
 | K2 | revert + restart (the tmp copy is current) | moves to the data folder; old tmp file kept and written until K11 |
+| K4 | revert + restart; every page reloads and rejoins on the old keys | none on the server. In the browsers: wall slot records `tripTwin.soc.slot.<N>` and the remote record `tripTwin.soc.remote` (localStorage) are added; the old keys (the sessionStorage id, localStorage `token.<id>`) are still written until the core exit, so a revert finds every pairing. After the deploy: every wall rejoins its slot after the reload; then close one wall window, wait, and open it again from the launcher: same slot, no code (M4.1). A launcher opened on `127.0.0.1` or `[::1]` goes to `localhost` before Start (S-23); walls already paired on `127.0.0.1` stay there. |
 | K11 | revert + restart + restore the copy | tmp copy deleted, dual write stops |
 | L5 | revert below L5 means a re-pair (tokens hashed in place, `v:2`) | the plain pre-migration copy is deleted once this deploy's revert drill passes |

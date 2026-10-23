@@ -172,6 +172,9 @@ async function device(base, { id, kind, slot = null, name = '' }) {
     });
     const w = await welcome;
     if (w.token) d.token = w.token;
+    // As twinSync.js from K4: once joined, a device rejoins by its token
+    // and no longer sends the setup link (older builds ignore it then).
+    if (w.type === 'paired' || w.type === 'remote') d.setup = null;
     return w;
   };
   return d;
@@ -288,6 +291,17 @@ function nextPopup(ctx, name, ms = 30000) {
 }
 const deviceIdIn = (page) =>
   page.evaluate(() => sessionStorage.getItem('tripTwin.soc.device.screen'));
+/**
+ * Joined slot n: connected and holding its token (K4 run). Every slot
+ * window shows "Sn · not connected" before its socket opens, and "Sn ·
+ * Remote offline" as soon as it opens, before the paired welcome lands:
+ * a window closed then has no token to come back with.
+ */
+const joined = (x, n) =>
+  !x.pairShown && x.paired && new RegExp(`^S${n} · Remote`).test(x.chip);
+/** K4: data-tt-link on a wall ('replaced' once another window took it). */
+const linkIn = (page) =>
+  page.evaluate(() => document.body.dataset.ttLink || null);
 const wallText = (page) =>
   page.evaluate(() => {
     const pair = document.querySelector('.tt-wall-pair');
@@ -299,6 +313,11 @@ const wallText = (page) =>
       how: pair?.querySelector('.how')?.textContent || '',
       url: pair?.querySelector('.url')?.textContent || '',
       host: location.host,
+      // The page holds its token (base and K4 both write token.<id>).
+      paired: (() => {
+        const id = sessionStorage.getItem('tripTwin.soc.device.screen');
+        return Boolean(id && localStorage.getItem(`tripTwin.soc.token.${id}`));
+      })(),
     };
   });
 async function waitWall(page, pred, ms = 90000, what = 'the wall') {
@@ -1050,8 +1069,10 @@ async function reproPairing(server, browser) {
       const w = b.last('welcome');
       return verdict(
         w.type === 'pair-code',
-        `reopened S4 got "${w.type}"`,
-        'old device still listed as S4, offline',
+        `reopened S4 (a new id) got "${w.type}"${w.code ? ` ${w.code}` : ''}`,
+        w.type === 'pair-code'
+          ? 'old device still listed as S4, offline'
+          : 'told why; from K4 the window itself reuses its slot record (R-H4, R-K4a)',
       );
     },
     meta(
@@ -1080,7 +1101,20 @@ async function reproPairing(server, browser) {
       });
       s4.setup = setup;
       s4.token = s3.token; // the cloned window shares localStorage
-      const w = await s4.hello();
+      let w = await s4.hello();
+      const told = w.type === 'denied' ? w.code : null;
+      if (told === 'ID_COPIED') {
+        // As twinSync.js does (K4): a fresh id, hello again on this socket.
+        const again = s4.c.next('welcome', 8000, 'S4 welcome after ID_COPIED');
+        s4.c.say({
+          t: 'hello',
+          id: 'screen-qa-fresh',
+          kind: 'screen',
+          slot: 4,
+          setup,
+        });
+        w = await again;
+      }
       await sleep(300);
       const p = presenceOf(l);
       const both = Boolean(p?.screens?.[3]?.online && p?.screens?.[4]?.online);
@@ -1089,7 +1123,7 @@ async function reproPairing(server, browser) {
       await s4.c.close();
       return verdict(
         !both,
-        `S4 ${w.type}; presence S3 ${p?.screens?.[3] ? 'listed' : 'gone'}, S4 ${p?.screens?.[4]?.online ? 'online' : 'offline'}`,
+        `${told ? `copy told ${told}, then ` : ''}S4 ${w.type}; presence S3 ${p?.screens?.[3]?.online ? 'online' : p?.screens?.[3] ? 'offline' : 'gone'}, S4 ${p?.screens?.[4]?.online ? 'online' : 'offline'}`,
       );
     },
     meta('H1 / BE-7 cause 2 / QA H-a', 'each window keeps its own slot'),
@@ -1167,21 +1201,11 @@ async function reproPairing(server, browser) {
       const pop3 = nextPopup(ctx, 'pop3');
       must(await clickOpen(p, 3), 'no Open S3 button');
       const w3 = await pop3;
-      await waitWall(
-        w3,
-        (x) => /^S3 /.test(x.chip) && !x.pairShown,
-        120000,
-        'S3',
-      );
+      await waitWall(w3, (x) => joined(x, 3), 120000, 'S3');
       const pop4 = nextPopup(ctx, 'pop4');
       must(await clickOpen(p, 4), 'no Open S4 button');
       const w4 = await pop4;
-      await waitWall(
-        w4,
-        (x) => /^S4 /.test(x.chip) && !x.pairShown,
-        120000,
-        'S4',
-      );
+      await waitWall(w4, (x) => joined(x, 4), 120000, 'S4');
       await sleep(1500);
       const [id3, id4] = [await deviceIdIn(w3), await deviceIdIn(w4)];
       const pr = presenceOf(l);
@@ -1215,32 +1239,40 @@ async function reproPairing(server, browser) {
       const pop1 = nextPopup(ctx, 'pop1');
       must(await clickOpen(p, 1), 'no Open S1 button');
       const w1 = await pop1;
-      await waitWall(
-        w1,
-        (x) => /^S1 /.test(x.chip) && !x.pairShown,
-        120000,
-        'S1',
-      );
+      await waitWall(w1, (x) => joined(x, 1), 120000, 'S1');
       const pop2 = nextPopup(ctx, 'pop2');
       must(await clickOpen(p, 2), 'no Open S2 button');
       const w2 = await pop2;
-      await waitWall(
-        w2,
-        (x) => /^S2 /.test(x.chip) && !x.pairShown,
-        120000,
-        'S2',
-      );
+      await waitWall(w2, (x) => joined(x, 2), 120000, 'S2');
       await sleep(1500);
       const same = (await deviceIdIn(w1)) === (await deviceIdIn(w2));
-      const pr = presenceOf(l);
+      let pr = presenceOf(l);
+      const at = (p, n) =>
+        p?.screens?.[n]
+          ? p.screens[n].online
+            ? 'online'
+            : 'offline'
+          : 'missing';
+      const first = `S1 ${at(pr, 1)}, S2 ${at(pr, 2)} after 1.5 s`;
+      // A wall page under SwiftShader can take a while to open its socket:
+      // wait up to 10 s for presence before calling it.
+      for (
+        let i = 0;
+        i < 20 && !(pr?.screens?.[1]?.online && pr?.screens?.[2]?.online);
+        i++
+      ) {
+        await sleep(500);
+        pr = presenceOf(l);
+      }
       const both = Boolean(
         pr?.screens?.[1]?.online && pr?.screens?.[2]?.online,
       );
+      const chips = [(await wallText(w1)).chip, (await wallText(w2)).chip];
       await ctx.close();
       await l.close();
       return verdict(
         same || !both,
-        `ids ${same ? 'EQUAL' : 'distinct'}; S1 and S2 ${both ? 'both online' : 'not both online'}`,
+        `ids ${same ? 'EQUAL' : 'distinct'}; S1 and S2 ${both ? 'both online' : 'not both online'} (${first}; then S1 ${at(pr, 1)}, S2 ${at(pr, 2)}; chips "${chips.join('" / "')}")`,
       );
     },
     meta(
@@ -1260,40 +1292,93 @@ async function reproPairing(server, browser) {
         `${base}/twin.html?view=screen&slot=5&setup=${setup}&${CITY}`,
         { waitUntil: 'domcontentloaded' },
       );
-      await waitWall(
-        w1,
-        (x) => /^S5 /.test(x.chip) && !x.pairShown,
-        120000,
-        'S5',
-      );
+      await waitWall(w1, (x) => joined(x, 5), 120000, 'S5');
       const pop = nextPopup(ctx, 'pop');
       await w1.evaluate(() => window.open(location.href, '_blank'));
       const w2 = await pop;
-      await waitWall(
-        w2,
-        (x) => /^S5 /.test(x.chip) && !x.pairShown,
-        120000,
-        'the copy',
-      );
+      await waitWall(w2, (x) => joined(x, 5), 120000, 'the copy');
       const same = (await deviceIdIn(w1)) === (await deviceIdIn(w2));
       await sleep(1000);
+      // K4: one identity per wall, so the copy is S5 too (its slot
+      // record), and the original must have been told and stopped.
+      const told = await linkIn(w1);
       await w1.close();
       await sleep(1500);
       const pr = presenceOf(l);
       const off = pr?.screens?.[5]?.online === false;
       const copy = await wallText(w2);
       await shot(w2, 'R-Hb-copy-after-close');
+      // The winner reloads: still S5, no pair code (ET S2).
+      await w2.reload({ waitUntil: 'domcontentloaded' });
+      const re = await waitWall(
+        w2,
+        (x) => x.pairShown || /^S5 · Remote/.test(x.chip),
+        120000,
+        'the reloaded copy',
+      );
       await ctx.close();
       await l.close();
       return verdict(
-        same || off,
-        `ids ${same ? 'EQUAL' : 'distinct'}; after closing the original, S5 ${off ? 'OFFLINE' : 'online'} while the copy shows "${copy.chip}"`,
+        (same && told !== 'replaced') || off || re.pairShown,
+        `ids ${same ? 'EQUAL' : 'distinct'}${same ? ` (original ${told === 'replaced' ? 'told: replaced, stopped' : 'NOT told'})` : ''}; after closing the original, S5 ${off ? 'OFFLINE' : 'online'} while the copy shows "${copy.chip}"; the copy reloaded: ${re.pairShown ? 'PAIR CODE' : `"${re.chip}"`}`,
       );
     },
     meta(
       'H2 / QA H-b (duplicate tab)',
-      'the copy gets its own identity or is told; S5 stays online',
+      'the copy gets its own identity, or one of the two is told and stops; S5 stays online; the survivor reloads still paired',
     ),
+  );
+
+  await step(
+    'R-K4a',
+    'no Web Locks (as on a LAN address): S5 closed, opened again with an expired link and with none',
+    async () => {
+      const { c: l, setup } = await startSetup(base, 6);
+      const ctx = await newCtx();
+      const noLocks = async (pg) =>
+        pg.evaluateOnNewDocument(() => {
+          Object.defineProperty(Navigator.prototype, 'locks', {
+            get: () => undefined,
+          });
+        });
+      const w1 = await newPage(ctx, 'S5');
+      await noLocks(w1);
+      await w1.goto(
+        `${base}/twin.html?view=screen&slot=5&setup=${setup}&${CITY}`,
+        { waitUntil: 'domcontentloaded' },
+      );
+      await waitWall(w1, (x) => joined(x, 5), 120000, 'S5');
+      const locksGone = await w1.evaluate(() => !navigator.locks);
+      await w1.close();
+      await sleep(1000);
+      const seen = [];
+      // A link the server no longer honours (as after the 10 minutes), then
+      // a restored window with no link at all.
+      for (const q of [`setup=${'0'.repeat(24)}&`, '']) {
+        const w = await newPage(ctx, 'S5-again');
+        await noLocks(w);
+        await w.goto(`${base}/twin.html?view=screen&slot=5&${q}${CITY}`, {
+          waitUntil: 'domcontentloaded',
+        });
+        const x = await waitWall(
+          w,
+          (v) => v.pairShown || /^S5 · Remote/.test(v.chip),
+          120000,
+          'S5 opened again',
+        );
+        seen.push(x.pairShown ? 'PAIR CODE' : x.chip.split(' · ')[0]);
+        await shot(w, `R-K4a-${q ? 'expired' : 'nolink'}`);
+        await w.close();
+        await sleep(800);
+      }
+      await ctx.close();
+      await l.close();
+      return verdict(
+        seen.some((x) => x !== 'S5') || !locksGone,
+        `Web Locks ${locksGone ? 'off' : 'STILL ON'}; expired link → ${seen[0]}; no link → ${seen[1]}`,
+      );
+    },
+    meta('sup S13 / C16 (slot record without locks)', 'S5 both times, no code'),
   );
 
   await step(
@@ -1307,12 +1392,7 @@ async function reproPairing(server, browser) {
         `${base}/twin.html?view=screen&slot=6&setup=${setup}&${CITY}`,
         { waitUntil: 'domcontentloaded' },
       );
-      await waitWall(
-        w,
-        (x) => /^S6 /.test(x.chip) && !x.pairShown,
-        120000,
-        'S6',
-      );
+      await waitWall(w, (x) => joined(x, 6), 120000, 'S6');
       await sleep(500);
       // The page dropped its setup link once joined; reopen what it shows.
       const now = await w.evaluate(() => location.href);
@@ -1330,9 +1410,9 @@ async function reproPairing(server, browser) {
       return verdict(
         x.pairShown,
         x.pairShown
-          ? 'on 127.0.0.1 the wall shows a PAIR CODE (new id, no token)'
-          : `rejoined: "${x.chip}"`,
-        'LAN IP and .local: same mechanism, by hand',
+          ? `on ${x.host} the wall shows a PAIR CODE (new id, no token)`
+          : `sent to ${x.host} and rejoined: "${x.chip}"`,
+        'LAN IP and .local: separate origins, by hand (S-23 covers loopback names only)',
       );
     },
     meta(
@@ -1365,12 +1445,7 @@ async function reproPairing(server, browser) {
       let pop = nextPopup(ctx, 'S4');
       must(await clickOpen(p, 4), 'no Open S4 button');
       let w4 = await pop;
-      await waitWall(
-        w4,
-        (x) => /^S4 /.test(x.chip) && !x.pairShown,
-        120000,
-        'S4',
-      );
+      await waitWall(w4, (x) => joined(x, 4), 120000, 'S4');
       await w4.close();
       log(
         `          waiting ${Math.round((SETUP_TTL_MS + 30000) / 60000)} min for the setup link to expire…`,
@@ -1379,20 +1454,24 @@ async function reproPairing(server, browser) {
       pop = nextPopup(ctx, 'S4');
       must(await clickOpen(p, 4), 'no Open S4 button');
       w4 = await pop;
+      // Connected: the pair card, or a chip past "not connected" (every
+      // slot window says "S4 · not connected" before its socket opens).
       const x = await waitWall(
         w4,
-        (v) => v.pairShown || /^S4 · Remote|^S4 · /.test(v.chip),
+        (v) => v.pairShown || /^S4 · Remote/.test(v.chip),
         120000,
         'the reopened S4',
       );
+      await sleep(1000);
+      const s4 = presenceOf(l)?.screens?.[4];
       await shot(w4, 'R-H4-reopened');
       await ctx.close();
       await l.close();
       return verdict(
-        x.pairShown,
+        x.pairShown || !s4?.online,
         x.pairShown
           ? 'the reopened S4 shows a PAIR CODE'
-          : `rejoined: "${x.chip}"`,
+          : `rejoined: "${x.chip}"; presence S4 ${s4?.online ? 'online' : 'NOT online'}`,
       );
     },
     meta(
@@ -1511,6 +1590,8 @@ async function reproPairing(server, browser) {
     'Walls opened through the LAN IP or the .local name, then through localhost (QA H-d; the QA server is loopback-only so the keys never leave this machine)',
     'Tab › Duplicate on a wall window in real Chrome (QA H-b)',
     'A wall window closed by accident and reopened from the launcher after 10 minutes, in real time (H4)',
+    'K4: on the iPad (plain http, no Web Locks), close the remote tab and open the remote page again after 10 minutes: it rejoins without a QR (F-0014 a)',
+    'K4: open the same wall twice on the Mac Studio (a second launcher tab): the older window stops with "not connected" and the newer one is the wall (C16)',
   ];
   for (const [i, what] of BY_HAND.entries())
     await step(`M4.1-${i + 1}`, what, async () => ({

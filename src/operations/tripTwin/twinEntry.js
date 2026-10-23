@@ -4,6 +4,7 @@
 // shows a QR code the iPad scans to open the remote, already paired.
 import QRCode from 'qrcode';
 import { connectSync } from './twinSync.js';
+import { localhostUrl } from './twinIdentity.js';
 import { ROLES, defaultRoles } from './twinScreenRoles.js';
 
 const el = (tag, cls, text) => {
@@ -136,6 +137,14 @@ export function showLaunch({ setup, cityKey, scenario }) {
 export function showEntry(o) {
   const remembered = o.pref('layout', null);
   if (remembered === 'all' && !o.force) return null;
+  // S-23: walls open on this page's origin, and 127.0.0.1 and [::1] keep
+  // their own storage, apart from localhost. Go to localhost before Start
+  // so every wall and the remote on this computer share one origin.
+  const away = localhostUrl(location);
+  if (away) {
+    location.replace(away);
+    return null;
+  }
   const box = el('div', 'tt-entry');
   box.setAttribute('role', 'dialog');
   box.setAttribute('aria-modal', 'true');

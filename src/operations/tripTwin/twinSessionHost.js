@@ -3,9 +3,15 @@
 // through the pure reducer and 10 s undo. Runs inside the dev-server relay
 // (server/tripTwin/syncRelay.js). Pure: no I/O; snapshot()/restore for the
 // relay to keep the wall across restarts.
+// Phase CF K4 (CF-2, C16): hello refusals carry a code (twinProtocol.js);
+// one live identity per device id — the relay says which id has a live
+// socket, and a newcomer with the same token for the same place replaces
+// it, while one for another place is told ID_COPIED; an expired setup
+// link says so instead of falling silently to a pair code.
 // Prototype only — production needs TLS, device enrolment, operator SSO,
 // signed commands and an audit log (07-production-delta).
 import { applyCommand, applyUndo, createSession } from './twinSession.js';
+import { DENY } from './twinProtocol.js';
 import { LAYER_CATALOG } from './twinScreenRoles.js';
 
 const LAYER_KEYS = new Set(
@@ -51,6 +57,7 @@ export function createSessionHost({
     while (codes.has(c));
     return c;
   };
+  const deny = (code, error) => ({ type: 'denied', code, error });
   const leaseLive = () => lease.holder && now() - lease.at < LEASE_MS;
   const holderOnline = () =>
     leaseLive() && devices.get(lease.holder)?.online !== false;
@@ -125,9 +132,16 @@ export function createSessionHost({
       return { setup: tk, expires: t + SETUP_TTL_MS, count: session.count };
     },
     /**
-     * A device says hello. Returns {type, …, unpaired: [ids to tell]}.
+     * A device says hello. Returns {type, …, unpaired: [ids to tell]}; a
+     * refusal is {type: 'denied', code, error} (twinProtocol.js DENY).
      * An id that holds a token belongs to that device: claiming it without
      * the token is refused (review/phase10 R1).
+     * `live` (from the relay): {kind, slot} of a socket that already holds
+     * this id. The same token for the same place is a reload, a restored
+     * window or a duplicated tab: accepted, and the relay replaces the old
+     * socket. Another place means the id was copied into a second window
+     * (window.open copies sessionStorage): ID_COPIED, the newcomer takes
+     * a fresh id (C16, SEC-9).
      */
     hello({
       id,
@@ -136,21 +150,41 @@ export function createSessionHost({
       name = '',
       setup = null,
       slot = null,
+      live = null,
     }) {
       const t = now();
+      if (!id || typeof id !== 'string')
+        return deny(DENY.NO_ID, 'No device id');
       const known = devices.get(id);
       const setupOk = Boolean(setup) && setups.get(setup)?.expires > t;
-      if (!id || typeof id !== 'string')
-        return { type: 'denied', error: 'No device id' };
       if (known?.token && tk !== known.token)
-        return { type: 'denied', error: 'This device id is already in use' };
+        return deny(DENY.ID_IN_USE, 'This device id is already in use');
       if (kind === 'launcher')
         return setupOk
           ? { type: 'launcher' }
-          : { type: 'denied', error: 'Start multi-view on this computer' };
+          : setup
+            ? deny(
+                DENY.TICKET_EXPIRED,
+                'This launch link has expired · start Multi-view again on the Trip Twin computer',
+              )
+            : deny(DENY.NOT_TRUSTED, 'Start multi-view on this computer');
+      if (kind !== 'screen' && kind !== 'remote')
+        return deny(DENY.UNKNOWN_KIND, 'Unknown device');
+      // A token proves the device, not a change of kind.
+      if (known?.token && known.kind !== kind)
+        return deny(DENY.ID_IN_USE, 'This device id is already in use');
+      const hint = Number(slot) >= 1 && Number(slot) <= 6 ? Number(slot) : null;
+      if (live) {
+        const place = kind === 'screen' ? (hint ?? known?.slot ?? null) : null;
+        if (live.kind !== kind || (live.slot ?? null) !== place)
+          return deny(
+            DENY.ID_COPIED,
+            'This device id is open in another window · this window takes a new one',
+          );
+      }
       if (kind === 'screen') {
-        if (setupOk && Number(slot) >= 1 && Number(slot) <= 6) {
-          const s = Number(slot);
+        if (setupOk && hint) {
+          const s = hint;
           const unpaired = freeSlot(s, id);
           const d = {
             kind: 'screen',
@@ -173,20 +207,38 @@ export function createSessionHost({
           known.online = true;
           return { type: 'paired', slot: known.slot, token: known.token };
         }
+        // Say why instead of a bare code (R-1): the window drops the link
+        // and asks again without it, which gives the pair card.
+        if (setup && !setupOk)
+          return deny(
+            DENY.TICKET_EXPIRED,
+            'This screen link has expired · open the screen from the launcher again, or pair it with a code',
+          );
         for (const [c, v] of codes) if (v.deviceId === id) codes.delete(c);
         const code = newCode();
         codes.set(code, { deviceId: id, expires: t + CODE_TTL_MS });
         devices.set(id, { kind, lastSeen: t, online: true });
         return { type: 'pair-code', code, expires: t + CODE_TTL_MS };
       }
-      if (kind !== 'remote') return { type: 'denied', error: 'Unknown device' };
       // Remotes need the setup QR or their own token from an earlier pairing.
       const trusted = setupOk || (known?.kind === 'remote' && known.token);
-      if (!trusted)
-        return {
-          type: 'denied',
-          error: 'Scan the QR on the Trip Twin computer to pair this remote',
-        };
+      if (!trusted) {
+        // The token is the pairing: when it is gone, say that first.
+        if (tk)
+          return deny(
+            DENY.FORGOTTEN,
+            'The Trip Twin computer no longer knows this remote · scan the QR on the Trip Twin computer to pair it again',
+          );
+        if (setup)
+          return deny(
+            DENY.TICKET_EXPIRED,
+            'This pairing code has expired · scan the QR on the Trip Twin computer again',
+          );
+        return deny(
+          DENY.NOT_TRUSTED,
+          'Scan the QR on the Trip Twin computer to pair this remote',
+        );
+      }
       const rt = known?.token || token();
       devices.set(id, {
         kind: 'remote',
