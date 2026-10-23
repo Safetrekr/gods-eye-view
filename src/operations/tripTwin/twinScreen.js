@@ -504,6 +504,17 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     history.replaceState(null, '', `?${q}`);
   }
 
+  /**
+   * The slot stays in the URL (also after pairing by code), so a reload or
+   * a restored window finds this wall's slot record (Phase CF K4).
+   */
+  function keepSlotInUrl(n) {
+    const q = new URLSearchParams(location.search);
+    if (!n || q.get('slot') === String(n)) return;
+    q.set('slot', String(n));
+    history.replaceState(null, '', `?${q}`);
+  }
+
   function identify() {
     ident.textContent = mySlot ? `S${mySlot}` : '?';
     ident.hidden = false;
@@ -573,8 +584,16 @@ export function createScreenMode({ api, slot = null, setup = null }) {
           pair.hidden = true;
           restoredAt = null;
           dropSetupFromUrl();
+          keepSlotInUrl(m.slot);
           applyState(m.state, { force: true });
         } else if (m.type === 'pair-code') showPair(m.code);
+      },
+      // Another window took this identity (C16): stop, keep storage as it
+      // is — the shared token is the winner's. The chip says "not
+      // connected" until K8 adds the card; data-tt-link is for the harness.
+      replaced() {
+        document.body.dataset.ttLink = 'replaced';
+        paint();
       },
       // This slot went to another device: back to a pairing code (R10).
       unpaired() {
@@ -593,6 +612,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         mySlot = m.slot;
         pair.hidden = true;
         dropSetupFromUrl();
+        keepSlotInUrl(m.slot);
         identify();
         // The state follows in the next broadcast.
       },

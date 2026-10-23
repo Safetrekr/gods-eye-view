@@ -224,3 +224,113 @@ K1's three `upgrade today:` tests are unchanged and still pass (the rebinding pa
 
 - `k3/gate1.txt`, `k3/gate2.txt` (gate with names, before and after formatting), `k3/build.log`, `k3/smoke1.txt`, `k3/smoke2.txt`
 - `qa-k3/runs/smoke-2026-10-23T21-27-33/`, `qa-k3/audit/would-refuse.jsonl`, `qa-k3/server.log` (`hosts.check` boot lines); `qa-k3-final/runs/smoke-2026-10-23T21-29-38/` and `qa-k3-final/audit/would-refuse.jsonl` (the run on the final bytes; the same 4 lines)
+
+## K4 · lost pairing identity (server and client identity)
+
+- **Date:** 23 Oct 2026, 16:45–17:55 CDT. **Machine:** MacBook (macOS 26.5), Node 22.21.1, headless puppeteer (Chrome for Testing, SwiftShader).
+- **Code under test:** the `cf/core` working tree on top of `5441cae` (K3), served with `--ref worktree`. The revert drill restarts on `HEAD` (`5441cae`, the K3 code) and then on the working tree again.
+- **QA server:** `:4181` on 127.0.0.1; data, audit and `TMPDIR` in the QA folder. Map keys passed 0 of 2 (as K1–K3). The live store paths were only ever `stat`ed; the live :4173 server was never contacted.
+- **Gate verdict: PASS.**
+
+### Root cause (CF-2), as the repro shows it
+
+Two causes were live on the base, both fixed here; the third (the store) was K2.
+1. **Identity tied to the window (H4, H-c):** the device id lived in `sessionStorage`, so a wall window opened again (closed by accident, a restart, "Open S4" after the 10-minute link) came back as a new device with no token and got a pair code (R-1, R-H4).
+2. **One id in two windows (H1, H2, H-a, H-b):** `window.open` and a duplicated tab copy `sessionStorage`, so two windows shared one id and one token; the relay let both sockets live, moved the device between slots, marked the wall offline when either closed, and a later `unpaired` in one window deleted the token the other was using (R-2, R-H1, R-H2, R-Hb).
+The origin switch (H3, H-d: `localhost` and `127.0.0.1` keep separate storage) is answered for loopback names by the S-23 redirect; the LAN IP and `.local` stay separate origins by nature (by hand below).
+
+### What landed
+
+- `src/operations/tripTwin/twinProtocol.js` (new, constants only; K5 completes it): hello deny codes (S-8), the terminal list (S-16: `FORGOTTEN`, `TOKEN_EXPIRED`, `ID_IN_USE`, `TICKET_USED`, `TICKET_EXPIRED`), unpaired reasons (`FORGOTTEN`, `SLOT_TAKEN`, `EXPIRED`), the `replaced` message, close codes 4002 and 4003.
+- `src/operations/tripTwin/twinIdentity.js` (new): a wall window opened for slot N uses the slot record `localStorage['tripTwin.soc.slot.<N>'] = {id, token}` wherever `localStorage` exists (also on a plain-http LAN page with no Web Locks); the Web Lock `tt-slot-<N>` is an extra guard where locks exist (the newest window takes it with `steal`; the older one stops at once and never touches storage); other windows check `tt-id-<id>` and take a fresh id when it is held (a copied opener id). The remote keeps its id in `localStorage` too (`tripTwin.soc.remote`, F-0014 a). Ids are `kind-` and 32 hex from `crypto.getRandomValues` (S-7). Migration: a window holding a pre-K4 `sessionStorage` id with a token is copied into its record (unless another slot's record already holds that id); the old keys are still written, nothing is deleted until the core exit. A screen paired by code binds its record to the slot the relay gives it. Records are rewritten compare-and-set, so a newer window's token is never lost. `localhostUrl()` for S-23.
+- `src/operations/tripTwin/twinSync.js`: identity from `twinIdentity.js`; the client takes an `env` (the page globals by default; the test kit passes a fake browser). Refusals with a code: `ID_COPIED` → a fresh id and a new hello on the same socket; a terminal code → drop that token (fresh id) or that link, then a wall asks again (pair card or a still-valid link), a remote or launcher shows its refusal and stops reconnecting. `{t:'replaced'}`, a 4003 close or a stolen slot lock → stop reconnecting, storage untouched. The setup link is dropped once a screen or remote has joined. On `127.0.0.1` or `[::1]` with no pairing on that origin, the page goes to `localhost` before it connects; a page that already holds a pairing there stays (migration).
+- `src/operations/tripTwin/twinSessionHost.js`: every refusal is `{type:'denied', code, error}`; a token proves the device, not a change of kind; `live` from the relay: the same token for the same place is accepted (a reload, a restored window, a duplicated tab), another place is `ID_COPIED` with no side effects; an expired or unknown setup link says `TICKET_EXPIRED` (screen, remote, launcher) instead of falling silently to a pair code; a remote with a token the relay does not know is `FORGOTTEN`; with a valid QR it still pairs.
+- `server/tripTwin/syncRelay.js`: one live socket per device id (launchers excluded): the older gets `{t:'replaced'}` and close 4003, never `unpaired` (sec S13); a device is offline only when its last socket closes (H2); `paired` goes only to the socket that showed the code (SEC-9 rule 2); a second hello on an accepted socket is refused `ALREADY_IDENTIFIED` and closed 4002; `unpaired` carries `reason: 'SLOT_TAKEN'`; refusals carry the code. Denied sockets are not closed by the server (K7 adds the hello deadline), so an old page cannot loop.
+- `src/operations/tripTwin/twinScreen.js` (non-visual hunks only): a `replaced` handler (sets `data-tt-link="replaced"` on `body` for the harness; the chip shows today's "not connected" until K8's card); the slot stays in the URL after pairing, also by code, so a reload or a restored window finds its record.
+- `src/operations/tripTwin/twinEntry.js`: the launcher goes to `localhost` before Start when opened on `127.0.0.1` or `[::1]` (S-23).
+- Kit (`twinTestKit.mjs`): `fakeSocket.close(code)` records the code; `memStorage`, `fakeLocks` (`ifAvailable`, `steal` → `AbortError`), `fakeTimers`, `settle`, `fakeBrowser` (per-origin `localStorage` and locks, per-window `sessionStorage` copied by `window.open`, sockets bridged to a real relay). Gate script: baseline 213; the `Math.random` wiring check also covers `twinSync.js` and `twinIdentity.js`.
+- Harness (`qa-twin-multiview.mjs`): R-2 answers `ID_COPIED` as the K4 client does; R-Hb's verdict follows AC-2.1/2.3 (with slot-scoped identity the copy is the same device by design: GREEN when the original is told and stops, S5 stays online and the survivor reloads still paired); new R-K4a (no Web Locks); R-Hd names where the page landed; the socket-level `device` drops its setup link once joined (as the K4 client); "joined" now means connected **and** holding a token (see "Notes"); two K4 rows in the by-hand list.
+- Runbook: `deploy-mac-studio.md` per-slice row for K4 (rollback, browser keys, the after-deploy reopen check, S-23).
+
+### Gate
+
+| Check | Command | Result |
+|---|---|---|
+| Trip Twin tests | `node scripts/test-trip-twin.mjs` | **PASS** (final run below). 213 tests in 26 files: 213 pass, 0 fail, 0 skip, 0 todo; baseline 213 (190 + 23). |
+| Wiring (warnings until K7) | same | Unchanged: `/api/route` at `twinCustomPaths.js:148`, `twinPaths.js:44`; `Math.random` at `twinSessionHost.js:24` (the host's injectable `random`, K7). None in `twinSync.js` or `twinIdentity.js`. |
+| Shared-file guard | same | Clean (3 CF commits checked, plus the working tree). |
+| Repo tests | `npm test` (run by the gate) | **PASS.** Exit 0; 3219 tests, 3218 pass, 0 fail, 1 skip (Windows-only DACL test); allocation probes skipped on Node 22. |
+| Twin build | `npx vite build --config vite.twin.config.js --outDir <scratchpad>/twin-dist` | **PASS** (exit 0; the usual chunk-size note). |
+| Smoke | `node scripts/qa-twin-multiview.mjs smoke --ref worktree --dir <scratchpad>/qa-k4-final` | **PASS** on the final bytes (`smoke-2026-10-23T22-51-58`): 18 pass, 6 TODO (after shell step C), 0 pageerror, 0 console.error. First run on the K4 code before the harness edits (`qa-k4/runs/smoke-2026-10-23T21-55-32`): the same. |
+| Restart and revert | same run | K1-S9 to S13 (restart-and-reconnect: S1–S5 rejoin with no codes, the remote gets its lease, the S6 page reloads and rejoins) and K2-S1/K2-S2 (revert to `5441cae`: every page reloads onto the K3 client and rejoins on the old keys; forward again: `store.loaded`, no `store.migrated`) pass. |
+| Mutation check | relay sends `unpaired` to the replaced socket and marks offline on every close; then the slot record ignored | 4 and 6 of the K4 tests turn red; restored code green. |
+| CF-2 repro | `node scripts/qa-twin-multiview.mjs repro-pairing --wait-expiry --ref worktree --dir <scratchpad>/qa-k4` | **All 12 automated steps GREEN** on the final run (`repro-pairing-2026-10-23T22-39-32`), R-H4 included. Table below. |
+
+### CF-2 repro: before (K1, `3431392`) → after (K4)
+
+| Step | Hypothesis | Before | After (final run) |
+|---|---|---|---|
+| R-1 | H4 (fake clock) | RED: a new id got a bare pair code | **GREEN**: a new id is told `TICKET_EXPIRED` (says why), then gets the pair card; the window itself now reuses its slot record (R-H4, R-K4a, unit R-1) |
+| R-2 | H1 (socket) | RED: S3 dropped out of presence | **GREEN**: the copy is told `ID_COPIED`, takes a fresh id, S4 pairs; S3 and S4 both online |
+| R-H2 | H2 (socket) | RED: both sockets live; closing one marked S2 offline | **GREEN**: the older socket is replaced (4003); S2 stays online |
+| R-H1 | H1 (headless) | RED: S3 and S4 had the opener's id | **GREEN**: distinct ids; S3 and S4 online |
+| R-H1c | control | GREEN | **GREEN** (one RED in the first run, not repeated: see Notes) |
+| R-Hb | H2 (duplicate tab) | RED: one id; closing the original marked S5 offline | **GREEN**: one device by design; the original is told (`replaced`) and stops; S5 stays online; the copy reloads still S5 |
+| R-K4a | sup S13 (new) | — | **GREEN**: with Web Locks removed, S5 closed and opened again with an expired link, then with none: S5 both times, no code |
+| R-Hd | H3 | RED: pair card on 127.0.0.1 | **GREEN**: sent to `localhost` (S-23) and rejoined S6 |
+| R-H4 | H4 (live, 10.5 min) | RED: the reopened S4 showed a pair code | **GREEN**: rejoined S4, online in presence |
+| R-He | H-e | GREEN | **GREEN** |
+| R-3 | store (K2) | RED at K1, GREEN from K2 | **GREEN** |
+| R-3q | quarantine (K2) | GREEN from K2 | **GREEN** (pair code by design) |
+
+Console errors in the repro runs (2 per run) are the known SwiftShader artefact: a headless popup gets no WebGL context ("open failed … webgl2"); identity and pairing are unaffected.
+
+### Test names added in K4 (`twinIdentity.test.mjs`)
+
+- `K4 R-1: a wall window opened again after its setup link expired rejoins S4 by its slot record; a new id is told why`
+- `K4 R-2: one id said hello for S3, then for S4 while S3 is live: the copy is told ID_COPIED and S3 keeps its slot`
+- `K4 R-3: a save cut off half-way leaves the last good store, and the wall rejoins through the relay`
+- `K4 T4.2: two sockets with one id and token for one slot: the older gets {t:"replaced"} and 4003, and its close leaves the wall online`
+- `K4: paired goes only to the socket that showed the code (SEC-9 rule 2)`
+- `K4: a second hello on one socket is refused ALREADY_IDENTIFIED and the socket is closed (4002)`
+- `K4 deny codes: every hello refusal carries a code from twinProtocol.js and readable text`
+- `K4 T4.3: after a restore every device rejoins with its token; a stale token is refused ID_IN_USE with a code`
+- `K4 ET S2: duplicate → old window replaced → winner reloads → still paired (no Web Locks, as on a LAN address)`
+- `K4 ET S2: duplicate → old window replaced → winner reloads → still paired (Web Locks)`
+- `K4 sec S13: an old page (base unpaired handler) that is replaced never wipes the winner’s token`
+- `K4 sup S13: without Web Locks, S5 closed after its link expired and opened again comes back as S5 with no code`
+- `K4 S-16: a remote with a forgotten token on loopback stops retrying after one terminal deny`
+- `K4 S-16: a remote with a token the relay does not know is told FORGOTTEN and stops`
+- `K4 S-16: a wall refused ID_IN_USE falls to a fresh id and the pair card (it used to freeze)`
+- `K4 S-16: a wall with an expired link and no pairing drops the link and shows the pair card`
+- `K4: a wall whose slot went to another device is told SLOT_TAKEN and clears its own record (only FORGOTTEN and SLOT_TAKEN do)`
+- `K4 migration: a pre-K4 wall and remote keep their pairing; the old keys stay for a revert`
+- `K4 R-H1 (unit): window.open copies the opener’s id; S3 and S4 opened from it get their own ids`
+- `K4: the newest window for a slot on this computer takes its lock; the older stops at once without touching storage`
+- `K4: a wall paired by code keeps a slot record and rejoins when opened again with that slot`
+- `K4 S-7: device ids are kind- and 32 hex characters from getRandomValues; 1,000 are unique`
+- `K4 S-23: 127.0.0.1 and [::1] go to localhost, unless this origin already holds the pairing`
+
+### Notes
+
+- **Harness fixes found on the way (not product bugs).** (1) R-H1c went RED once (S1 and S2 "not both online" 1.5 s after the popups loaded) and was GREEN on the immediate re-run and on both later runs, with both walls online at 1.5 s: a timing flake (S-5 rule). The step now waits up to 10 s and names each slot's state. (2) R-H4's first two K4 runs were wrong both ways: once GREEN on the chip "S4 · not connected" (every slot window shows that before its socket opens), once RED with a pair code. A scratch debug run showed why: the harness closed the first S4 window as soon as its chip read "S4 · Remote offline", which a wall shows the moment its socket opens, **before** the paired welcome lands, so its record had no token; the relay then rightly refused the bare id (`ID_IN_USE`: an id with a token cannot be claimed without it) and the window fell to the pair card. In the same debug run, with the token in place, the reopen with an expired link rejoined S4 with no code. Every repro step's "joined" now means connected **and** holding a token.
+- **Known edge (by design):** a wall window closed within the instant between its socket opening and its token arriving comes back as a new device and gets the pair card; the old record stays listed as that slot, offline, until the slot is paired again. Accepting the bare id would break the R1 rule.
+- **Old pages after the deploy:** a page still running pre-K4 code that is replaced ignores `{t:'replaced'}` and reconnects (with backoff), and two such pages would replace each other in turn. Vite reloads every open page when the server restarts (K1 finding), so this needs a page that was not reloaded; the deploy checklist already reloads every wall and the iPad.
+- **Not in K4 (as planned):** the replaced, slot-taken and refusal cards and "Move it here" (K8); `TOKEN_EXPIRED` (L6) and `TICKET_USED` (single-use tickets, K11) are handled by the client but not yet sent; the server closing denied sockets and the hello deadline (K7); `device.hello` audit fields (K6).
+
+### By hand on the Mac Studio, still owed (M4.1, before the K4 deploy)
+
+1. Chrome quit and relaunch with "Continue where you left off": the four walls keep their slots (QA H-c, AC-2.1).
+2. A Mac Studio reboot, Vite started by hand, Chrome restores the walls (E14).
+3. Walls opened through the LAN IP or the `.local` name, then through `localhost`: separate origins, so a separate pairing per name (QA H-d); check which origin the Mac Studio launcher really uses (`location.origin`, BE-8 risk) and that walls opened from it rejoin after a reload.
+4. Tab › Duplicate on a wall window in real Chrome: the original stops with "not connected", the copy is the wall (QA H-b).
+5. A wall window closed by accident and reopened from the launcher after 10 minutes, in real time (H4).
+6. On the iPad (plain http, no Web Locks): close the remote tab and open the remote page again after 10 minutes: it rejoins without a QR (F-0014 a).
+7. Open the same wall from a second launcher tab: the older window stops with "not connected", the newer one is the wall (C16).
+8. After the deploy reload: every wall rejoins its slot on the migrated keys; then the revert drill (`deploy-mac-studio.md`).
+
+### Evidence (session scratchpad, `/private/tmp/claude-501/-Users-jessetarvambp1-Sites-Safetrekr/bee4faae-35c4-47cb-aef3-657c3e2a12f6/scratchpad/`)
+
+- `k4/gate1.txt`, `k4/gate2.txt` (gate with names), `k4/build.log`, `k4/smoke1.txt`, `k4/smoke2.txt`, `k4/repro1.txt` … `k4/repro5.txt`
+- `qa-k4/runs/smoke-2026-10-23T21-55-32/`, `qa-k4/runs/repro-pairing-2026-10-23T21-56-49/`, `…T22-11-29/`, `…T22-24-46/` (the R-H4 shot with the pair code), `…T22-39-32/` (final, all GREEN); `qa-k4-final/runs/smoke-2026-10-23T22-51-58/`
+- `k4dbg-src/h4.mjs` (the scratch R-H4 debug script; it prints no token or link)

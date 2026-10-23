@@ -38,10 +38,11 @@ export function fakeSocket() {
   ws.say = (m) => ws.emit('message', JSON.stringify(m));
   ws.last = (t) => [...ws.out].reverse().find((m) => m.t === t);
   ws.all = (t) => ws.out.filter((m) => m.t === t);
-  ws.close = () => {
+  ws.close = (code = 1000) => {
     if (ws.readyState === 3) return;
     ws.readyState = 3;
-    ws.emit('close');
+    ws.closeCode = code; // K4: 4002 (second hello), 4003 (replaced)
+    ws.emit('close', code);
   };
   return ws;
 }
@@ -371,4 +372,233 @@ export async function liveTwinServer({
         httpServer.close(() => r());
       }),
   };
+}
+
+// ---- A browser for twinSync.js (Phase CF K4) ---------------------------
+
+/** A Storage stand-in (getItem, setItem, removeItem) over a Map. */
+export function memStorage(from = null) {
+  const m = new Map(from ? from.entries() : []);
+  return {
+    map: m,
+    getItem: (k) => (m.has(k) ? m.get(k) : null),
+    setItem: (k, v) => m.set(k, String(v)),
+    removeItem: (k) => m.delete(k),
+    entries: () => m.entries(),
+  };
+}
+
+/**
+ * Web Locks as one browser profile sees them (per origin): `ifAvailable`
+ * gives null when held; `steal` takes a held lock and rejects the old
+ * holder's request with an AbortError, as the spec says.
+ */
+export function fakeLocks() {
+  const held = new Map(); // name → {reject}
+  return {
+    held,
+    request(name, opts, cb) {
+      const cur = held.get(name);
+      if (cur && opts?.ifAvailable) return Promise.resolve(cb(null));
+      if (cur && !opts?.steal)
+        return Promise.reject(new Error('fakeLocks: queueing not modelled'));
+      if (cur) {
+        held.delete(name);
+        const e = new Error('stolen');
+        e.name = 'AbortError';
+        cur.reject(e);
+      }
+      return new Promise((resolve, reject) => {
+        const entry = { reject };
+        held.set(name, entry);
+        Promise.resolve(cb({ name })).then(
+          (v) => {
+            if (held.get(name) === entry) held.delete(name);
+            resolve(v);
+          },
+          (e) => {
+            if (held.get(name) === entry) held.delete(name);
+            reject(e);
+          },
+        );
+      });
+    },
+  };
+}
+
+/** Timers on a fake clock: `run(ms)` fires what falls due, in order. */
+export function fakeTimers(start = 1_000_000) {
+  let t = start;
+  let seq = 0;
+  const due = new Map(); // handle → {at, fn, every}
+  const add = (fn, ms, every) => {
+    const h = ++seq;
+    due.set(h, { at: t + Math.max(0, ms || 0), fn, every });
+    return h;
+  };
+  return {
+    now: () => t,
+    setTimeout: (fn, ms) => add(fn, ms, 0),
+    clearTimeout: (h) => due.delete(h),
+    setInterval: (fn, ms) => add(fn, ms, Math.max(1, ms || 1)),
+    clearInterval: (h) => due.delete(h),
+    /** Advance the clock by ms, firing timers (and settling between). */
+    async run(ms) {
+      const end = t + ms;
+      for (;;) {
+        let next = null;
+        for (const [h, d] of due)
+          if (d.at <= end && (!next || d.at < next[1].at)) next = [h, d];
+        if (!next) break;
+        const [h, d] = next;
+        t = Math.max(t, d.at);
+        if (d.every) d.at += d.every;
+        else due.delete(h);
+        d.fn();
+        await settle();
+      }
+      t = end;
+    },
+    pending: () => due.size,
+  };
+}
+
+/** Let queued microtasks and immediates run (socket events, lock grants). */
+export async function settle(rounds = 8) {
+  for (let i = 0; i < rounds; i++) await new Promise((r) => setImmediate(r));
+}
+
+/**
+ * One browser profile on one computer, talking to a relay. Windows share
+ * localStorage and Web Locks per origin; each window has its own
+ * sessionStorage (window.open and a duplicated tab copy the opener's). A
+ * window's `env` is what twinSync.js takes instead of the page globals.
+ * `relay` may be swapped (a restart with another host); `drop()` closes
+ * every socket from the server side, as a restart does.
+ */
+export function fakeBrowser({ relay, locks = true, timers = fakeTimers() }) {
+  const origins = new Map(); // origin → {local, locks}
+  const originOf = (href) => new URL(href).origin;
+  const site = (origin) => {
+    if (!origins.has(origin))
+      origins.set(origin, { local: memStorage(), locks: fakeLocks() });
+    return origins.get(origin);
+  };
+  const b = {
+    relay,
+    timers,
+    sockets: [], // every client socket ever opened
+    up: true,
+    site,
+    local: (href = 'http://localhost:4173/') => site(originOf(href)).local,
+    /** Close every open socket from the server's side (1006). */
+    drop() {
+      for (const s of b.sockets) s.serverClose(1006);
+    },
+    window({ href, opener = null, withLocks = locks } = {}) {
+      const where = site(originOf(href));
+      const session = memStorage(opener ? opener.session.map : null);
+      const u = new URL(href);
+      const location = {
+        href: u.href,
+        protocol: u.protocol,
+        host: u.host,
+        hostname: u.hostname,
+        search: u.search,
+        replaced: null,
+        replace(to) {
+          location.replaced = to;
+        },
+      };
+      const w = { session, location, sockets: [] };
+      class FakeWebSocket {
+        constructor(url) {
+          this.url = url;
+          this.readyState = 0;
+          this.sent = [];
+          this.listeners = {};
+          b.sockets.push(this);
+          w.sockets.push(this);
+          queueMicrotask(() => this.connect());
+        }
+        connect() {
+          if (this.readyState !== 0) return;
+          if (!b.up) {
+            this.readyState = 3;
+            return this.emit('close', { code: 1006 });
+          }
+          const srv = fakeSocket();
+          this.srv = srv;
+          srv.send = (s) => {
+            srv.out.push(JSON.parse(s));
+            queueMicrotask(() => {
+              if (this.readyState === 1) this.emit('message', { data: s });
+            });
+          };
+          srv.close = (code = 1000) => {
+            if (srv.readyState === 3) return;
+            srv.readyState = 3;
+            srv.closeCode = code;
+            srv.emit('close', code);
+            queueMicrotask(() => this.closed(code));
+          };
+          b.relay.attach(srv, { isLocal: true });
+          this.readyState = 1;
+          this.emit('open', {});
+        }
+        addEventListener(t, fn) {
+          (this.listeners[t] ||= []).push(fn);
+        }
+        emit(t, e) {
+          for (const fn of this.listeners[t] || []) fn(e);
+        }
+        send(s) {
+          if (this.readyState !== 1) throw new Error('not open');
+          this.sent.push(JSON.parse(s));
+          this.srv.emit('message', s);
+        }
+        closed(code) {
+          if (this.readyState === 3) return;
+          this.readyState = 3;
+          this.emit('close', { code });
+        }
+        /** The client closes (page code). */
+        close(code = 1000) {
+          if (this.readyState === 3) return;
+          if (this.srv && this.srv.readyState !== 3) {
+            this.srv.readyState = 3;
+            this.srv.emit('close', code);
+          }
+          this.closed(code);
+        }
+        /** The server side goes away (restart). */
+        serverClose(code) {
+          if (this.srv && this.srv.readyState !== 3) this.srv.close(code);
+          else this.closed(code);
+        }
+        get hellos() {
+          return this.sent.filter((m) => m.t === 'hello');
+        }
+      }
+      const safe = (s) => ({
+        get: (k) => s.getItem(k),
+        set: (k, v) => (v == null ? s.removeItem(k) : s.setItem(k, v)),
+      });
+      w.env = {
+        local: safe(where.local),
+        session: safe(session),
+        locks: withLocks ? where.locks : null,
+        crypto: globalThis.crypto,
+        location,
+        WebSocket: FakeWebSocket,
+        setTimeout: timers.setTimeout,
+        clearTimeout: timers.clearTimeout,
+        setInterval: timers.setInterval,
+        clearInterval: timers.clearInterval,
+        now: timers.now,
+      };
+      return w;
+    },
+  };
+  return b;
 }

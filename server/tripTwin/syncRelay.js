@@ -11,6 +11,12 @@
 // Origin, when present, must equal Host) and records what the new
 // allowlist (twinHosts.js) would refuse; only the exact path is served.
 // Every /api/twin-sync HTTP path goes through the Host guard first.
+// One identity per wall (Phase CF K4, CF-2, C16): one live socket per
+// device id — a reload, a restored window or a duplicated tab with the same
+// token for the same place replaces the older socket, which gets
+// {t:'replaced'} and is closed (4003); a device is offline only when its
+// last socket closes; `paired` goes only to the socket that showed the
+// code; one accepted hello per socket (a second one closes it, 4002).
 // Prototype only: plain ws, LAN, no login — production needs TLS, device
 // enrolment, SSO, signed commands and an audit log (07-production-delta).
 import os from 'node:os';
@@ -18,6 +24,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { createSessionHost } from '../../src/operations/tripTwin/twinSessionHost.js';
+import {
+  CLOSE,
+  DENY,
+  REPLACED,
+  UNPAIRED,
+} from '../../src/operations/tripTwin/twinProtocol.js';
 import { openSessionStore, resolveDataDir } from './sessionStore.js';
 import { hostCheckFor, twinLogger } from './twinHostCheck.js';
 import {
@@ -77,8 +89,9 @@ export function createRelay({
   host = createSessionHost(),
   save = () => {},
 } = {}) {
-  const sockets = new Map(); // ws → {id, kind, secure} once accepted
+  const sockets = new Map(); // ws → {id, kind, secure, place} once accepted
   const conns = new Map(); // ws → {isLocal, secure} from its upgrade
+  const waiting = new Map(); // device id → the socket that shows its code
   const send = (ws, msg) => {
     if (ws.readyState === 1) ws.send(JSON.stringify(msg));
   };
@@ -86,6 +99,13 @@ export function createRelay({
     for (const [ws, meta] of sockets) fn(ws, meta);
   };
   const view = (meta) => presenceFor(host.presence(), meta.id);
+  /** The accepted socket that holds this device id, other than `not`. */
+  const liveOf = (id, not = null) => {
+    for (const [ws, meta] of sockets)
+      if (ws !== not && meta.id === id && meta.kind !== 'launcher')
+        return { ws, meta };
+    return null;
+  };
   const broadcastState = (extra = {}) => {
     save(host.snapshot());
     each((ws, meta) =>
@@ -103,10 +123,20 @@ export function createRelay({
   const tellUnpaired = (ids = []) =>
     each((ws, meta) => {
       if (ids.includes(meta.id)) {
-        send(ws, { t: 'unpaired' });
+        send(ws, { t: 'unpaired', reason: UNPAIRED.SLOT_TAKEN });
         sockets.delete(ws);
       }
     });
+  /**
+   * The older window of one identity (C16): its own message, never
+   * `unpaired`, so no handler — old or new — clears the shared token.
+   */
+  const replace = (ws) => {
+    sockets.delete(ws);
+    for (const [id, w] of waiting) if (w === ws) waiting.delete(id);
+    send(ws, { t: REPLACED });
+    ws.close(CLOSE.REPLACED, 'replaced');
+  };
 
   function onMessage(ws, raw) {
     let m;
@@ -120,24 +150,50 @@ export function createRelay({
     if (!me && m.t !== 'hello' && m.t !== 'setup') return;
     switch (m.t) {
       case 'hello': {
+        // One accepted hello per socket (SEC-7): a second one closes it.
+        if (me) {
+          send(ws, {
+            t: 'welcome',
+            type: 'denied',
+            code: DENY.ALREADY_IDENTIFIED,
+            error: 'This connection has already said hello',
+          });
+          ws.close(CLOSE.ALREADY_IDENTIFIED, 'already identified');
+          break;
+        }
+        const id = String(m.id || '');
+        const prev = m.kind === 'launcher' ? null : liveOf(id, ws);
         const r = host.hello({
-          id: String(m.id || ''),
+          id,
           kind: m.kind,
           token: m.token,
           name: m.name,
           setup: m.setup,
           slot: m.slot,
+          live: prev && { kind: prev.meta.kind, slot: prev.meta.place },
         });
         if (r.type === 'denied') {
-          send(ws, { t: 'welcome', type: 'denied', error: r.error });
+          send(ws, {
+            t: 'welcome',
+            type: 'denied',
+            code: r.code,
+            error: r.error,
+          });
           break;
         }
+        // Accepted with the same token for the same place: the newest
+        // window is the wall, the older one is told and closed.
+        if (prev) replace(prev.ws);
+        const hint = Number(m.slot) >= 1 && Number(m.slot) <= 6;
         const meta = {
-          id: String(m.id),
+          id,
           kind: m.kind,
           secure: Boolean(conns.get(ws)?.secure),
+          place: r.slot ?? (hint ? Number(m.slot) : null),
         };
         sockets.set(ws, meta);
+        if (r.type === 'pair-code') waiting.set(id, ws);
+        else waiting.delete(id);
         tellUnpaired(r.unpaired);
         const { unpaired: _u, ...rest } = r;
         void _u;
@@ -182,10 +238,14 @@ export function createRelay({
         send(ws, { t: 'pair-result', reqId: m.reqId, ...rest });
         if (r.ok) {
           tellUnpaired(unpaired);
-          each((s, meta) => {
-            if (meta.id === r.deviceId)
-              send(s, { t: 'paired', slot: r.slot, token: r.token });
-          });
+          // Only the socket that showed this code (SEC-9 rule 2, T14).
+          const to = waiting.get(r.deviceId);
+          waiting.delete(r.deviceId);
+          const meta = to && sockets.get(to);
+          if (meta?.id === r.deviceId) {
+            meta.place = r.slot;
+            send(to, { t: 'paired', slot: r.slot, token: r.token });
+          }
           broadcastState();
         }
         break;
@@ -279,7 +339,9 @@ export function createRelay({
         const me = sockets.get(ws);
         sockets.delete(ws);
         conns.delete(ws);
-        if (me?.id) host.gone(me.id);
+        if (me && waiting.get(me.id) === ws) waiting.delete(me.id);
+        // Offline only when the last socket of this id has closed (H2).
+        if (me?.id && !liveOf(me.id)) host.gone(me.id);
         presence();
       });
     },
