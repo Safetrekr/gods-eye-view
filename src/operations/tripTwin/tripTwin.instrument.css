@@ -154,7 +154,8 @@ textarea {
   body.tt-body:not([data-view='screen']) .tt-entry-card,
   body.tt-body:not([data-view='screen']) .tt-st,
   body.tt-body:not([data-view='screen']) .tt-aperture,
-  body.tt-body:not([data-view='screen']) .tt-scale {
+  body.tt-body:not([data-view='screen']) .tt-scale,
+  body.tt-body:not([data-view='screen']) .tt-mapbar {
     zoom: 1.2;
   }
 }
@@ -1918,4 +1919,80 @@ body:not([data-view='screen']) .tt-wxtl {
 }
 body.tt-st-open:not([data-view='screen']) .tt-wxtl {
   bottom: calc(var(--foot) + var(--g));
+}
+
+/* Map bar (Jesse, 23 Oct): chips · scale · compass in one glass bar across
+   the top of the map, the same material as the cards. */
+.tt-mapbar {
+  position: fixed;
+  top: calc(var(--bar) + var(--g));
+  left: calc(var(--rail) + 2 * var(--g));
+  right: calc(var(--rcol) + 2 * var(--g));
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 8px 6px 10px;
+  z-index: 9;
+  border-radius: var(--tt-radius);
+  background: var(--tt-glass);
+  border: 1px solid var(--tt-border);
+  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  box-shadow:
+    var(--tt-glow),
+    inset 0 1px 0 var(--tt-light);
+}
+@media (min-width: 2300px) {
+  body.tt-body:not([data-view='screen']) .tt-mapbar .tt-chips,
+  body.tt-body:not([data-view='screen']) .tt-mapbar .tt-scale {
+    zoom: 1;
+  }
+  body.tt-body:not([data-view='screen']) .tt-mapbar .tt-compass {
+    zoom: 0.68;
+  }
+}
+body:not([data-view='screen']) .tt-mapbar .tt-chips {
+  position: static;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  gap: 6px;
+}
+body:not([data-view='screen']) .tt-mapbar .tt-scale {
+  position: static;
+  flex: none;
+  transform: none;
+  padding: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+/* The compass sits at the bar's right end; its caption reads to its left. */
+body:not([data-view='screen']) .tt-mapbar .tt-compass {
+  position: relative;
+  inset: auto;
+  top: auto;
+  bottom: auto;
+  right: auto;
+  flex: none;
+  width: 84px;
+  height: 84px;
+  zoom: 0.68;
+  margin-left: calc(176px / 0.68);
+}
+body:not([data-view='screen']) .tt-mapbar .tt-compass-caption {
+  top: 50%;
+  left: auto;
+  right: calc(100% + 10px);
+  transform: translateY(-50%);
+  background: none;
+  padding: 0;
+  font-size: calc(11px / 0.68);
+  line-height: calc(14px / 0.68);
+  color: var(--tt-text-dim);
 }

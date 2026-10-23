@@ -1669,7 +1669,7 @@ async function main() {
       right: right.length
         ? innerWidth - Math.min(...right.map((r) => r.left))
         : 0,
-      top: bar.bottom + 40,
+      top: (visibleBox('tt-mapbar') || bar).bottom + 24,
       bottom: innerHeight - tools.top,
     };
   });
@@ -3765,6 +3765,16 @@ async function main() {
     onNorthUp: () => twin.viewFromSide(0),
   });
   document.body.append(compass.el);
+  // All-in-one: the place chips, the scale and the compass share one glass
+  // map bar across the top of the map, between the cards and the stations
+  // rail (Jesse, 23 Oct: "put all this in a top bar, like the cards").
+  if (!['screen', 'launch'].includes(params.get('view'))) {
+    const mapbar = document.createElement('div');
+    mapbar.id = 'tt-mapbar';
+    mapbar.className = 'tt-mapbar';
+    mapbar.append($('tt-chips'), $('tt-scale'), compass.el);
+    document.body.append(mapbar);
+  }
   const onPostRender = () => compass.update(twin.headingDeg);
   viewer.scene.postRender.addEventListener(onPostRender);
   cleanups.push(() =>
