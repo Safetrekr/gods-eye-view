@@ -161,7 +161,8 @@ export function createStationRail({ onPick, onBack, onToggle, menu = [] }) {
   const active = el('div', 'tt-st-active');
   const ak = el('div', 'tt-st-k');
   const status = el('span', 'tt-st-status');
-  ak.append(el('span', '', 'Active station'), status);
+  const akLabel = el('span', '', 'Active station');
+  ak.append(akLabel, status);
   const name = el('div', 'tt-st-name');
   const sub = el('div', 'tt-st-sub');
   active.append(ak, name, sub);
@@ -257,9 +258,12 @@ export function createStationRail({ onPick, onBack, onToggle, menu = [] }) {
       document.body.classList.toggle('tt-st-open', state.open);
       rail.hidden = !state.open;
       rail.classList.toggle('busy', Boolean(state.panelBusy));
-      trail.textContent = inStation
-        ? `Stations › ${s.num} ${s.label}`
-        : 'Stations';
+      // Head: "Stations" and the active number; the trail lives in the
+      // active strip's kicker (review/shell 12-ui §12).
+      trail.textContent = `Stations · ${s.num} / ${String(STATIONS.length).padStart(2, '0')}`;
+      akLabel.textContent = inStation
+        ? `Active · ${s.num} ${s.short} › tiles`
+        : `Active · ${s.num} ${s.short}`;
       name.textContent = s.label;
       sub.textContent = s.sub;
       status.textContent = state.statusText;

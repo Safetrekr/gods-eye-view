@@ -2146,3 +2146,129 @@ body.tt-st-open .tt-ap-shield {
     display: none;
   }
 }
+
+/* ---------- visual pass (review/shell 12-ui, 16-brand) ---------- */
+:root {
+  --tt-radius-lg: 12px;
+}
+/* §2 tile anatomy: one-line labels; the badge beside the icon. */
+.tt-st-tile .lab {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tt-st-pill {
+  top: 11px;
+  right: auto;
+  left: 40px;
+}
+body.tt-incident-open .tt-st-pill {
+  left: 12px;
+}
+/* §14 Back is solid; disabled tiles stay readable. */
+.tt-st-tile[data-tile='back'] {
+  border-style: solid;
+  border-color: var(--tt-hair);
+}
+.tt-st-tile:disabled:not(.empty) {
+  opacity: 1;
+  color: var(--tt-text-dim);
+}
+.tt-st-tile:disabled:not(.empty) svg {
+  opacity: 0.35;
+}
+/* §3 inside the open rail the cards are flat: one glass, hairlines. */
+body.tt-st-open:not([data-view='screen']) .tt-rcol > .tt-panel {
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--tt-hair);
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+body.tt-st-open:not([data-view='screen']) .tt-rcol > .tt-incident {
+  border-top: 2px solid var(--tt-hazard);
+}
+body.tt-st-open:not([data-view='screen']) .tt-rcol {
+  -webkit-mask-image: linear-gradient(#000 calc(100% - 20px), transparent);
+  mask-image: linear-gradient(#000 calc(100% - 20px), transparent);
+}
+.tt-st-panel {
+  -webkit-mask-image: linear-gradient(#000 calc(100% - 20px), transparent);
+  mask-image: linear-gradient(#000 calc(100% - 20px), transparent);
+  padding-bottom: 20px;
+}
+/* §4 the storm block stacks in the rail; amber only on the lead. */
+.tt-st-panel .tt-wx-tiers {
+  display: grid;
+  gap: 4px;
+}
+.tt-st-panel .tt-wx-claim {
+  color: var(--tt-text);
+}
+/* §5 card headers stay with their card; the column has painted edges. */
+body:not([data-view='screen']) #tt-rail .tt-sec-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--tt-glass-solid);
+  margin: 0 -14px;
+  padding: 0 14px;
+  width: calc(100% + 28px);
+}
+/* §6 aperture: the ring takes the signal too; a visible edge. */
+.tt-aperture {
+  border: 1px solid var(--tt-border);
+}
+.tt-aperture[data-signal='attention'] .tt-ap-ring {
+  stroke: var(--tt-attention);
+}
+/* §9 incident Summary: a red numeral, a plain sentence. */
+.tt-sum-hero.incident .tt-sum-n {
+  color: var(--tt-hazard-text);
+}
+.tt-sum-hero.incident .tt-topline {
+  font: 500 13px/18px var(--tt-font);
+  color: var(--tt-text);
+}
+/* §10 the top bar: Live is outlined, not solid; NOW unboxed. */
+.tt-appmode button[aria-pressed='true'] {
+  background: rgba(238, 245, 243, 0.08);
+  color: var(--tt-text);
+  box-shadow: inset 0 0 0 1px rgba(238, 245, 243, 0.6);
+}
+.tt-bar .tt-wx .wx-live {
+  border: 0;
+  padding: 0;
+  color: var(--tt-text-dim);
+}
+.tt-st-status {
+  text-transform: none;
+}
+/* §11 one radius for top-level surfaces; both columns end on one line. */
+body:not([data-view='screen']) #tt-rail > .tt-rail-head,
+body:not([data-view='screen']) #tt-rail .tt-sec,
+.tt-st,
+.tt-mapbar,
+.tt-toolbar {
+  border-radius: var(--tt-radius-lg);
+}
+body:not([data-view='screen']) #tt-rail {
+  bottom: calc(var(--foot) + var(--g) * 2 + var(--ap));
+}
+/* X6: in an incident the board gets the room — smaller tiles, no foot,
+   the selection card yields height to the board. */
+body.tt-incident-open .tt-st {
+  --st-tile: 52px;
+}
+body.tt-incident-open .tt-st-foot {
+  display: none;
+}
+body.tt-incident-open.tt-st-open .tt-rcol > .tt-incident {
+  flex: 1 1 auto;
+}
+body.tt-incident-open.tt-st-open .tt-rcol > .tt-card {
+  flex: 0 1 auto;
+  max-height: 28%;
+}

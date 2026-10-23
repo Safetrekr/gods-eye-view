@@ -377,6 +377,27 @@ export function createHud({
       );
       box.append(n, txt);
       sum.replaceChildren(box);
+    } else if (!wall() && m.mode === 'incident') {
+      // Incident: a red numeral leads, the sentence below in plain weight
+      // (review/shell 12-ui §9). Red stays on the numeral and the border.
+      const above = m.groups.find((g) => g.key === 'at_or_above');
+      const box = el('div', 'tt-sum-hero incident');
+      const txt = el('div', 'tt-sum-txt');
+      txt.append(
+        el(
+          'div',
+          'tt-sum-k',
+          above
+            ? `may be at or above floor ${ctx.reportedLabel}`
+            : 'incident reported',
+        ),
+        el('div', 'tt-topline incident', status),
+      );
+      box.append(
+        el('span', 'tt-sum-n', String(above ? above.rows.length : m.total)),
+        txt,
+      );
+      sum.replaceChildren(box);
     } else sum.replaceChildren(el('div', `tt-topline ${m.mode}`, status));
     if (detail) {
       const d = el('div', 'tt-topdetail');
