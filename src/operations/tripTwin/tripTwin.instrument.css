@@ -1272,12 +1272,7 @@ body:not([data-view='screen']) #tt-rail .tt-sec-body .tt-group:last-child {
   border-color: var(--tt-edge-ctl);
   color: var(--tt-text);
 }
-.tt-more-btn.sim::after {
-  content: 'SIM';
-  font: 600 9px/1 var(--tt-mono);
-  letter-spacing: 0.1em;
-  margin-left: 4px;
-}
+
 .tt-more {
   bottom: auto;
   top: calc(var(--bar) + 6px);
@@ -2298,4 +2293,52 @@ body.tt-st-open:not([data-view='screen'])
   .tt-rcol
   > .tt-incident:not([hidden]) {
   box-shadow: 0 -10px 24px -14px rgba(238, 119, 137, 0.5);
+}
+
+/* ---------- shell round 2 ---------- */
+/* Another trip's report: the bead is red, the ring stays steel; this
+   trip's incident turns both red. */
+.tt-aperture[data-signal='other'] .tt-ap-bead {
+  fill: var(--tt-hazard);
+}
+body.tt-st-alert .tt-ap-scan {
+  animation: none !important;
+}
+/* The other-trip chip reads as a pointer, not as this trip's incident. */
+.tt-other-alert {
+  background: transparent;
+  border-style: dashed;
+}
+/* The ⋯ button grows for SIM; the site name truncates, never clips. */
+.tt-more-btn {
+  width: auto;
+  min-width: 32px;
+  padding: 0 8px;
+}
+.tt-crumbs .tt-bar-hotel {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The top bar never overflows: the place zone gives way first. */
+.tt-bar-cond,
+.tt-bar-status {
+  flex-shrink: 0;
+}
+.tt-bar-cond .tt-wx {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Jesse, 23 Oct: the sticky header must not paint over the card's rounded
+   corners (and its status outline). Round its top corners and clip each
+   card's contents to the card's shape; clip keeps sticky working. */
+body:not([data-view='screen']) #tt-rail .tt-sec {
+  overflow: clip;
+}
+body:not([data-view='screen']) #tt-rail .tt-sec-head {
+  border-radius: calc(var(--tt-radius-lg) - 1px) calc(var(--tt-radius-lg) - 1px)
+    0 0;
+  background: rgba(8, 22, 30, 0.9);
 }

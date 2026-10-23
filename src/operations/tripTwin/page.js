@@ -405,10 +405,17 @@ async function main() {
     Boolean(
       lastCtx?.weather?.approach ||
       lastCtx?.weather?.official?.length ||
-      lastCtx?.weather?.lightning?.near ||
+      lastCtx?.weather?.lightning ||
+      lastCtx?.weather?.lightningNear?.inside ||
       nc.simStart,
     );
   function leaveStation() {
+    // Leaving Site lets go of a plain hotel selection (the app's own or
+    // Site's), unless the operator went to a floor; people and places the
+    // operator picked are kept (D3).
+    if (station === 'site' && isHotelSel() && twin.floorFocus === null)
+      twin.select(null);
+    siteAutoSel = null;
     if (!layerSnap) return;
     // Put back only what this station switched on, only if the operator
     // has not changed it since, and never while weather matters (D2).
@@ -419,9 +426,18 @@ async function main() {
     layerSnap = null;
     renderLayers();
   }
+  // The hotel Site selected by itself is the station's, not the
+  // operator's: leaving Site releases it so the next station's panel shows
+  // (review/shell round 2). A selection the operator made is kept (D3).
+  let siteAutoSel = null;
   function enterStation(id) {
     const role = ROLES[id];
-    if (role?.scale) screenApi.scale(role.scale);
+    // One camera move per pick (motion round 2): skip the scale flight
+    // when a framing flight follows.
+    const framesItself =
+      !selection &&
+      (id === 'travelers' || (id === 'weather' && ncView()?.ap?.core));
+    if (role?.scale && !framesItself) screenApi.scale(role.scale);
     const keys = STATION_LAYERS[id];
     if (keys) {
       const before = Object.fromEntries(keys.map((k) => [k, layerOn(k)]));
@@ -436,7 +452,10 @@ async function main() {
     // A station change keeps the operator's selection (D3): the station's
     // panel shows in the rail only when nothing is selected. Site picks
     // the hotel only when nothing is selected.
-    if (id === 'site' && !selection && hotelId()) twin.select(hotelId());
+    if (id === 'site' && !selection && hotelId()) {
+      twin.select(hotelId());
+      siteAutoSel = hotelId();
+    }
     if (id === 'travelers' && !selection) screenApi.frame({ kind: 'topdown' });
     if (id === 'weather' && ncView()?.ap?.core && !selection) frameStorm();
   }
@@ -819,6 +838,7 @@ async function main() {
    */
   function shellSignals() {
     const m = lastCtx?.mode;
+    const w = lastCtx?.weather;
     const out = [];
     if (m && (m.mode === 'incident' || m.mode === 'incident_elsewhere'))
       out.push({
@@ -835,24 +855,58 @@ async function main() {
         say: `incident reported on ${o.trip.title}`,
         other: o,
       });
-    const official = lastCtx?.weather?.official?.length;
-    if (official)
+    // Official lines (round 2): a real warning says WARNING; the demo
+    // alert SIM WARNING; a source that is down NOT CHECKED.
+    const off = officialLines();
+    const real = off.find((l) => l.official);
+    const sim = off.find((l) => l.sim);
+    const down = off.find((l) => l.warn);
+    if (real)
       out.push({
         station: 'weather',
         level: 'attn',
         text: 'WARNING',
         say: 'official weather warning',
       });
+    else if (sim)
+      out.push({
+        station: 'weather',
+        level: 'attn',
+        text: 'SIM WARNING',
+        say: 'simulated weather warning',
+      });
     const pill = weatherPill(nc.text, Boolean(nc.simStart), region === 'us');
     if (pill)
       out.push({
         station: 'weather',
         level:
-          nc.text?.level === 'attention' || nc.text?.status !== 'arriving'
-            ? 'attn'
-            : 'watch',
+          nc.text?.status === 'arriving' && nc.text?.level !== 'attention'
+            ? 'watch'
+            : 'attn',
         text: pill,
         say: `storm ${pill.toLowerCase()}`,
+      });
+    // Lightning near the site, or a heat detection nearby (round 2).
+    if (w?.lightningNear?.inside || w?.lightning)
+      out.push({
+        station: 'weather',
+        level: 'attn',
+        text: 'LIGHTNING',
+        say: 'lightning near the site',
+      });
+    if (/heat detection [\d.]/i.test(lastCtx?.fires?.line || ''))
+      out.push({
+        station: 'weather',
+        level: 'attn',
+        text: 'HEAT',
+        say: 'heat detection nearby',
+      });
+    if (down)
+      out.push({
+        station: 'weather',
+        level: 'attn',
+        text: 'NOT CHECKED',
+        say: 'official alerts not checked',
       });
     if (m?.total)
       out.push({
@@ -884,7 +938,7 @@ async function main() {
     const chip = $('tt-other-alert');
     chip.hidden = !other;
     if (other)
-      chip.textContent = `INCIDENT · ${other.trip.title.toUpperCase()} › 06`;
+      chip.textContent = `OTHER TRIP · ${other.trip.title.toUpperCase()} · REPORTED › 06`;
     const m = lastCtx?.mode;
     const age = formatAge((Date.now() - lastFeed) / 1000);
     const advance = appMode === 'advance';
@@ -893,7 +947,11 @@ async function main() {
     for (const x of sig)
       if (x.station && !badges[x.station])
         badges[x.station] = { text: x.text, level: x.level };
-    const top = sig.find((x) => x.level !== 'sim') || null;
+    // Back carries this trip's worst signal; another trip's report lives on
+    // 06, the top-bar chip and the aperture bead (review/shell round 2).
+    const mine = sig.filter((x) => !x.other);
+    const top = mine.find((x) => x.level !== 'sim') || null;
+    const otherOn = sig.some((x) => x.other);
     const busy = renderStationPanel();
     stations.render({
       station,
@@ -901,11 +959,22 @@ async function main() {
       tiles: gridMode === 'station' ? stationTiles(station) : [],
       panelBusy: busy,
       open: stationsOpen,
-      statusText: `${advance ? 'ADVANCE' : m?.degraded ? '● DATA DELAYED' : simulationOn() ? '● SIMULATED' : '● LIVE'} · data ${age}`,
+      statusText: advance
+        ? `ADVANCE${m?.degraded ? ' · DATA DELAYED' : ''}${simulationOn() ? ' · SIMULATED' : ''} · data ${age}`
+        : `${m?.degraded ? '● DATA DELAYED' : simulationOn() ? '● SIMULATED' : '● LIVE'} · data ${age}`,
       statusLevel: advance ? 'advance' : m?.degraded ? 'stale' : 'live',
       badges,
       backBadge: top ? { text: top.text, level: top.level } : null,
-      signal: top?.level === 'hazard' ? 'incident' : top ? 'attention' : 'calm',
+      // Ring and bead red for this trip's incident; bead only for another
+      // trip's; amber for attention; steel when calm.
+      signal:
+        top?.level === 'hazard'
+          ? 'incident'
+          : otherOn
+            ? 'other'
+            : top
+              ? 'attention'
+              : 'calm',
       signalText: sig.map((x) => x.say).join(' · '),
     });
   }
@@ -1199,7 +1268,7 @@ async function main() {
     if (!f) return { line: 'Satellite heat detections · loading' };
     if (!f.visible) return { line: 'Satellite heat detections · layer off' };
     const base = {
-      live: `NASA FIRMS · updated ${f.fetchedAt && formatAge((Date.now() - Date.parse(f.fetchedAt)) / 1000) ? `${formatAge((Date.now() - Date.parse(f.fetchedAt)) / 1000)} ago` : 'just now'}`,
+      live: `NASA FIRMS · updated ${f.fetchedAt && formatAge((Date.now() - Date.parse(f.fetchedAt)) / 1000) ? `${formatAge((Date.now() - Date.parse(f.fetchedAt)) / 1000)} ago` : 'time not reported'}`,
       stale: 'NASA FIRMS · from cache',
       simulated: 'SIMULATED heat detections (prototype)',
       no_key: 'Satellite heat detections unavailable · no FIRMS key',
@@ -1490,7 +1559,8 @@ async function main() {
                 label: `${wx.sim.lightning || nc.sim ? 'SIMULATED ' : ''}Lightning`,
                 distance: formatDistance(ltg.d),
                 bearing: bearingLabel(city.center, ltg.pt),
-                hazard: true,
+                // Amber: lightning is attention; red is reported incidents.
+                wx: 'attention',
               },
             ]
           : [];
@@ -7113,6 +7183,15 @@ async function main() {
   // The launch page (another computer's screens) needs no 3D of its own.
   if (VIEW === 'launch') return;
   await twin.open(siteKey, { osmMode });
+  // A page that opens on a station other than Site shows that station's
+  // panel, not the hotel the app selects on open (review/shell round 2).
+  if (
+    stations &&
+    station !== 'site' &&
+    isHotelSel() &&
+    twin.floorFocus === null
+  )
+    twin.select(null);
   if (screen && renderOff) screenApi.pauseRender(true);
   // Role defaults (scale, top-down, layers) need the twin open.
   screen?.reapply();

@@ -759,6 +759,7 @@ function renderRail() {
   // or not); another trip's report lights 06 Trips on watch.
   const focusIncident = incidentOpen();
   const otherIncident = otherTripIncident();
+  document.body.classList.toggle('rm-alert', focusIncident || otherIncident);
   const wxT = ui.wx?.text;
   for (const s of STATIONS) {
     const t = btn(

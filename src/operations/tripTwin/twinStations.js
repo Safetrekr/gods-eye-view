@@ -261,9 +261,7 @@ export function createStationRail({ onPick, onBack, onToggle, menu = [] }) {
       // Head: "Stations" and the active number; the trail lives in the
       // active strip's kicker (review/shell 12-ui §12).
       trail.textContent = `Stations · ${s.num} / ${String(STATIONS.length).padStart(2, '0')}`;
-      akLabel.textContent = inStation
-        ? `Active · ${s.num} ${s.short} › tiles`
-        : `Active · ${s.num} ${s.short}`;
+      akLabel.textContent = `Active · ${s.num} ${s.short}`;
       name.textContent = s.label;
       sub.textContent = s.sub;
       status.textContent = state.statusText;

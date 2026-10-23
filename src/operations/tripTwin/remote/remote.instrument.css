@@ -419,3 +419,9 @@ select.rm-input {
   border-color: rgba(238, 245, 243, 0.8);
   color: var(--rm-active);
 }
+/* No tile wavefront or panel fog while an incident is reported (round 2). */
+body.rm-alert .rm-rail.rm-wave .rm-tile,
+body.rm-alert .rm-content.sw-in,
+body.rm-alert .rm-content.sw-out {
+  animation: none !important;
+}

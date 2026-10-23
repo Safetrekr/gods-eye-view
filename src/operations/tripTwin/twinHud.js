@@ -570,8 +570,13 @@ export function createHud({
     }
 
     // ---- Hazards (above Safety & paths, as in Layers; 04-ia §4) ----
+    // Worst first (review/shell X10): an approach or an official warning
+    // leads the closed line; heat detections otherwise.
     hazardsCard.line.textContent =
-      ctx.fires?.line || 'Satellite heat detections · loading';
+      ctx.weather?.approach?.text ||
+      ctx.weather?.official?.[0] ||
+      ctx.fires?.line ||
+      'Satellite heat detections · loading';
     hazardsCard.body.replaceChildren(
       el('div', 'tt-line', hazardsCard.line.textContent),
       ...(ctx.fires?.details || []).map((l) => el('div', 'tt-line', l)),
@@ -600,7 +605,9 @@ export function createHud({
 
     // ---- Sources ----
     sourcesCard.cnt.textContent = String(ctx.sources.length);
-    sourcesCard.line.textContent = ctx.sources[0] || '';
+    sourcesCard.line.textContent = m.degraded
+      ? `Traveler data delayed · counts as of ${ctx.asOf || '—'}`
+      : ctx.sources[0] || '';
     sourcesCard.body.replaceChildren(
       ...ctx.sources.map((l) => el('div', 'tt-line', l)),
     );
@@ -773,6 +780,9 @@ export function createHud({
     const actions = el('div', 'tt-actions');
     actions.append(copy);
     incident.append(actions);
+    // All-in-one: Copy sits above the names so it is never scrolled away on
+    // a short screen (review/shell round 2); walls hide actions anyway.
+    if (!wall) incident.insertBefore(actions, names);
     for (const w of [
       ctx.weather?.lightning,
       ctx.weather?.lightningDown,
