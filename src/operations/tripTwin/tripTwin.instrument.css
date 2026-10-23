@@ -153,7 +153,8 @@ textarea {
   body.tt-body:not([data-view='screen']) .tt-wxtl,
   body.tt-body:not([data-view='screen']) .tt-entry-card,
   body.tt-body:not([data-view='screen']) .tt-st,
-  body.tt-body:not([data-view='screen']) .tt-aperture {
+  body.tt-body:not([data-view='screen']) .tt-aperture,
+  body.tt-body:not([data-view='screen']) .tt-scale {
     zoom: 1.2;
   }
 }
@@ -1697,7 +1698,7 @@ body:not([data-view='screen']) .tt-compass {
   bottom: auto;
 }
 body:not([data-view='screen']) .tt-chips {
-  right: calc(var(--rcol) + 2 * var(--g) + 160px);
+  right: calc(var(--rcol) + 2 * var(--g) + var(--scale-w, 300px) + 110px);
 }
 body:not([data-view='screen']) #tt-rail > .tt-rail-head {
   position: relative;
@@ -1864,4 +1865,57 @@ body.tt-st-open:not([data-view='screen']) .tt-toolbar {
 .tt-st-panel .tt-wx-detail {
   font-size: 11px;
   line-height: 15px;
+}
+
+/* Scale toggles at the top right of the map, just left of the compass
+   (Jesse, 23 Oct); always visible, rail open or closed. */
+.tt-scale {
+  position: fixed;
+  top: calc(var(--bar) + var(--g) + 4px + 42px);
+  right: calc(var(--rcol) + 2 * var(--g) + 84px + var(--g));
+  transform: translateY(-50%);
+  z-index: 9;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--tt-glass);
+  border: 1px solid var(--tt-border);
+  backdrop-filter: blur(var(--tt-blur)) saturate(1.15);
+  -webkit-backdrop-filter: blur(var(--tt-blur)) saturate(1.15);
+  box-shadow:
+    var(--tt-glow),
+    inset 0 1px 0 var(--tt-light);
+}
+.tt-scale .tt-seg {
+  padding: 2px;
+  gap: 2px;
+}
+.tt-scale .tt-tb {
+  border: 0;
+  height: 28px;
+}
+.tt-scale .tt-tb.on {
+  background: rgba(238, 245, 243, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(238, 245, 243, 0.28);
+  color: var(--tt-text);
+  font-weight: 600;
+}
+@media (max-width: 1439px) {
+  .tt-scale {
+    right: calc(var(--rcol) + 2 * var(--g) + 72px + var(--g));
+    top: calc(var(--bar) + var(--g) + 4px + 36px);
+  }
+}
+body[data-view='screen'] .tt-scale {
+  display: none;
+}
+/* The weather timeline spans the whole map: from the cards on the left to
+   the stations rail on the right (Jesse, 23 Oct). */
+body:not([data-view='screen']) .tt-wxtl {
+  left: calc(var(--rail) + 2 * var(--g));
+  right: calc(var(--rcol) + 2 * var(--g));
+  transform: none;
+  width: auto;
+}
+body.tt-st-open:not([data-view='screen']) .tt-wxtl {
+  bottom: calc(var(--foot) + var(--g));
 }

@@ -193,7 +193,9 @@
     <div id="tt-status" class="tt-status" role="status" aria-live="polite">
       Starting…
     </div>
-    <nav id="tt-toolbar" class="tt-toolbar" aria-label="View">
+    <!-- Scale sits at the top right of the map, left of the compass
+         (Jesse, 23 Oct); the dock keeps Layers, Ways out, Display, Report. -->
+    <div id="tt-scale" class="tt-scale">
       <div class="tt-seg" role="group" aria-label="Scale">
         <button
           class="tt-tb"
@@ -215,7 +217,8 @@
           City
         </button>
       </div>
-      <span class="tt-sep"></span>
+    </div>
+    <nav id="tt-toolbar" class="tt-toolbar" aria-label="View">
       <button
         class="tt-tb"
         id="tt-layers-btn"
