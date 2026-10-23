@@ -2386,3 +2386,162 @@ body:not([data-view='screen']) #tt-rail .tt-rail-scroll::after {
 body:not([data-view='screen']) #tt-rail .tt-sec-head {
   background: rgba(8, 22, 30, 0.98);
 }
+
+/* ---------- full-screen sheets: Layers (L), Display (D), Keys (K) ----------
+   Jesse, 23 Oct: these take over the screen so they are easy to read and
+   decide in. The top bar stays visible above them (status never hides);
+   Esc, the × or the key again closes. */
+body:not([data-view='screen']) .tt-sheet:not([hidden]) {
+  position: fixed;
+  inset: calc(var(--bar) + var(--g)) var(--g) calc(var(--foot) + var(--g))
+    var(--g);
+  width: auto;
+  max-height: none;
+  margin: 0;
+  transform: none;
+  z-index: 30;
+  padding: 0 40px 36px;
+  overflow-y: auto;
+  border-radius: var(--tt-radius-lg);
+  border: 1px solid var(--tt-border);
+  background: rgba(4, 12, 18, 0.9);
+  backdrop-filter: blur(28px) saturate(1.2);
+  -webkit-backdrop-filter: blur(28px) saturate(1.2);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+  font-size: 15px;
+  line-height: 22px;
+}
+.tt-sheet .tt-pop-head {
+  position: sticky;
+  top: 0;
+  height: 76px;
+  margin: 0 -40px 20px;
+  padding: 0 24px 0 40px;
+  background: rgba(4, 12, 18, 0.96);
+  border-bottom: 1px solid var(--tt-hair);
+  border-radius: var(--tt-radius-lg) var(--tt-radius-lg) 0 0;
+}
+.tt-sheet .tt-pop-head .t {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font: 300 32px/1 var(--tt-display);
+  letter-spacing: -0.01em;
+}
+.tt-sheet .tt-pop-head .kbd {
+  font: 500 13px/1 var(--tt-mono);
+  padding: 4px 8px;
+}
+.tt-sheet .tt-pop-head .tt-x {
+  width: 40px;
+  height: 40px;
+  font-size: 24px;
+}
+.tt-sheet .tt-kicker {
+  font-size: 12px;
+  line-height: 16px;
+}
+.tt-sheet .tt-note,
+.tt-sheet .tt-key-note,
+.tt-sheet .tt-dim {
+  font-size: 13px;
+  line-height: 19px;
+}
+/* Layers: every group is a card in a grid. */
+body:not([data-view='screen']) #tt-layers.tt-sheet:not([hidden]) {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  align-content: start;
+}
+#tt-layers.tt-sheet > .tt-pop-head {
+  grid-column: 1 / -1;
+  margin-bottom: 4px;
+}
+#tt-layers.tt-sheet .tt-layer-group {
+  margin: 0;
+  padding: 16px 18px 18px;
+  border: 1px solid var(--tt-hair);
+  border-radius: var(--tt-radius);
+  background: rgba(8, 22, 30, 0.6);
+}
+#tt-layers.tt-sheet .tt-layer-group > .tt-kicker {
+  margin: 0 0 10px;
+}
+#tt-layers.tt-sheet .tt-layer-row {
+  min-height: 40px;
+  font-size: 15px;
+  line-height: 20px;
+  gap: 12px;
+}
+#tt-layers.tt-sheet .tt-layer-row input[type='checkbox'] {
+  width: 20px;
+  height: 20px;
+}
+/* Display: units on the left, motion on the right. */
+body:not([data-view='screen']) #tt-display.tt-sheet:not([hidden]) {
+  column-count: 2;
+  column-gap: 56px;
+}
+#tt-display.tt-sheet > .tt-pop-head {
+  column-span: all;
+}
+#tt-display.tt-sheet .tt-pop-group ~ .tt-pop-group {
+  break-before: column;
+}
+#tt-display.tt-sheet .tt-pop-group {
+  margin: 0 0 12px;
+}
+#tt-display.tt-sheet .tt-row,
+#tt-display.tt-sheet .tt-check {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  font-size: 15px;
+  break-inside: avoid;
+}
+#tt-display.tt-sheet select {
+  font-size: 15px;
+  height: 40px;
+  min-width: 280px;
+}
+#tt-display.tt-sheet input[type='checkbox'] {
+  width: 20px;
+  height: 20px;
+}
+#tt-display.tt-sheet .tt-pop-foot {
+  column-span: all;
+}
+/* Keys: three columns of groups. */
+body:not([data-view='screen']) #tt-help.tt-sheet:not([hidden]) {
+  column-count: 3;
+  column-gap: 48px;
+}
+#tt-help.tt-sheet > .tt-pop-head {
+  column-span: all;
+}
+#tt-help.tt-sheet > .tt-kicker {
+  display: none;
+}
+#tt-help.tt-sheet .tt-keys-h {
+  font: 300 20px/1.2 var(--tt-display);
+  margin: 6px 0 10px;
+  break-after: avoid;
+}
+#tt-help.tt-sheet .tt-keys {
+  grid-template-columns: 120px 1fr;
+  gap: 10px 16px;
+  font-size: 14px;
+  line-height: 20px;
+  margin: 0 0 24px;
+  break-inside: avoid;
+}
+#tt-help.tt-sheet .tt-keys dt {
+  font-size: 13px;
+}
+@media (max-width: 1439px) {
+  body:not([data-view='screen']) #tt-help.tt-sheet:not([hidden]) {
+    column-count: 2;
+  }
+}

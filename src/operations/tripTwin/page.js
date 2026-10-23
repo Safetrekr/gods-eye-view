@@ -6238,6 +6238,14 @@ async function main() {
     });
   }
 
+  // Layers, Display and Keys open as full-screen sheets on the All-in-one
+  // (Jesse, 23 Oct): one head with the title, its key and a close button.
+  if (params.get('view') !== 'screen') {
+    // Display already has its head (phase 5); Keys gets one here.
+    $('tt-help').prepend(popHead('Keyboard shortcuts', 'K'));
+    for (const id of ['tt-layers', 'tt-display', 'tt-help'])
+      $(id).classList.add('tt-sheet');
+  }
   // ---- toolbar, popovers, report form ----
   for (const [pop, btn] of Object.entries(POPS))
     $(btn)?.addEventListener('click', () => {
@@ -6528,7 +6536,7 @@ async function main() {
     // People and report keys act on live data only.
     if (appMode === 'advance' && /^[rRaA[\]]$/.test(k)) return;
     if (k === 'r' || k === 'R') return openPop('tt-report');
-    if (k === '?') return openPop('tt-help');
+    if (k === '?' || k === 'k' || k === 'K') return openPop('tt-help');
     if (k === '`') return openPop('tt-proto');
     if (k === 'w' || k === 'W') return toggleWaysOut();
     if (k === 'g' || k === 'G' || k === 'e' || k === 'E') {
@@ -7158,7 +7166,7 @@ async function main() {
       menu: [
         { label: 'Layers', key: 'L', action: () => openLayers() },
         { label: 'Display', key: 'D', action: () => openPop('tt-display') },
-        { label: 'Keys', key: '?', action: () => openPop('tt-help') },
+        { label: 'Keys', key: 'K', action: () => openPop('tt-help') },
       ],
     });
     cleanups.push(() => stations?.dispose());
