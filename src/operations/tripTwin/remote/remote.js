@@ -20,7 +20,7 @@ import {
   simNowcast,
   simulatedAlert,
 } from '../twinNowcastLoad.js';
-import { STATIONS, btn } from './stations.js';
+import { STATIONS, FOOT_STATIONS, btn, stationOf } from './stations.js';
 
 const params = new URLSearchParams(location.search);
 const app = document.getElementById('rm-app');
@@ -489,7 +489,7 @@ function ctx() {
 let contentKey = '';
 function renderContent(force = false) {
   if (!ui.state) return;
-  const st = STATIONS.find((s) => s.id === ui.station) || STATIONS[0];
+  const st = stationOf(ui.station);
   const key = JSON.stringify([
     st.id,
     ui.state.rev,
@@ -651,7 +651,15 @@ async function refreshWx(force = false) {
   const lineOf = (r) => {
     if (!r || r.status !== 'live') {
       const tx = `Storm approach unavailable · the ${r?.source || 'radar'} frame did not load`;
-      return { status: 'unavailable', level: 'info', lead: '', claim: tx, detail: '', text: tx, short: '' };
+      return {
+        status: 'unavailable',
+        level: 'info',
+        lead: '',
+        claim: tx,
+        detail: '',
+        text: tx,
+        short: '',
+      };
     }
     const age = r.simulated ? 0 : (Date.now() - r.frameAt) / 60e3;
     const ap = r.simulated ? r.ap : approachNow(r.apFrame || r.ap, age);
@@ -684,7 +692,10 @@ async function refreshWx(force = false) {
     });
   }
   if (alerts === 'unavailable')
-    lines.push({ text: 'NWS alerts unavailable right now · not checked', warn: true });
+    lines.push({
+      text: 'NWS alerts unavailable right now · not checked',
+      warn: true,
+    });
   else if (us && !alerts.length)
     lines.push({
       text: `NWS checked ${ago(alertsAt)}: no active alerts returned for this point`,
@@ -701,7 +712,8 @@ async function refreshWx(force = false) {
   let ltgText = '';
   if (sim?.strikes?.length)
     ltgText = 'SIMULATED lightning rides with the storm (on the walls)';
-  else if (ltg === 'unavailable') ltgText = 'Lightning grid unavailable right now';
+  else if (ltg === 'unavailable')
+    ltgText = 'Lightning grid unavailable right now';
   else if (ltg)
     ltgText = `Lightning · nearest grid cell ${dist(ltg.distKm * 1000)} ${ltg.dir}${ltg.distKm <= 10 ? ` · inside ${us ? '6 mi' : '10 km'}` : ''} · ${ltg.source} 15-min density, fetched ${ago(ltg.at)}`;
   else
@@ -736,7 +748,7 @@ function wxPill(t, sim, us = true) {
 }
 function renderRail() {
   if (!ui.state) return;
-  const st = STATIONS.find((s) => s.id === ui.station) || STATIONS[0];
+  const st = stationOf(ui.station);
   const h = el('div', 'r-head');
   h.append(
     'Stations',
@@ -747,7 +759,7 @@ function renderRail() {
   const online = ui.link === 'online';
   k.append(
     'Active station',
-    el('span', `st${online ? '' : ' warn'}`, online ? '● ONLINE' : '● OFFLINE'),
+    el('span', `st${online ? '' : ' warn'}`, online ? '● LIVE' : '● OFFLINE'),
   );
   active.append(k, el('div', 'v', st.label), el('div', 's', st.sub));
   const list = el('div', 'r-context');
@@ -777,14 +789,30 @@ function renderRail() {
     if (s.id === 'incident' && incidentOpen)
       t.append(el('span', 'pill', 'OPEN'));
     // A core on its way to the site shows on the Weather tile (amber).
-    const pill = s.id === 'weather' ? wxPill(wxT, ui.wx?.sim, regionOf(ui.wx?.site?.timezone) === 'us') : '';
+    const pill =
+      s.id === 'weather'
+        ? wxPill(wxT, ui.wx?.sim, regionOf(ui.wx?.site?.timezone) === 'us')
+        : '';
     if (pill)
       t.append(
-        el('span', `pill ${wxT.level === 'attention' ? 'attn' : 'watch'}`, pill),
+        el(
+          'span',
+          `pill ${wxT.level === 'attention' ? 'attn' : 'watch'}`,
+          pill,
+        ),
       );
     g.append(t);
   }
-  rail.replaceChildren(h, active, list, g);
+  // Screens is reached from the rail foot (shell step C, 23 Oct 2026).
+  const foot = el('div', 'r-foot');
+  for (const s of FOOT_STATIONS) {
+    const b = btn('rm-foot-btn', s.label, () => setStation(s.id), {
+      'aria-label': `${s.label} · ${s.sub}`,
+    });
+    if (s.id === ui.station) b.setAttribute('aria-current', 'true');
+    foot.append(b);
+  }
+  rail.replaceChildren(h, active, list, g, foot);
 }
 function renderBar() {
   const b = ui.bar;

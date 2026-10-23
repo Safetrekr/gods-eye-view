@@ -148,7 +148,12 @@ import {
   timeSources,
 } from './twinWeatherTime.js';
 import { createScreenMode } from './twinScreen.js';
-import { STATIONS, createStationRail, stationKey } from './twinStations.js';
+import {
+  ICON,
+  STATIONS,
+  createStationRail,
+  stationKey,
+} from './twinStations.js';
 import { ROLES } from './twinScreenRoles.js';
 import { showEntry, showLaunch } from './twinEntry.js';
 import {
@@ -357,42 +362,324 @@ async function main() {
     why: false,
     hotelCard: false,
   };
-  // ---- stations rail (shell step B, 23 Oct 2026; review/shell) ----
+  // ---- stations rail (shell steps B–C, 23 Oct 2026; review/shell) ----
   // The All-in-one's right-hand rail: six stations = the six wall roles.
-  // Step B: a station sets its scale and opens its rail card; full redraws
-  // and each station's own tiles come in step C. An incident never moves
-  // the camera or switches station by itself: it badges (Jesse, 23 Oct).
+  // Picking a station redraws the screen for it (scale, camera, layers,
+  // the panel in the rail, the rail card on the left) and swaps the tile
+  // grid to that station's own tiles, Back first. Leaving a station puts
+  // back the layers it switched on. An incident never moves the camera or
+  // switches station by itself: it badges (Jesse, 23 Oct).
   let stations = null;
   let station = STATIONS.some((s) => s.id === pref('station', 'site'))
     ? pref('station', 'site')
     : 'site';
   let stationsOpen = pref('stationsOpen', '1') === '1';
+  // The picker shows on load; a station's tiles after a pick.
+  let gridMode = 'picker';
   const STATION_CARD = {
     travelers: 'people',
     incident: 'needs',
     weather: 'hazards',
     day: 'safety',
   };
+  // Layers a station switches on, and what they were before (restored on
+  // leaving, unless the operator changed them in between).
+  const STATION_LAYERS = {
+    weather: ['precip', 'clouds', 'lightning', 'radar3d', 'fires'],
+  };
+  let layerSnap = null;
+  const layerOn = (k) => (k in wx.layers ? wx.layers[k] : twin.layers[k]);
   function setStationsOpen(on) {
     stationsOpen = on;
     save('stationsOpen', on ? '1' : '0');
     renderStations();
   }
+  function stationBack() {
+    gridMode = 'picker';
+    renderStations();
+    stations?.focusTile(station);
+  }
+  function leaveStation() {
+    if (!layerSnap) return;
+    for (const [k, was] of Object.entries(layerSnap.before))
+      if (layerOn(k) === layerSnap.set[k]) screenApi.setLayer(k, was);
+    layerSnap = null;
+    renderLayers();
+  }
+  function enterStation(id) {
+    const role = ROLES[id];
+    if (role?.scale) screenApi.scale(role.scale);
+    const keys = STATION_LAYERS[id];
+    if (keys) {
+      const before = Object.fromEntries(keys.map((k) => [k, layerOn(k)]));
+      for (const k of keys) screenApi.setLayer(k, true);
+      layerSnap = {
+        before,
+        set: Object.fromEntries(keys.map((k) => [k, true])),
+      };
+      renderLayers();
+    }
+    if (STATION_CARD[id]) hud.openCard(STATION_CARD[id]);
+    // The middle of the rail: Site shows the building; the others show
+    // their own panel, so the selection card steps aside (an incident
+    // panel stays — it is not a selection).
+    if (id === 'site') {
+      if (!isHotelSel() && hotelId()) twin.select(hotelId());
+    } else if (selection) twin.select(null);
+    if (id === 'travelers') screenApi.frame({ kind: 'topdown' });
+    if (id === 'weather' && ncView()?.ap?.core) frameStorm();
+  }
   function pickStation(id) {
     if (!stationsOpen) setStationsOpen(true);
-    if (id === station) return renderStations();
-    station = id;
-    save('station', id);
-    stations?.wave();
-    const role = ROLES[id];
-    if (role?.scale)
-      document.querySelector(`[data-scale="${role.scale}"]`)?.click();
-    if (STATION_CARD[id]) hud.openCard(STATION_CARD[id]);
-    if (id === 'trips') {
-      openPop('tt-sites');
-      renderSites();
+    if (id !== station) {
+      leaveStation();
+      station = id;
+      save('station', id);
+      enterStation(id);
     }
+    gridMode = 'station';
     renderStations();
+  }
+  const scaleNow = () =>
+    document.querySelector('.tt-tb.on[data-scale]')?.dataset.scale;
+  const openLayers = () => {
+    openPop('tt-layers');
+    renderLayers();
+  };
+  /** Each station's own tiles (Back is added by the rail). Five at most. */
+  function stationTiles(id) {
+    const m = lastCtx?.mode;
+    const incident = m?.mode === 'incident';
+    const scaleTile = (key, label) => ({
+      key,
+      label,
+      icon: ICON[key],
+      on: scaleNow() === key,
+      title: `${label} scale (${{ building: 1, neighborhood: 2, city: 3 }[key]})`,
+      action: () => screenApi.scale(key),
+    });
+    const T = {
+      layers: {
+        key: 'layers',
+        label: 'Layers',
+        icon: ICON.layers,
+        title: 'Layers (L)',
+        action: openLayers,
+      },
+      waysOut: {
+        key: 'waysOut',
+        label: 'Ways out',
+        icon: ICON.waysOut,
+        on: Boolean(waysOut),
+        title: 'Ways out view (W)',
+        action: () => {
+          toggleWaysOut();
+          renderStations();
+        },
+      },
+      next: {
+        key: 'next',
+        label: 'Next to check',
+        icon: ICON.next,
+        disabled: !flatNeeds().length,
+        title: 'Select the next person to check (A, then ] and [)',
+        action: () => {
+          const list = flatNeeds();
+          if (!list.length) return;
+          attentionIndex = (attentionIndex + 1) % list.length;
+          twin.selectPerson(list[attentionIndex].person.id, { frame: true });
+        },
+      },
+      find: {
+        key: 'find',
+        label: 'Find a person',
+        icon: ICON.find,
+        title: 'Find a person (/)',
+        action: () => hud.focusFind(),
+      },
+      sites: {
+        key: 'sites',
+        label: 'Sites & trips',
+        icon: ICON.sites,
+        title: 'Sites on this trip and trips on watch (S)',
+        action: () => {
+          openPop('tt-sites');
+          renderSites();
+        },
+      },
+    };
+    switch (id) {
+      case 'site':
+        return [
+          scaleTile('building', 'Building'),
+          scaleTile('neighborhood', 'Neighborhood'),
+          scaleTile('city', 'City'),
+          T.waysOut,
+          T.layers,
+        ];
+      case 'travelers':
+        return [
+          T.find,
+          T.next,
+          {
+            key: 'topdown',
+            label: 'From above',
+            icon: ICON.topdown,
+            title: 'Look straight down on the group',
+            action: () => screenApi.frame({ kind: 'topdown' }),
+          },
+          {
+            key: 'clear',
+            label: 'Clear selection',
+            icon: ICON.clear,
+            disabled: !selection,
+            title: 'Clear the selection (Esc)',
+            action: () => twin.select(null),
+          },
+          T.layers,
+        ];
+      case 'incident':
+        return [
+          {
+            key: 'report',
+            label: Number.isFinite(lastCtx?.reportedLabel)
+              ? `Floor ${lastCtx.reportedLabel}`
+              : 'Report floor',
+            icon: ICON.report,
+            on: Number.isFinite(lastCtx?.reportedLabel),
+            disabled: appMode === 'advance',
+            title:
+              appMode === 'advance'
+                ? 'Reports are live data — switch to Live'
+                : 'Add or change the reported floor (R)',
+            action: () => openPop('tt-report'),
+          },
+          T.next,
+          T.waysOut,
+          {
+            key: 'copy',
+            label: 'Copy for responders',
+            icon: ICON.copy,
+            disabled: !incident,
+            title: incident
+              ? 'Copy the incident summary for responders'
+              : 'Opens with an incident',
+            action: () =>
+              document
+                .querySelector(
+                  '#tt-incident .tt-copy, #tt-incident button.primary',
+                )
+                ?.click(),
+          },
+          T.layers,
+        ];
+      case 'weather':
+        return [
+          {
+            key: 'storm',
+            label: 'Frame the storm',
+            icon: ICON.storm,
+            disabled: !ncView()?.ap?.core,
+            title: ncView()?.ap?.core
+              ? 'Fit the site and the storm core in view'
+              : 'No storm core on radar near the site',
+            action: () => frameStorm(),
+          },
+          {
+            key: 'timeline',
+            label: 'Timeline',
+            icon: ICON.timeline,
+            title: 'Weather timeline (T)',
+            action: () => focusWeather(),
+          },
+          {
+            key: 'radar',
+            label: 'Radar with height',
+            icon: ICON.radar,
+            on: wx.layers.radar3d,
+            title: 'Storm shells from radar',
+            action: () => {
+              screenApi.setLayer('radar3d', !wx.layers.radar3d);
+              renderLayers();
+              renderStations();
+            },
+          },
+          {
+            key: 'lightning',
+            label: 'Lightning',
+            icon: ICON.lightning,
+            on: wx.layers.lightning,
+            title: 'Lightning strike density',
+            action: () => {
+              screenApi.setLayer('lightning', !wx.layers.lightning);
+              renderLayers();
+              renderStations();
+            },
+          },
+          T.layers,
+        ];
+      case 'day':
+        return [
+          {
+            key: 'advance',
+            label: appMode === 'advance' ? 'Back to Live' : 'Advance plan',
+            icon: ICON.advance,
+            on: appMode === 'advance',
+            title: 'Live or Advance planning (V)',
+            action: () =>
+              setAppMode(appMode === 'advance' ? 'live' : 'advance'),
+          },
+          {
+            key: 'paths',
+            label: 'Safety & paths',
+            icon: ICON.paths,
+            title: 'Paths to the rally points',
+            action: () => hud.openCard('safety'),
+          },
+          T.sites,
+          scaleTile('city', 'City'),
+          T.layers,
+        ];
+      case 'trips':
+        return [
+          T.sites,
+          {
+            key: 'site',
+            label: 'This site',
+            icon: ICON.site,
+            title: 'Back to the site in focus (station 01)',
+            action: () => pickStation('site'),
+          },
+          T.layers,
+        ];
+      default:
+        return [];
+    }
+  }
+  /** The station's panel in the rail's middle (wall panels, rail size). */
+  function renderStationPanel() {
+    const p = stations?.panel;
+    if (!p) return;
+    const busy = ['tt-editor', 'tt-incident', 'tt-card'].some(
+      (i) => $(i) && !$(i).hidden,
+    );
+    if (busy) return busy;
+    // Leave the panel alone while the operator reads or scrolls it.
+    if (p.matches(':hover') && p.childElementCount) return busy;
+    if (station === 'site') {
+      const k = document.createElement('div');
+      k.className = 'tt-kicker';
+      k.textContent = 'NOTHING SELECTED';
+      const n = document.createElement('div');
+      n.className = 'tt-wall-note';
+      n.textContent =
+        'Select the hotel, a place or a person on the map; its card shows here. Building, Neighborhood and City change the scale.';
+      p.replaceChildren(k, n);
+    } else if (station === 'weather') screenApi.weatherPanel(p);
+    else if (station === 'day') screenApi.dayPanel(p);
+    else if (station === 'trips') screenApi.tripsPanel(p);
+    else screenApi.idlePanel(p);
+    return busy;
   }
   function renderStations() {
     if (!stations) return;
@@ -412,8 +699,12 @@ async function main() {
         text: ap.level === 'attention' ? 'ALERT' : 'WATCH',
         level: ap.level === 'attention' ? 'attn' : 'watch',
       };
+    const busy = renderStationPanel();
     stations.render({
       station,
+      mode: gridMode,
+      tiles: gridMode === 'station' ? stationTiles(station) : [],
+      panelBusy: busy,
       open: stationsOpen,
       statusText: advance
         ? `ADVANCE · data ${age}`
@@ -1369,7 +1660,10 @@ async function main() {
       .map(visibleBox)
       .filter(Boolean);
     const bar = $('tt-bar').getBoundingClientRect();
-    const tools = $('tt-toolbar').getBoundingClientRect();
+    // The dock hides while the stations rail is open: use the footer then.
+    const tools = visibleBox('tt-toolbar') || {
+      top: innerHeight - 40,
+    };
     return {
       left: left ? left.right : 0,
       right: right.length
@@ -5830,8 +6124,11 @@ async function main() {
     const sk = stations && stationKey(e);
     if (sk && !e.target.closest?.('input, textarea, select')) {
       e.preventDefault();
-      if (sk === 'rail') setStationsOpen(!stationsOpen);
-      else pickStation(sk);
+      // Option+0: back to the picker, then close; again opens.
+      if (sk !== 'rail') pickStation(sk);
+      else if (!stationsOpen) setStationsOpen(true);
+      else if (gridMode === 'station') stationBack();
+      else setStationsOpen(false);
       return;
     }
     if (params.get('view') === 'screen' && !WALL_KEYS.has(e.key)) return;
@@ -6575,9 +6872,29 @@ async function main() {
     // The All-in-one gets the stations rail (shell step B).
     stations = createStationRail({
       onPick: (id) => pickStation(id),
+      onBack: () => stationBack(),
       onToggle: (on) => setStationsOpen(on),
+      // The dock steps aside while the rail is open; its panels live here.
+      menu: [
+        { label: 'Layers', key: 'L', action: () => openLayers() },
+        { label: 'Display', key: 'D', action: () => openPop('tt-display') },
+        { label: 'Keys', key: '?', action: () => openPop('tt-help') },
+      ],
     });
     cleanups.push(() => stations?.dispose());
+    // A card opening or closing in the right column swaps the rail's
+    // middle at once, not on the next 5 s refresh.
+    let rcolFrame = 0;
+    const rcolWatch = new MutationObserver(() => {
+      cancelAnimationFrame(rcolFrame);
+      rcolFrame = requestAnimationFrame(() => renderStations());
+    });
+    rcolWatch.observe($('tt-rcol'), {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['hidden'],
+    });
+    cleanups.push(() => rcolWatch.disconnect());
     renderStations();
   }
   if (!VIEW && !params.has('freeze'))

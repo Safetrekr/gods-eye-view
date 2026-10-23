@@ -383,3 +383,39 @@ select.rm-input {
   background: rgba(184, 195, 199, 0.85);
   color: #04090c;
 }
+
+/* ---------- shell step C (23 Oct 2026, review/shell) ---------- */
+/* The link status is steel, never green (green = approved places). */
+.r-active .k .st {
+  color: var(--rm-text-2, rgba(184, 195, 199, 0.85));
+}
+.r-active .k .st.warn {
+  color: var(--rm-attn);
+}
+/* Screens sits in the rail foot, under the six station tiles. */
+.r-foot {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rm-line, rgba(184, 195, 199, 0.12));
+}
+.rm-foot-btn {
+  flex: 1 1 0;
+  min-height: 44px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--rm-text-2, rgba(184, 195, 199, 0.85));
+  font: 500 11px var(--rm-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.rm-foot-btn:hover {
+  background: rgba(184, 195, 199, 0.08);
+}
+.rm-foot-btn[aria-current='true'] {
+  border-color: rgba(238, 245, 243, 0.8);
+  color: var(--rm-active);
+}

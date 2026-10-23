@@ -1,6 +1,8 @@
 // Trip Twin remote stations (phase 10; review/phase10 R2, R13, R16).
-// 01 Incident · 02 People · 03 Weather (next phase) · 04 Trip · 05 Screens ·
-// 06 Layers. Every section says its scope: the target (S2 / all screens) or
+// Shell step C (23 Oct 2026): the remote's stations are the wall roles, in
+// wall order, like the All-in-one rail (twinStations.js): 01 Site (scale,
+// layers, display) · 02 People · 03 Incident & attention · 04 Weather &
+// alerts · 05 Day plan · 06 Trips on watch. Screens sits in the rail foot. Every section says its scope: the target (S2 / all screens) or
 // EVERY SCREEN for wall-wide items. Each station renders the left-hand
 // content and, when it has one, its level-2 list in the rail.
 import {
@@ -12,6 +14,7 @@ import {
 import { DEMO_TRIPS, tripById } from '../demoTrips.js';
 import { formatAge, positionState } from '../twinData.js';
 import { MOTION_TIERS } from '../twinMotion.js';
+import { STATIONS as WALL_STATIONS } from '../twinStations.js';
 
 const ICON = {
   screens:
@@ -269,33 +272,7 @@ function trip(ctx) {
   const ss = state.session;
   const t = tripById(ss.tripId);
   const data = ctx.tripData(t);
-  const out = [...head('Trip in focus', `${t.title} · ${t.org}`)];
-  out.push(kick('Trips on watch', WALL));
-  const trips = el('div', 'rm-list');
-  for (const x of DEMO_TRIPS)
-    trips.append(
-      row(
-        x.orgShort,
-        x.title,
-        x.org,
-        x.id === t.id
-          ? 'IN FOCUS'
-          : ctx.tripData(x)?.snapshot?.reported_incidents?.length
-            ? 'REPORTED · SWITCH ALL SCREENS'
-            : 'SWITCH ALL SCREENS',
-        () =>
-          x.id !== t.id &&
-          ctx.send(
-            {
-              type: 'session',
-              patch: { tripId: x.id, siteKey: null, spotlight: null },
-            },
-            `Every screen → ${x.title} (screens reload into its city)`,
-          ),
-        x.id === t.id,
-      ),
-    );
-  out.push(trips);
+  const out = [...head('Day plan', `${t.title} · ${t.org}`)];
   // Live / Advance: per screen, pins respected (review R2).
   out.push(kick('Live or Advance', scopeOf(target)));
   const cur = target === 'all' ? null : state.screens[target]?.mode || 'live';
@@ -389,6 +366,39 @@ function trip(ctx) {
   );
   return out;
 }
+// ------------------------------------------------------- 06 Trips on watch
+function tripsOnWatch(ctx) {
+  const t = tripById(ctx.state.session.tripId);
+  const out = [...head('Trips on watch', `In focus: ${t.title} · ${t.org}`)];
+  out.push(kick('Trips on watch', WALL));
+  const trips = el('div', 'rm-list');
+  for (const x of DEMO_TRIPS)
+    trips.append(
+      row(
+        x.orgShort,
+        x.title,
+        x.org,
+        x.id === t.id
+          ? 'IN FOCUS'
+          : ctx.tripData(x)?.snapshot?.reported_incidents?.length
+            ? 'REPORTED · SWITCH ALL SCREENS'
+            : 'SWITCH ALL SCREENS',
+        () =>
+          x.id !== t.id &&
+          ctx.send(
+            {
+              type: 'session',
+              patch: { tripId: x.id, siteKey: null, spotlight: null },
+            },
+            `Every screen → ${x.title} (screens reload into its city)`,
+          ),
+        x.id === t.id,
+      ),
+    );
+  out.push(trips);
+  return out;
+}
+
 function tripContext(ctx) {
   const t = tripById(ctx.state.session.tripId);
   const data = ctx.tripData(t);
@@ -757,7 +767,8 @@ function layers(ctx) {
 /** The same lens words as the walls (QA D18). */
 function lensKind(wx, at, now) {
   if (wx?.sim) return 'SIMULATED storm';
-  if (at <= now) return wx?.positionOnly ? 'satellite estimate' : 'observed radar';
+  if (at <= now)
+    return wx?.positionOnly ? 'satellite estimate' : 'observed radar';
   const moving = wx?.motion && !wx.motion.unmeasured && !wx.positionOnly;
   return moving && at - now <= 60 * 60e3
     ? 'projection on the current track, not a forecast model'
@@ -904,54 +915,38 @@ function weather(ctx) {
   return out;
 }
 
-export const STATIONS = [
-  {
-    id: 'incident',
-    num: '01',
-    label: 'Incident',
-    sub: 'Report, board & responders',
-    icon: ICON.incident,
-    render: incident,
-  },
-  {
-    id: 'people',
-    num: '02',
-    label: 'People',
-    sub: 'Roster & spotlight',
-    icon: ICON.people,
-    render: people,
-  },
-  {
-    id: 'weather',
-    num: '03',
-    label: 'Weather',
-    sub: 'See it coming · alerts · lightning',
-    icon: ICON.weather,
-    render: weather,
-  },
-  {
-    id: 'trip',
-    num: '04',
-    label: 'Trip',
-    sub: 'Days, plan & places',
-    icon: ICON.trip,
-    render: trip,
-    context: tripContext,
-  },
+const RENDER = {
+  site: layers,
+  travelers: people,
+  incident,
+  weather,
+  day: trip,
+  trips: tripsOnWatch,
+};
+const REMOTE_SUB = {
+  site: 'Scale, layers & display',
+  travelers: 'Roster & spotlight',
+  incident: 'Report, board & responders',
+  weather: 'See it coming · alerts · lightning',
+  day: 'Days, plan & Live / Advance',
+  trips: 'Every active trip · switch',
+};
+export const STATIONS = WALL_STATIONS.map((s) => ({
+  ...s,
+  sub: REMOTE_SUB[s.id] || s.sub,
+  render: RENDER[s.id],
+  context: s.id === 'day' ? tripContext : undefined,
+}));
+/** Stations reached from the rail foot, not a tile. */
+export const FOOT_STATIONS = [
   {
     id: 'screens',
-    num: '05',
+    num: '',
     label: 'Screens',
     sub: 'Wall screens & roles',
     icon: ICON.screens,
     render: screens,
   },
-  {
-    id: 'layers',
-    num: '06',
-    label: 'Layers',
-    sub: 'Layers, scale & display',
-    icon: ICON.layers,
-    render: layers,
-  },
 ];
+export const stationOf = (id) =>
+  [...STATIONS, ...FOOT_STATIONS].find((s) => s.id === id) || STATIONS[0];
