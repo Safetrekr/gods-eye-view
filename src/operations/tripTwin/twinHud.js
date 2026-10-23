@@ -355,6 +355,7 @@ export function createHud({
 
   const prevCounts = new Map();
   let prevNeeds = null;
+  let lastSelId = null;
   function renderSummary(m, ctx) {
     // The top line reads in two lines: the state, then who / what first.
     // "First: Name" is a button, like the A key (review/phase5 J12).
@@ -643,6 +644,15 @@ export function createHud({
     }
     for (const c of Object.values(cards)) applyCard(c);
     scroll.scrollTop = top;
+    // A new selection (A, ] and [, a click on the map) brings its row into
+    // view in Needs attention (Jesse, 23 Oct).
+    if (ctx.selectedPersonId && ctx.selectedPersonId !== lastSelId) {
+      const row = needs.querySelector(
+        `[data-person-id="${CSS.escape(ctx.selectedPersonId)}"]`,
+      );
+      if (row && isOpen(needsCard)) row.scrollIntoView({ block: 'nearest' });
+    }
+    lastSelId = ctx.selectedPersonId || null;
   }
 
   function renderIncident(a, ctx) {

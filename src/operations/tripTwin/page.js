@@ -202,17 +202,24 @@ const save = (k, v) => {
 const reducedMotion = () =>
   pref('reduceMotion', '0') === '1' ||
   matchMedia('(prefers-reduced-motion: reduce)').matches;
+// ?motion=preview (prototype): every tier on for this page only, and the
+// rail's alert hold lifted, so Cinematic can be seen with the sample data
+// (which always carries another trip's report). Nothing is saved.
+const motionPreview = params.get('motion') === 'preview';
+if (motionPreview) document.body.classList.add('tt-motion-preview');
 const motion = createMotion({
   reduced: reducedMotion,
   tiers:
     params.get('view') === 'screen'
       ? MOTION_DEFAULTS.wall
-      : {
-          live: pref('motionLive', '1') === '1',
-          event: pref('motionEvent', '1') === '1',
-          cine:
-            pref('motionCine', MOTION_DEFAULTS.all.cine ? '1' : '0') === '1',
-        },
+      : motionPreview
+        ? { live: true, event: true, cine: true }
+        : {
+            live: pref('motionLive', '1') === '1',
+            event: pref('motionEvent', '1') === '1',
+            cine:
+              pref('motionCine', MOTION_DEFAULTS.all.cine ? '1' : '0') === '1',
+          },
 });
 
 // ---- popovers: one open at a time; Esc closes them before anything else ----
@@ -1268,7 +1275,7 @@ async function main() {
     if (!f) return { line: 'Satellite heat detections · loading' };
     if (!f.visible) return { line: 'Satellite heat detections · layer off' };
     const base = {
-      live: `NASA FIRMS · updated ${f.fetchedAt && formatAge((Date.now() - Date.parse(f.fetchedAt)) / 1000) ? `${formatAge((Date.now() - Date.parse(f.fetchedAt)) / 1000)} ago` : 'time not reported'}`,
+      live: `NASA FIRMS · ${f.fetchedAt && formatAge((Date.now() - Date.parse(f.fetchedAt)) / 1000) ? `updated ${formatAge((Date.now() - Date.parse(f.fetchedAt)) / 1000)} ago` : 'update time not reported'}`,
       stale: 'NASA FIRMS · from cache',
       simulated: 'SIMULATED heat detections (prototype)',
       no_key: 'Satellite heat detections unavailable · no FIRMS key',

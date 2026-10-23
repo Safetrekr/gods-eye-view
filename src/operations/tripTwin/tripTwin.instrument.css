@@ -2050,8 +2050,8 @@ body:not([data-view='screen']) .tt-mapbar .tt-compass-caption {
 .tt-m-cine.tt-st-open .tt-ap-scan {
   animation: ttApScan 0.9s var(--fog-in) 1;
 }
-body.tt-st-alert .tt-st,
-body.tt-st-alert .tt-st .tt-st-tile,
+body.tt-st-alert:not(.tt-motion-preview) .tt-st,
+body.tt-st-alert:not(.tt-motion-preview) .tt-st .tt-st-tile,
 .tt-m-reduced .tt-st,
 .tt-m-reduced .tt-st .tt-st-tile,
 .tt-m-reduced .tt-ap-scan {
@@ -2301,7 +2301,7 @@ body.tt-st-open:not([data-view='screen'])
 .tt-aperture[data-signal='other'] .tt-ap-bead {
   fill: var(--tt-hazard);
 }
-body.tt-st-alert .tt-ap-scan {
+body.tt-st-alert:not(.tt-motion-preview) .tt-ap-scan {
   animation: none !important;
 }
 /* The other-trip chip reads as a pointer, not as this trip's incident. */
@@ -2341,4 +2341,48 @@ body:not([data-view='screen']) #tt-rail .tt-sec-head {
   border-radius: calc(var(--tt-radius-lg) - 1px) calc(var(--tt-radius-lg) - 1px)
     0 0;
   background: rgba(8, 22, 30, 0.9);
+}
+
+/* Jesse, 23 Oct: the person A selects must be unmistakable — a white
+   selection ring and a lighter fill; the amber attention edge stays. */
+.tt-rowbtn.on,
+.tt-rowbtn.on:hover {
+  background: rgba(238, 245, 243, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(238, 245, 243, 0.75);
+  border-radius: 0 4px 4px 0;
+}
+.tt-rowbtn.on .who {
+  color: var(--tt-text);
+}
+.tt-rowbtn.on .ini {
+  box-shadow: 0 0 0 3px rgba(238, 245, 243, 0.18);
+}
+/* The left column uses the full height again; its edges fade with painted
+   bands (not a mask, so the cards keep their blur), so a card leaving the
+   column softens instead of being sliced (Jesse, 23 Oct). */
+body:not([data-view='screen']) #tt-rail {
+  bottom: calc(var(--foot) + var(--g));
+}
+body:not([data-view='screen']) #tt-rail .tt-rail-scroll::before,
+body:not([data-view='screen']) #tt-rail .tt-rail-scroll::after {
+  content: '';
+  position: sticky;
+  display: block;
+  flex: none;
+  height: 28px;
+  pointer-events: none;
+  z-index: 3;
+}
+body:not([data-view='screen']) #tt-rail .tt-rail-scroll::before {
+  top: 0;
+  margin-bottom: -36px;
+  background: linear-gradient(rgba(4, 12, 18, 0.85), rgba(4, 12, 18, 0));
+}
+body:not([data-view='screen']) #tt-rail .tt-rail-scroll::after {
+  bottom: 0;
+  margin-top: -36px;
+  background: linear-gradient(rgba(4, 12, 18, 0), rgba(4, 12, 18, 0.85));
+}
+body:not([data-view='screen']) #tt-rail .tt-sec-head {
+  background: rgba(8, 22, 30, 0.98);
 }
