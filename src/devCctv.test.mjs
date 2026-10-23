@@ -11,7 +11,8 @@ const run = promisify(execFile);
 const bashTest = process.platform === 'win32' ? test.skip : test;
 
 async function launch(overrides = {}, dotenv = '') {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gev-cctv-launch-'));
+  // realpath: on macOS os.tmpdir() is under /var, a symlink to /private/var, and the launcher reports the real path.
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'gev-cctv-launch-')));
   try {
     await fs.mkdir(path.join(root, 'scripts'));
     await fs.mkdir(path.join(root, 'bin'));
@@ -37,7 +38,8 @@ fs.writeFileSync(process.env.CCTV_TEST_CAPTURE, JSON.stringify({ args: process.a
     const result = await run('bash', [path.join(root, 'scripts', 'dev-cctv.sh')], {
       cwd: os.tmpdir(),
       env: { PATH: `${path.join(root, 'bin')}${path.delimiter}${process.env.PATH}`, CCTV_TEST_CAPTURE: capture, ...overrides },
-      timeout: 30_000,
+      // Each launch takes 14-26 s on a MacBook; 30 s failed whenever the machine was busy.
+      timeout: 120_000,
     });
     return { ...JSON.parse(await fs.readFile(capture, 'utf8')), output: result.stdout + result.stderr, root };
   } finally {
