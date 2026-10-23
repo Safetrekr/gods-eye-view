@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { promises as fsp } from 'node:fs';
+import { Writable } from 'node:stream';
 import { terrainHeightsProxy } from 'gods-eye-view/server/providers/terrain';
 import { tomtomProxy } from 'gods-eye-view/server/providers/traffic';
 import { firmsProxy } from 'gods-eye-view/server/providers/firms';
@@ -18,16 +19,27 @@ function install(plugin) {
   });
   assert.equal(routes.size, 1);
   return async (url = '/', method = 'GET') => {
-    const res = {
-      headersSent: false,
-      writeHead(status, headers) {
-        Object.assign(this, { status, headers, headersSent: true });
+    // A real Writable: large FIRMS responses are streamed with pipeline() after flushHeaders().
+    const chunks = [];
+    const res = Object.assign(
+      new Writable({
+        write(chunk, _encoding, done) {
+          chunks.push(Buffer.from(chunk));
+          done();
+        },
+      }),
+      {
+        writeHead(status, headers) {
+          Object.assign(this, { status, headers, headersSent: true });
+        },
+        flushHeaders() {},
       },
-      end(body) {
-        this.body = body;
-      },
-    };
-    await [...routes.values()][0]({ url, method }, res);
+    );
+    res.headersSent = false;
+    Object.defineProperty(res, 'body', { get: () => (chunks.length ? Buffer.concat(chunks).toString() : undefined) });
+    await [...routes.values()][0]({ url, method, headers: {} }, res);
+    // The handler does not await a streamed response; wait until it has been written.
+    if (res.headersSent && !res.writableFinished) await new Promise((done) => res.once('finish', done));
     return res;
   };
 }

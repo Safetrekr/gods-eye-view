@@ -65,7 +65,7 @@ test('root config retains existing named exports and standalone provider order',
   assert.deepEqual(
     config.plugins.slice(1).map((plugin) => plugin.name),
     [
-      'safetrekr-read-only-core',
+      'safetrekr-core-bridge',
       'safetrekr-operations-providers',
       ...providers.localProviderPlugins().map((plugin) => plugin.name),
     ],
