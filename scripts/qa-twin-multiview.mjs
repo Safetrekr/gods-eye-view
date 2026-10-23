@@ -3,14 +3,20 @@
 // cf/06-qa.md QA-4, QA-16; cf/02-backend.md BE-7; cf/07-reasoning.md
 // ET-3 R0.1, ET-4).
 //   node scripts/qa-twin-multiview.mjs smoke [--dir <qa folder>] [--keep]
+//     [--ref HEAD|worktree] [--revert-ref <ref>]
 //   node scripts/qa-twin-multiview.mjs repro-pairing [--dir …]
 //     [--wait-expiry] [--strict]
 //   node scripts/qa-twin-multiview.mjs full        (after shell step C)
 // Runs against the isolated QA server (scripts/qa-twin-server.mjs): a git
-// archive of HEAD on :4181, HMR off, its own cacheDir and TMPDIR. --url runs
-// against a server you started (restart steps are then skipped). Results go
-// to <qa folder>/runs/<mode>-<time>/ (results.json, results.md, shots).
+// archive of HEAD on :4181, HMR off, its own cacheDir, data folder and
+// TMPDIR. --ref worktree serves the working tree (a slice gate before its
+// commit). The smoke's revert drill restarts on --revert-ref (default: the
+// commit before the one under test; HEAD for the working tree) and then on
+// the build under test again. --url runs against a server you started
+// (restart steps are then skipped). Results go to
+// <qa folder>/runs/<mode>-<time>/ (results.json, results.md, shots).
 // Never prints a token, a setup link or anything from .env.local.
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -35,8 +41,20 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 const OUT = path.join(QA_DIR, 'runs', `${MODE}-${stamp}`);
 const CITY = 'city=austin&scenario=baseline';
-/** The live wall's session file (read-only stat, to prove isolation). */
-const LIVE_STORE = path.join(os.tmpdir(), 'trip-twin-soc-session.json');
+/** The live wall's session files (read-only stat, to prove isolation). */
+const LIVE_STORES = [
+  path.join(os.tmpdir(), 'trip-twin-soc-session.json'),
+  path.join(
+    os.homedir(),
+    'Library',
+    'Application Support',
+    'SafeTrekr',
+    'trip-twin',
+    'session.json',
+  ),
+];
+const REF = arg('ref', 'HEAD');
+const REVERT_REF = arg('revert-ref', REF === 'worktree' ? 'HEAD' : `${REF}~1`);
 const SETUP_TTL_MS = 10 * 60 * 1000; // twinSessionHost.js, base 3431392
 
 // ---------------------------------------------------------------- results
@@ -187,7 +205,18 @@ const FLAGS = [
 const pageErrors = [];
 /** Console errors allowed: FIRMS answers 503 without its key (S-5). */
 /** While the server restarts, refused connections are expected. */
-let restarting = false;
+// A count, not a flag: back-to-back restarts (K2's revert drill) must not
+// end each other's quiet window early.
+let restarting = 0;
+/** Restart the QA server; refused connections are quiet for 15 s after. */
+async function quietRestart(server, opts) {
+  restarting += 1;
+  try {
+    await server.restart(opts);
+  } finally {
+    setTimeout(() => (restarting -= 1), 15000);
+  }
+}
 function watch(page, name) {
   const firms503 = { seen: false };
   page.on('pageerror', (e) =>
@@ -209,7 +238,7 @@ function watch(page, name) {
     if (m.type() !== 'error') return;
     const text = m.text();
     if (/status of 503/.test(text) && firms503.seen) return;
-    if (restarting && /ERR_CONNECTION_REFUSED/.test(text)) return;
+    if (restarting && /ERR_CONNECTION_(REFUSED|RESET)/.test(text)) return;
     pageErrors.push({ page: name, kind: 'console', text: text.slice(0, 240) });
   });
 }
@@ -298,13 +327,39 @@ const clickOpen = (page, slot) =>
 
 // ------------------------------------------------------------------ server
 function liveStoreStat() {
+  return LIVE_STORES.map((f) => {
+    try {
+      const s = fs.statSync(f);
+      return { exists: true, mtimeMs: s.mtimeMs, size: s.size };
+    } catch {
+      return { exists: false };
+    }
+  });
+}
+const modeOf = (f) => {
   try {
-    const s = fs.statSync(LIVE_STORE);
-    return { exists: true, mtimeMs: s.mtimeMs, size: s.size };
+    return (fs.statSync(f).mode & 0o777).toString(8);
   } catch {
-    return { exists: false };
+    return null;
+  }
+};
+/** Lines the QA server logged since `from` (byte offset of server.log). */
+function serverLogSince(server, from) {
+  try {
+    return fs
+      .readFileSync(path.join(server.dir, 'server.log'), 'utf8')
+      .slice(from);
+  } catch {
+    return '';
   }
 }
+const serverLogSize = (server) => {
+  try {
+    return fs.statSync(path.join(server.dir, 'server.log')).size;
+  } catch {
+    return 0;
+  }
+};
 /** Screen devices with a slot in a saved store (no tokens read out). */
 function storeSlots(file) {
   try {
@@ -319,11 +374,13 @@ function storeSlots(file) {
 }
 async function startServer() {
   if (arg('url')) return { url: arg('url').replace(/\/$/, ''), external: true };
-  // A fresh wall: the QA store from an earlier run is not restored.
+  // A fresh wall: the QA store from an earlier run is not restored (the
+  // data folder and the old tmp-path copy both go).
   fs.rmSync(path.join(QA_DIR, 'tmp', 'trip-twin-soc-session.json'), {
     force: true,
   });
-  return startQaServer({ dir: QA_DIR, ref: arg('ref', 'HEAD'), log });
+  fs.rmSync(path.join(QA_DIR, 'data'), { recursive: true, force: true });
+  return startQaServer({ dir: QA_DIR, ref: REF, log });
 }
 async function importBase(server, rel) {
   // The relay fixes its store path from os.tmpdir() when it loads; keep it
@@ -350,7 +407,7 @@ async function smoke(server, browser) {
 
   await step(
     'K1-S0',
-    'isolated QA server is up (git archive, :4181, own TMPDIR)',
+    'isolated QA server is up (git archive, :4181, own data folder and TMPDIR)',
     async () => {
       const r = await fetch(`${base}/api/twin-sync/info`).then((x) => x.json());
       must(r.ok, 'info not ok');
@@ -555,18 +612,24 @@ async function smoke(server, browser) {
 
   await step(
     'K1-S9',
-    'restart: kill the server and start it again (store in the QA TMPDIR)',
+    'restart: kill the server and start it again (store in the QA data folder)',
     async () => {
       if (server.external)
         return { notRun: true, ok: true, detail: '--url: restart skipped' };
       await page.evaluate(() => (window.__ttQaMark = 1));
       await sleep(900); // the relay saves 300 ms after the last change
-      restarting = true;
-      await server.restart();
-      setTimeout(() => (restarting = false), 15000);
+      await quietRestart(server);
       const slots = storeSlots(server.storeFile);
       must(slots && slots.join() === '1,2,3,4,5,6', `QA store slots ${slots}`);
-      return { detail: `QA store holds S${slots.join(', S')}` };
+      // K2: the store is 0600 in a 0700 folder; the old tmp path holds the
+      // same wall until K11 (dual write, so a revert still loads).
+      const modes = `${modeOf(server.dataDir)}/${modeOf(server.storeFile)}`;
+      must(modes === '700/600', `data folder/store modes ${modes}`);
+      const old = storeSlots(server.legacyFile);
+      must(old && old.join() === slots.join(), `tmp-path copy slots ${old}`);
+      return {
+        detail: `QA store holds S${slots.join(', S')} (modes ${modes}); tmp-path copy the same`,
+      };
     },
   );
 
@@ -643,16 +706,98 @@ async function smoke(server, browser) {
     },
   );
 
+  // ---- K2 relay-slice extras: revert-and-restart, then forward again ----
+  /** S1–S5 and the remote say hello again; every one must rejoin. */
+  const rejoinAll = async () => {
+    for (const d of walls) {
+      await d.c.close();
+      const w = await d.hello();
+      must(
+        w.type === 'paired' && w.slot === d.slot,
+        `S${d.slot} got ${w.type}${w.code ? ' (pair code)' : ''}`,
+      );
+    }
+    await remote.c.close();
+    const w = await remote.hello();
+    must(w.type === 'remote', `remote got ${w.type}`);
+  };
+  const s6Back = (what) =>
+    waitWall(
+      page,
+      (x) => !x.pairShown && /^S6 · Remote: QA iPad/.test(x.chip),
+      90000,
+      what,
+    );
+  const built = server.sha;
+  await step(
+    'K2-S1',
+    `revert-and-restart: restart on ${REVERT_REF}; S1–S6 and the remote rejoin`,
+    async () => {
+      if (server.external) return { notRun: true, ok: true };
+      await sleep(900);
+      await quietRestart(server, { ref: REVERT_REF });
+      await rejoinAll();
+      const w = await s6Back('S6 to rejoin on the reverted code');
+      return {
+        detail: `${server.sha}: walls and remote rejoined; S6 page "${w.chip}"`,
+      };
+    },
+  );
+  await step(
+    'K2-S2',
+    'forward again: restart on the build under test; everything rejoins from the data folder, no second migration',
+    async () => {
+      if (server.external) return { notRun: true, ok: true };
+      await sleep(900);
+      const from = serverLogSize(server);
+      await quietRestart(server, { ref: REF });
+      await rejoinAll();
+      await s6Back('S6 to rejoin on the build under test');
+      const said = serverLogSince(server, from);
+      must(!/store\.migrated/.test(said), 'migrated a second time');
+      must(/store\.loaded/.test(said), 'did not load the data-folder store');
+      return {
+        detail: `${server.sha} (was ${built}): store.loaded, no store.migrated`,
+      };
+    },
+  );
+
   await step(
     'K1-S14',
-    'the live wall session file was not touched',
+    'the live wall session files were not touched',
     async () => {
       const live1 = liveStoreStat();
-      must(
-        live0.exists === live1.exists && live0.mtimeMs === live1.mtimeMs,
-        'live store changed during the run',
-      );
-      return { detail: live1.exists ? 'unchanged' : 'absent before and after' };
+      const changed = live1
+        .map((x, i) =>
+          x.exists === live0[i].exists && x.mtimeMs === live0[i].mtimeMs
+            ? null
+            : `${i ? 'data folder' : 'tmp'} (${new Date(x.mtimeMs || 0).toTimeString().slice(0, 8)}, ${x.size ?? 0} B)`,
+        )
+        .filter(Boolean);
+      if (changed.length) {
+        // Still a failure: name the file and any other wall server, so the
+        // next person can tell a live wall's own save from a leak (stat only;
+        // the file is never opened).
+        const r = spawnSync(
+          'lsof',
+          ['-nP', '-iTCP:4173', '-sTCP:LISTEN', '-Fp'],
+          {
+            encoding: 'utf8',
+          },
+        );
+        const pid = /^p(\d+)/m.exec(r.stdout || '')?.[1];
+        throw new Error(
+          `a live store changed during the run: ${changed.join(', ')}${pid ? `; a live wall server listens on :4173 (pid ${pid})` : ''}`,
+        );
+      }
+      return {
+        detail: live1
+          .map(
+            (x, i) =>
+              `${i ? 'data folder' : 'tmp'} ${x.exists ? 'unchanged' : 'absent before and after'}`,
+          )
+          .join('; '),
+      };
     },
   );
 
@@ -1132,29 +1277,78 @@ async function reproPairing(server, browser) {
     meta('H-e (QA)', 'rejoins S1 (expected GREEN on the base)'),
   );
 
+  // A crash in the middle of a save. Before K2 the relay wrote the store in
+  // place, so a cut-off save tore the store itself. From K2 a save writes
+  // <store>.tmp, fsyncs and renames, so a cut-off save can only tear the
+  // temp file; the last good store is still whole beside it.
+  const atomic = server.app
+    ? fs.existsSync(path.join(server.app, 'server/tripTwin/sessionStore.js'))
+    : false;
+  const storeNow = () =>
+    atomic
+      ? server.storeFile
+      : path.join(server.tmp, 'trip-twin-soc-session.json');
   await step(
     'R-3',
-    'torn store file at start-up (a half-written save)',
+    'a save cut off half-way (crash mid-write) at start-up',
     async () => {
       if (server.external || !keep)
         return { ok: true, notRun: true, detail: 'needs R-He' };
       await server.stop();
+      const file = storeNow();
+      const text = fs.readFileSync(file, 'utf8');
+      const torn = atomic ? `${file}.tmp` : file;
+      fs.writeFileSync(torn, text.slice(0, Math.floor(text.length / 2)));
+      await server.restart();
+      const w = await keep.hello();
+      await keep.c.close();
+      const left = atomic && fs.existsSync(torn);
+      return verdict(
+        w.type !== 'paired' || w.slot !== 1 || left,
+        `${atomic ? 'torn temp file beside the store' : 'store torn in place (pre-K2 save)'}: S1 got ${w.type}${w.type === 'pair-code' ? ' (whole wall lost)' : ''}${atomic ? `; temp ${left ? 'still there' : 'deleted unread'}` : ''}`,
+      );
+    },
+    meta(
+      'BE-7 cause 3 (store)',
+      'a cut-off save leaves the last good store whole and the wall rejoins (K2 atomic write)',
+    ),
+  );
+  await step(
+    'R-3q',
+    'a store damaged outside a save (disk, hand edit) at start-up',
+    async () => {
+      if (server.external || !keep || !atomic)
+        return {
+          ok: true,
+          notRun: true,
+          detail: atomic ? 'needs R-He' : 'pre-K2 build: no quarantine',
+        };
+      await server.stop();
+      const q = path.join(server.dataDir, 'quarantine');
+      const before = fs.existsSync(q) ? fs.readdirSync(q).length : 0;
       const text = fs.readFileSync(server.storeFile, 'utf8');
       fs.writeFileSync(
         server.storeFile,
         text.slice(0, Math.floor(text.length / 2)),
       );
       await server.restart();
+      const info = await fetch(`${base}/api/twin-sync/info`).then((x) =>
+        x.json(),
+      );
+      const after = fs.existsSync(q) ? fs.readdirSync(q).length : 0;
+      const backup = fs.existsSync(
+        path.join(server.dataDir, 'session.prev.json'),
+      );
       const w = await keep.hello();
       await keep.c.close();
       return verdict(
-        w.type !== 'paired',
-        `with a torn store S1 got ${w.type}${w.type === 'pair-code' ? ' (whole wall lost)' : ''}`,
+        !(info.ok && after === before + 1 && backup && w.type === 'pair-code'),
+        `server up ${Boolean(info.ok)}; quarantine ${before}→${after}; backup ${backup ? 'kept for a hand restore' : 'missing'}; S1 got ${w.type} (fresh wall by design: S-14, no automatic restore)`,
       );
     },
     meta(
-      'BE-7 cause 3 (store)',
-      'the bad file is set aside and the last good copy restores the wall (K2)',
+      'S-14 quarantine',
+      'the bad file moves to quarantine/, the server starts fresh, the backup waits for a hand restore',
     ),
   );
 
