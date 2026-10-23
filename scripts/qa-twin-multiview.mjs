@@ -18,6 +18,7 @@
 // Never prints a token, a setup link or anything from .env.local.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -326,6 +327,77 @@ const clickOpen = (page, slot) =>
   }, slot);
 
 // ------------------------------------------------------------------ server
+/** The live server's would-refuse record (K3); only ever stat'ed. */
+const LIVE_WOULD_REFUSE = path.join(
+  os.homedir(),
+  'Library',
+  'Logs',
+  'trip-twin',
+  'would-refuse.jsonl',
+);
+function statOf(f) {
+  try {
+    const s = fs.statSync(f);
+    return { exists: true, mtimeMs: s.mtimeMs, size: s.size };
+  } catch {
+    return { exists: false };
+  }
+}
+/** The QA server's would-refuse lines (its own audit folder). */
+function wouldRefuseLines(server) {
+  try {
+    return fs
+      .readFileSync(server.wouldRefuseFile, 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l));
+  } catch {
+    return [];
+  }
+}
+/** One relay handshake with hand-set Host and Origin: 'open' or 'refused'. */
+function dialRelay(port, { host, origin }) {
+  return new Promise((resolve) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/api/twin-sync`, {
+      headers: { Host: host, Origin: origin },
+    });
+    const timer = setTimeout(() => {
+      ws.terminate();
+      resolve('timeout');
+    }, 5000);
+    const done = (v) => {
+      clearTimeout(timer);
+      resolve(v);
+    };
+    ws.once('open', () => {
+      ws.close();
+      done('open');
+    });
+    ws.once('unexpected-response', () => {
+      ws.terminate();
+      done('refused');
+    });
+    ws.once('error', () => done('refused'));
+  });
+}
+/** A GET with any headers (Host and Sec-Fetch-Site included). */
+function rawGet(port, pathname, headers) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      { host: '127.0.0.1', port, path: pathname, headers },
+      (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (d) => (body += d));
+        res.on('end', () =>
+          resolve({ status: res.statusCode, headers: res.headers, body }),
+        );
+      },
+    );
+    req.on('error', reject);
+    req.end();
+  });
+}
 function liveStoreStat() {
   return LIVE_STORES.map((f) => {
     try {
@@ -399,6 +471,7 @@ async function smoke(server, browser) {
     'src/operations/tripTwin/twinSession.js',
   );
   const live0 = liveStoreStat();
+  const liveRefuse0 = statOf(LIVE_WOULD_REFUSE);
   let setup = null;
   let launcher = null;
   const walls = [];
@@ -758,6 +831,86 @@ async function smoke(server, browser) {
       must(/store\.loaded/.test(said), 'did not load the data-folder store');
       return {
         detail: `${server.sha} (was ${built}): store.loaded, no store.migrated`,
+      };
+    },
+  );
+
+  await step(
+    'K3-S1',
+    'host check, report mode: today’s rule refuses a foreign Origin; a foreign Host is served and recorded; cross-site GET 403; nothing recorded for the smoke’s own traffic',
+    async () => {
+      if (server.external) return { notRun: true, ok: true };
+      const port = server.port;
+      const before = wouldRefuseLines(server);
+      must(
+        before.length === 0,
+        `${before.length} would-refuse line(s) from the smoke's own localhost traffic: ${JSON.stringify(before[0])}`,
+      );
+      const evil = `evil.example:${port}`;
+      const a = await dialRelay(port, { host: evil, origin: `http://${evil}` });
+      must(a === 'open', `rebinding pair: ${a}, expected open (today's rule)`);
+      for (const host of [`localhost:${port}`, `192.168.1.3:${port}`]) {
+        const b = await dialRelay(port, {
+          host,
+          origin: 'http://evil.example',
+        });
+        must(
+          b === 'refused',
+          `Origin evil, Host ${host}: ${b}, expected refused`,
+        );
+      }
+      const x = await rawGet(port, '/api/twin-weather/now?lat=51.5&lon=-0.12', {
+        host: `localhost:${port}`,
+        'sec-fetch-site': 'cross-site',
+      });
+      must(x.status === 403, `cross-site weather GET: ${x.status}`);
+      must(!x.headers['access-control-allow-origin'], 'CORS header sent');
+      const info = await rawGet(port, '/api/twin-sync/info', { host: evil });
+      const j = JSON.parse(info.body);
+      must(j.hostAllowed === false && j.reason === 'host', 'info: hostAllowed');
+      must(
+        Array.isArray(j.addresses) && !j.addresses.length,
+        'info: addresses',
+      );
+      const own = JSON.parse(
+        (
+          await rawGet(port, '/api/twin-sync/info', {
+            host: `localhost:${port}`,
+          })
+        ).body,
+      );
+      must(
+        own.hostAllowed === true && own.hostCheck === 'report',
+        'info: own host',
+      );
+      const lines = wouldRefuseLines(server);
+      const kinds = lines.map((l) => `${l.kind}:${l.reason}:${l.effect}`);
+      must(
+        lines.some(
+          (l) =>
+            l.host === evil && l.reason === 'host' && l.effect === 'allowed',
+        ),
+        `no would-refuse line for ${evil}: ${kinds.join(', ')}`,
+      );
+      must(
+        !lines.some(
+          (l) =>
+            l.effect === 'allowed' &&
+            /^(localhost|127\.0\.0\.1|\[::1\]):/.test(l.host || '') &&
+            l.origin === `http://${l.host}`,
+        ),
+        'a same-origin loopback request was recorded',
+      );
+      const mode = modeOf(server.wouldRefuseFile);
+      must(mode === '600', `would-refuse file mode ${mode}`);
+      const live1 = statOf(LIVE_WOULD_REFUSE);
+      must(
+        live1.exists === liveRefuse0.exists &&
+          live1.mtimeMs === liveRefuse0.mtimeMs,
+        'the live ~/Library/Logs/trip-twin/would-refuse.jsonl changed',
+      );
+      return {
+        detail: `0 lines before the probes; then ${lines.length}: ${kinds.join(', ')}; file 0600; live audit file ${live1.exists ? 'unchanged' : 'absent'}`,
       };
     },
   );

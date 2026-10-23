@@ -4,7 +4,11 @@ In this order; stop at the first step that works (PHASE-CF-PLAN K2, S-11, S-14; 
 
 ## 1. Walls stuck on "connecting": add the name first
 
-The page was opened through a name or address the relay does not allow (a new DHCP address, the `.local` name, a venue network). From K3 the log says `would refuse` with the name.
+The page was opened through a name or address the relay does not allow (a new DHCP address, the `.local` name, a venue network). From K3 the dev log says `host.would_refuse` with the Host, and the same line is in `~/Library/Logs/trip-twin/would-refuse.jsonl` (or `$TRIP_TWIN_AUDIT_DIR`). In K3 nothing is refused yet for this reason (report mode); from K12 it is.
+
+```sh
+tail -n 20 ~/Library/Logs/trip-twin/would-refuse.jsonl   # host, origin, peer, reason; never a token
+```
 
 ```sh
 export TRIP_TWIN_ALLOWED_HOSTS="jesses-mac-studio.local,192.168.1.3"   # the names in use; no wildcards

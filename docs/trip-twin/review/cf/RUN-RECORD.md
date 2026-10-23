@@ -134,3 +134,93 @@ The relay tests now point `TRIP_TWIN_DATA_DIR` and `TMPDIR` at a temporary folde
 
 - `k2/gate2.txt` (gate with names), `k2/build2.log`, `k2/smoke2.txt` (the K1-S14 attempt), `k2/smoke3.txt` to `k2/smoke5.txt`, `k2/repro1.txt`
 - `qa-k2/runs/smoke-*`, `qa-k2/runs/repro-pairing-2026-10-23T20-55-08/`, `qa-k2/server.log` (store lines)
+
+## K3 · Host/Origin report mode with today's floor
+
+- **Date:** 23 Oct 2026, 16:00–16:45 CDT. **Machine:** MacBook (macOS 26.5), Node 22.21.1, headless puppeteer (Chrome for Testing, SwiftShader).
+- **Code under test:** the `cf/core` working tree on top of `ff4333a` (K2), served with `--ref worktree`. The revert drill restarts on `HEAD` (`ff4333a`, the K2 code) and then on the working tree again.
+- **QA server:** `:4181` on 127.0.0.1; `TRIP_TWIN_DATA_DIR`, `TRIP_TWIN_AUDIT_DIR` and `TMPDIR` all in the QA folder. Map keys passed 0 of 2 (as K1, K2). The live store paths and the live `~/Library/Logs/trip-twin/would-refuse.jsonl` were only ever `stat`ed (the latter does not exist; nothing created it).
+- **Gate verdict: PASS.**
+
+### What landed
+
+- `server/tripTwin/twinHosts.js` (new, pure): `hostLists()` per request (C22: `localhost`, `127.0.0.1`, `[::1]`, the LAN IPv4 addresses, `os.hostname()` as given and as `<first label>.local`, the Bonjour `LocalHostName` as `.local`, `TRIP_TWIN_ALLOWED_HOSTS`), `allowedOrigins()` (`http://` and `https://`, SEC-14), `upgradeVerdict()` (QA-2; reasons `path`, `host`, `no-origin`, `null-origin`, `origin`), `todayVerdict()` (the `3431392` rule byte for byte: an Origin, when present, must equal Host), `twinHostGuard()`, `localOnly()` (§4.4: loopback peer, a loopback Host with the port, `Sec-Fetch-Site` same-origin or absent), the would-refuse record shape (header values clipped to 64 printable characters, no query strings).
+- `server/tripTwin/twinHostCheck.js` (new): one check per dev server, shared by the relay and both proxies. Lists memo 1 s; Bonjour name from `scutil --get LocalHostName` (macOS), memo 60 s, refreshed in the background. `TRIP_TWIN_HOST_CHECK`: `report` is the only mode; `enforce` or any other value runs `report` and says so at boot (K12 adds `enforce`). `TRIP_TWIN_ALLOWED_HOSTS`: names or addresses with an optional port; `*`, a leading dot, a scheme or a path are refused and listed at boot. `TRIP_TWIN_AUDIT_DIR` (default `~/Library/Logs/trip-twin/`): absolute, not inside the repo or Vite's root, never swapped for the default; folder 0700, `would-refuse.jsonl` 0600, created on the first line only, at most 60 lines a minute (the rest counted on the next line), stops at 20 MB. K6 takes the file over. Boot line `[trip-twin] hosts.check {mode, asked, allowedHostsExtra, wouldRefuse}`.
+- `syncRelay.js`: the upgrade listener is the exported `createTwinUpgrade({relay, check})` (SEC-15). **Report mode keeps today's rule as the decision** (S-11, sec B1): a foreign Origin is still refused exactly as today (socket closed, nothing written); the new verdict is only recorded. Each line says the new `reason`, `today` (today's verdict) and `effect` (what the server did). One thing is enforced already: only the exact path `/api/twin-sync` (query allowed) is the relay; a `/api/twin-sync…` look-alike is refused (no client uses one). Every connection records `secure` (`req.socket.encrypted`) in its connection record and socket meta; `relay.connections()` lists `{local, secure, kind}` with no ids. `/api/twin-sync/info` adds `hostAllowed`, `reason` and `hostCheck`; addresses are empty when the Host is refused (and come from the same check, so tests can inject them).
+- `twinHostGuard()` mounted first on `/api/twin-sync` (relay), `/api/twin-place` and `/api/twin-path` (routing) and `/api/twin-weather` (weather). Always on: `Sec-Fetch-Site` other than `same-origin` or absent gets 403 JSON before the handler runs (sec S9, N7). Report mode: a Host the new list would refuse is served and recorded. No CORS headers anywhere.
+- `sessionStore.js`: the K2 folder fence is now `resolveFencedDir()`, used by the data folder and the audit folder (same rules).
+- Kit and harness: `fakeUpgrade` takes `encrypted` and `localPort`; `miniConnect()` (a connect-style stack: case-insensitive route, prefix cut from `req.url`); `liveTwinServer()` (Trip Twin plugins on a real loopback HTTP server, for real `ws` and HTTP tests); every kit server sets a throwaway `TRIP_TWIN_AUDIT_DIR` if none is set. `qa-twin-server.mjs` sets `TRIP_TWIN_AUDIT_DIR` into the QA folder. New smoke step K3-S1 (below).
+- Runbooks: `break-glass.md` step 1 and `deploy-mac-studio.md` step 15 name the would-refuse file, the boot line and the `/info` fields.
+
+### Gate
+
+| Check | Command | Result |
+|---|---|---|
+| Trip Twin tests | `node scripts/test-trip-twin.mjs` | **PASS** in 34 s. 190 tests in 25 files: 190 pass, 0 fail, 0 skip, 0 todo; baseline 190 (166 + 24). |
+| Wiring (warnings until K7) | same | Unchanged: `/api/route` at `twinCustomPaths.js:148`, `twinPaths.js:44`; `Math.random` at `twinSessionHost.js:18`. |
+| Shared-file guard | same | Clean (2 CF commits checked, plus the working tree). `build/vite.js` and `vite.twin.config.js` untouched (the `allowedHosts` override is K12). |
+| Repo tests | `npm test` (run by the gate) | **PASS.** Exit 0; 3196 tests, 3195 pass, 0 fail, 1 skip (Windows-only DACL test); allocation probes skipped on Node 22. |
+| Twin build | `npx vite build --config vite.twin.config.js --outDir <scratchpad>/twin-dist` | **PASS** (exit 0; the usual chunk-size note). |
+| Smoke | `node scripts/qa-twin-multiview.mjs smoke --ref worktree --dir <scratchpad>/qa-k3-final` | **PASS** (twice: before and after formatting). Final run `smoke-2026-10-23T21-29-38`: 18 pass, 6 TODO (after shell step C), 0 pageerror, 0 console.error. Includes K3-S1 (below). |
+| Restart and revert | same run | K1-S9 to S13 (restart-and-reconnect) and K2-S1/K2-S2 (revert to `ff4333a` and forward: `store.loaded`, no `store.migrated`) pass. |
+| Mutation check | `report` made log-only (today's floor removed), by hand, then restored | T3.4b and K1's `upgrade today: … another origin is refused` turn red (2 fail); restored code green. |
+
+### T3.4b and the would-refuse evidence
+
+- **Unit, real `ws` against the relay's own upgrade handler** (`twinHostCheck.test.mjs`): `Origin: http://evil.example` with `Host: 192.168.1.3:4173`, with `Host: localhost:4173` and with `Host: localhost:<port>` → all **refused** in `report`; each is also recorded (`today: refused`, `effect: refused`). Same-origin upgrades through `localhost`, `127.0.0.1`, `[::1]`, `192.168.1.3`, `jesses-mac-studio.local` (from the hostname `Jesses-Mac-Studio.lan`) and `jesses-mac-studio-2.local` (the Bonjour name after a clash) → all open, **no line and no file**. `Host: evil.example:4173` with `Origin: http://evil.example:4173` → served (today's rule) and **a line in the file** (`reason: host`, `today: allowed`, `effect: allowed`). A cross-site, same-site or `none` GET to `/api/twin-weather/now`, `/api/twin-place` and `/api/twin-sync/info`, and a cross-site POST to `/api/twin-path`, → **403**, the fake upstream never called; same-origin and no header → 200.
+- **Live, on the QA server (smoke K3-S1):** 0 would-refuse lines from the whole smoke's own traffic (launcher, six walls, remote, pages, two restarts, the revert drill). Then the probes wrote exactly 4 lines to `qa-k3/audit/would-refuse.jsonl` (folder 0700, file 0600):
+
+  | kind | Host | Origin | reason | today | effect |
+  |---|---|---|---|---|---|
+  | upgrade | `evil.example:4181` | `http://evil.example:4181` | host | allowed | allowed |
+  | upgrade | `localhost:4181` | `http://evil.example` | origin | refused | refused |
+  | upgrade | `192.168.1.3:4181` | `http://evil.example` | host | refused | refused |
+  | http | `evil.example:4181` | — | host | allowed | allowed (`/api/twin-sync/info`: `hostAllowed:false`, no addresses) |
+
+  The cross-site weather GET got 403 with no CORS header. Peer was `127.0.0.1` for all (the QA server is loopback-only).
+
+### Test names added in K3
+
+`twinHosts.test.mjs` (pure tables):
+- `hosts T3.1: the Host allowlist (loopback, LAN, .local, Bonjour, env; IPv6; port exact)`
+- `hosts T3.2: the Origin allowlist, including an Origin equal to an evil Host (rebinding)`
+- `hosts T3.3: a missing or null Origin is refused by the new rule, for every peer`
+- `hosts: only the exact relay path is the relay (SEC-1); a query string is fine`
+- `hosts T3.4: today’s rule, unchanged: same-origin and no Origin pass, a foreign Origin is refused`
+- `hosts T3.4b (rule): today’s floor refuses Origin http://evil.example with Host 192.168.1.3:4173 and with Host localhost:4173`
+- `hosts C22: machine names (hostname plain and .local, Bonjour .local); TRIP_TWIN_ALLOWED_HOSTS has no wildcards`
+- `hosts: Host and Origin parsing (default ports, IPv6, case)`
+- `hosts §4.4: localOnly() = loopback peer, a loopback Host with the port, same-origin or no Sec-Fetch-Site`
+- `hosts: Sec-Fetch-Site gate (same-origin or absent only)`
+- `hosts: a would-refuse record is clipped, printable and has no query string`
+
+`twinHostCheck.test.mjs` (wiring, real `ws` and HTTP on loopback):
+- `host check: TRIP_TWIN_HOST_CHECK has one mode in K3; enforce and unknown values run report and say so`
+- `host check S-2: wildcards in TRIP_TWIN_ALLOWED_HOSTS are refused and logged at boot; real names are allowed`
+- `host check S-1: TRIP_TWIN_AUDIT_DIR inside the repo or Vite’s root, or relative, is refused; nothing is written`
+- `host check S14: would-refuse lines are JSONL in a 0700 folder and a 0600 file, at most 60 a minute`
+- `host check C22: the lists are computed per request (memo 1 s): a new DHCP address is allowed a second later`
+- `upgrade T3.4b (real ws, report): Origin http://evil.example with Host 192.168.1.3:4173 and with Host localhost:4173 is refused`
+- `upgrade (real ws, report): no would-refuse for localhost, 127.0.0.1, [::1], the LAN IP, the .local name or the Bonjour name`
+- `upgrade (real ws, report): Host evil.example:4173 is still served by today’s rule, and a would-refuse line is in the file`
+- `upgrade (real ws): a look-alike path /api/twin-sync2 is refused; Vite’s own upgrades are left alone`
+- `upgrade SEC-14: each connection records secure; an https Origin on TLS is on the new list`
+- `HTTP guard (fetch-metadata): a cross-site GET to a proxy gets 403 and never reaches upstream; no CORS headers`
+- `HTTP guard (report): a Host the new list would refuse is served and recorded; allowed Hosts are not recorded`
+- `/api/twin-sync/info: hostAllowed and reason; no addresses for a refused Host`
+
+K1's three `upgrade today:` tests are unchanged and still pass (the rebinding pair and the no-Origin upgrade are still accepted in `report`; they are now also recorded).
+
+### Notes and deferred
+
+- **Behaviour to know:** `Sec-Fetch-Site: none` (typing an `/api/twin-*` URL into a browser's address bar) now gets 403, per §4.4 ("same-origin or absent"). `curl` and the pages themselves are unaffected. The walls, the iPad and the launcher fetch same-origin.
+- **K12:** `enforce` (refused upgrade → 403 + `upgrade.refused`, missing and `null` Origin refused, the HTTP guard refusing), the `vite.twin.config.js` `allowedHosts` override, "Host check relaxed" on the status strip, address-not-allowed copy, and the script that lists distinct (Host, Origin, peer, reason) values in `would-refuse.jsonl` for Jesse's sign-off.
+- **K6:** the would-refuse file moves under the audit log (retention, health); `upgrade.refused` and `http.refused` become audit events with `peer` and `secure` (today they are rate-limited dev-log lines).
+- **K11 / K6:** `localOnly()` is in place and tested; `/boot` and `/log` use it when they land.
+- **On the Mac Studio (by hand, before deploy):** check that `scutil --get LocalHostName` gives the name the iPad uses, and after a day of normal use that `would-refuse.jsonl` holds no line from a real wall or the iPad.
+- `useInstead` on `/info` (ET-3) was not added: §4.4 settles `{hostAllowed, reason}` only, and a suggested name would leak one to a refused Host.
+
+### Evidence (session scratchpad, `/private/tmp/claude-501/-Users-jessetarvambp1-Sites-Safetrekr/bee4faae-35c4-47cb-aef3-657c3e2a12f6/scratchpad/`)
+
+- `k3/gate1.txt`, `k3/gate2.txt` (gate with names, before and after formatting), `k3/build.log`, `k3/smoke1.txt`, `k3/smoke2.txt`
+- `qa-k3/runs/smoke-2026-10-23T21-27-33/`, `qa-k3/audit/would-refuse.jsonl`, `qa-k3/server.log` (`hosts.check` boot lines); `qa-k3-final/runs/smoke-2026-10-23T21-29-38/` and `qa-k3-final/audit/would-refuse.jsonl` (the run on the final bytes; the same 4 lines)

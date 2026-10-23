@@ -2,9 +2,28 @@
 // a fake HTTP upgrade, a session host on a fake clock, and a small script
 // runner for multi-device sequences. Tests only: no network, no Vite, no
 // files. Lives in src/ so the shared `npm test` runner finds the tests that
-// use it (PHASE-CF-PLAN S-3).
+// use it (PHASE-CF-PLAN S-3). K3 adds a tiny connect-style middleware stack
+// and a live loopback server for real `ws` and HTTP tests (SEC-15).
 import { EventEmitter } from 'node:events';
+import fs from 'node:fs';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
 import { createSessionHost } from './twinSessionHost.js';
+
+/**
+ * Tests never write to the live ~/Library/Logs/trip-twin/ (K3): if no test
+ * chose TRIP_TWIN_AUDIT_DIR, a throwaway folder is set before any relay or
+ * proxy plugin is built through the kit.
+ */
+export function scratchAuditDir() {
+  if (!process.env.TRIP_TWIN_AUDIT_DIR) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tt-audit-test-'));
+    process.env.TRIP_TWIN_AUDIT_DIR = dir;
+    process.on('exit', () => fs.rmSync(dir, { recursive: true, force: true }));
+  }
+  return process.env.TRIP_TWIN_AUDIT_DIR;
+}
 
 /**
  * A WebSocket stand-in for createRelay().attach: records what the relay
@@ -38,6 +57,8 @@ export function fakeUpgrade({
   origin = 'http://localhost:4173',
   remoteAddress = '127.0.0.1',
   url = '/api/twin-sync',
+  encrypted = false,
+  localPort = undefined,
 } = {}) {
   const headers = {
     host,
@@ -50,6 +71,8 @@ export function fakeUpgrade({
   if (origin != null) headers.origin = origin;
   const socket = new EventEmitter();
   socket.remoteAddress = remoteAddress;
+  if (encrypted) socket.encrypted = true;
+  if (localPort) socket.localPort = localPort;
   socket.readable = true;
   socket.writable = true;
   socket.destroyed = false;
@@ -191,6 +214,7 @@ export function fakeViteRelay(
   plugin,
   { root = '/nonexistent-vite-root' } = {},
 ) {
+  scratchAuditDir();
   const httpServer = new EventEmitter();
   httpServer.address = () => ({ port: 4173 });
   const logs = [];
@@ -226,5 +250,125 @@ export function fakeViteRelay(
     },
     // Stops the 5 s presence tick and flushes the store, as Vite's close.
     close: () => httpServer.emit('close'),
+  };
+}
+
+/**
+ * A connect-style middleware stack, as Vite's `server.middlewares`: a
+ * route matches case-insensitively when the next character is `/`, `.` or
+ * the end; the route is cut from `req.url`, `req.originalUrl` keeps it.
+ */
+export function miniConnect() {
+  const stack = [];
+  const app = {
+    use(route, fn) {
+      if (typeof route === 'function') [route, fn] = ['', route];
+      stack.push({ route: String(route).replace(/\/$/, ''), fn });
+      return app;
+    },
+    handle(req, res) {
+      const full = req.url;
+      req.originalUrl = req.originalUrl || full;
+      let i = 0;
+      const next = (err) => {
+        req.url = full;
+        const layer = stack[i++];
+        if (!layer) {
+          res.statusCode = err ? 500 : 404;
+          return res.end(err ? 'error' : 'not found');
+        }
+        const p = full.split('?')[0];
+        const r = layer.route;
+        if (r) {
+          if (p.toLowerCase().slice(0, r.length) !== r.toLowerCase())
+            return next(err);
+          const c = p[r.length];
+          if (c && c !== '/' && c !== '.') return next(err);
+          const rest = full.slice(r.length);
+          req.url = rest.startsWith('/') ? rest : `/${rest}`;
+        }
+        try {
+          layer.fn(req, res, next);
+        } catch (e) {
+          next(e);
+        }
+      };
+      next();
+    },
+  };
+  return app;
+}
+
+/**
+ * Trip Twin plugins on a real loopback HTTP server (no Vite): their
+ * configureServer runs against a fake dev server whose middlewares are
+ * miniConnect() and whose httpServer is real, so real `ws` clients and
+ * HTTP requests reach the real handlers. `before(server)` runs first (to
+ * inject a host check). Resolves {port, url, logs, request, close}.
+ */
+export async function liveTwinServer({
+  plugins = [],
+  root = '/nonexistent-vite-root',
+  host = '0.0.0.0',
+  before = () => {},
+} = {}) {
+  scratchAuditDir();
+  const app = miniConnect();
+  const httpServer = http.createServer((req, res) => app.handle(req, res));
+  const logs = [];
+  const logger = {
+    info: (m) => logs.push(m),
+    warn: (m) => logs.push(m),
+    error: (m) => logs.push(m),
+  };
+  const server = {
+    httpServer,
+    middlewares: app,
+    config: { server: { host }, root, logger },
+  };
+  before(server);
+  for (const p of plugins) p.configureServer(server);
+  await new Promise((r) => httpServer.listen(0, '127.0.0.1', r));
+  const { port } = httpServer.address();
+  return {
+    port,
+    url: `http://127.0.0.1:${port}`,
+    logs,
+    server,
+    /** One HTTP request with any headers (Host included); resolves {status, headers, body}. */
+    request(pathname, { method = 'GET', headers = {}, body } = {}) {
+      return new Promise((resolve, reject) => {
+        const req = http.request(
+          { host: '127.0.0.1', port, path: pathname, method, headers },
+          (res) => {
+            let text = '';
+            res.setEncoding('utf8');
+            res.on('data', (d) => (text += d));
+            res.on('end', () => {
+              let json = null;
+              try {
+                json = JSON.parse(text);
+              } catch {
+                json = null;
+              }
+              resolve({
+                status: res.statusCode,
+                headers: res.headers,
+                body: text,
+                json,
+              });
+            });
+          },
+        );
+        req.on('error', reject);
+        if (body != null) req.write(body);
+        req.end();
+      });
+    },
+    close: () =>
+      new Promise((r) => {
+        httpServer.closeAllConnections?.();
+        httpServer.close(() => r());
+      }),
   };
 }

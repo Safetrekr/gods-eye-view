@@ -8,6 +8,7 @@
 //   - TRIP_TWIN_DATA_DIR (K2) and TMPDIR point into the QA folder, so the
 //     relay's store (<data>/session.json) and its old tmp-path copy
 //     (os.tmpdir()/trip-twin-soc-session.json) are never the live wall's;
+//     so does TRIP_TWIN_AUDIT_DIR (K3: <audit>/would-refuse.jsonl);
 //   - the server's environment is built from scratch: only
 //     GOOGLE_MAPS_API_KEY and CESIUM_ION_TOKEN are read from .env.local, so
 //     3D tiles load and FIRMS still answers 503. Nothing from that file is
@@ -164,6 +165,7 @@ export async function startQaServer({
   let { app, sha, modules } = archiveApp(dir, ref);
   const tmp = path.join(dir, 'tmp');
   const dataDir = path.join(dir, 'data');
+  const auditDir = path.join(dir, 'audit');
   const cacheDir = path.join(dir, 'vite-cache');
   fs.mkdirSync(tmp, { recursive: true });
   const keys = readPassedKeys(envFile);
@@ -174,6 +176,7 @@ export async function startQaServer({
     LANG: process.env.LANG || 'en_GB.UTF-8',
     TMPDIR: tmp,
     TRIP_TWIN_DATA_DIR: dataDir,
+    TRIP_TWIN_AUDIT_DIR: auditDir,
     QA_HOST: host,
     QA_PORT: String(port),
     QA_CACHE_DIR: cacheDir,
@@ -243,7 +246,7 @@ export async function startQaServer({
   await launch();
   const origin = `http://localhost:${port}`;
   log(
-    `QA server ${origin} · ${sha} · data folder and TMPDIR in QA folder · ${Object.keys(keys).length} of ${PASSED_KEYS.length} map keys passed`,
+    `QA server ${origin} · ${sha} · data, audit folder and TMPDIR in QA folder · ${Object.keys(keys).length} of ${PASSED_KEYS.length} map keys passed`,
   );
   return {
     url: origin,
@@ -256,6 +259,8 @@ export async function startQaServer({
     dir,
     tmp,
     dataDir,
+    auditDir,
+    wouldRefuseFile: path.join(auditDir, 'would-refuse.jsonl'),
     storeFile: path.join(dataDir, STORE_FILE),
     legacyFile: path.join(tmp, LEGACY_FILE),
     keysPassed: Object.keys(keys).length,

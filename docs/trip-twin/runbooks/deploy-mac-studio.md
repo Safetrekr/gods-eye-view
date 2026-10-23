@@ -47,7 +47,7 @@ For every CF slice and every shell-track deploy (PHASE-CF-PLAN §6.2, CF-D10; cf
 12. One confirmed command (All › Advance).
 13. Routing health is up (from K6 health; before that, draw one rally path).
 14. The log is writing (from K6: health says so; before that, `tail ~/Library/Logs/trip-twin-dev.log`).
-15. Host-check mode is the one intended (from K3: `report`; from K12: `enforce` unless break-glass).
+15. Host-check mode is the one intended (from K3: `report`; from K12: `enforce` unless break-glass). The boot line `[trip-twin] hosts.check` in the dev log names the mode and the would-refuse file; `curl -s http://localhost:4173/api/twin-sync/info` shows `hostCheck` and `hostAllowed: true`. Then `wc -l ~/Library/Logs/trip-twin/would-refuse.jsonl`: lines from the walls or the iPad mean a name is missing from the list (K12 would refuse them; [break-glass.md](break-glass.md) step 1).
 16. Restart once more (step 6) and check that everything rejoins without a pair code.
 17. Delete the deploy copy once all of this passes: `rm -f "$D/deploy-copy.json"`.
 
