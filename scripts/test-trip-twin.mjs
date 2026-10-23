@@ -27,9 +27,11 @@ const rel = (p) => path.relative(ROOT, p).split(path.sep).join('/');
 
 /**
  * 150 tests at 3431392; K1 adds three upgrade tests; K2 adds thirteen store
- * tests (twinStore.test.mjs). Raise per slice.
+ * tests (twinStore.test.mjs); K3 adds eleven host-rule tables
+ * (twinHosts.test.mjs) and thirteen host-check tests (twinHostCheck.test.mjs).
+ * Raise per slice.
  */
-export const BASELINE = 166;
+export const BASELINE = 190;
 /** The commit CF-core branches from (cf/core). */
 export const CF_BASE = process.env.TRIP_TWIN_CF_BASE || '3431392';
 /** CF slice commits say so in their subject ("Trip Twin CF K1: …"). */

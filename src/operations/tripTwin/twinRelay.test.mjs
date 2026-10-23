@@ -22,6 +22,8 @@ import {
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'tt-relay-test-'));
 process.env.TMPDIR = path.join(scratch, 'tmp');
 process.env.TRIP_TWIN_DATA_DIR = path.join(scratch, 'data');
+// K3: the would-refuse record goes to TRIP_TWIN_AUDIT_DIR; never the live one.
+process.env.TRIP_TWIN_AUDIT_DIR = path.join(scratch, 'audit');
 fs.mkdirSync(process.env.TMPDIR);
 // After the relay's debounced save has run (exit waits for its timer).
 process.on('exit', () => fs.rmSync(scratch, { recursive: true, force: true }));
@@ -275,7 +277,7 @@ test('upgrade today: a same-origin page is accepted, another origin is refused',
       'refused',
     );
     // Today a rebinding pair (Host and Origin both foreign) still passes:
-    // the K3/K12 allowlist is what refuses it.
+    // K3 records it as a would-refuse (report mode); K12 refuses it.
     assert.equal(
       v.upgrade({
         host: 'evil.example:4173',

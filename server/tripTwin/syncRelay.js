@@ -7,6 +7,10 @@
 // sockets get nothing; presence never carries device ids. The wall is saved
 // so a restart keeps screens and the remote paired: sessionStore.js (Phase
 // CF K2) keeps it in TRIP_TWIN_DATA_DIR, written atomically.
+// Host and Origin (Phase CF K3, S-11): the upgrade keeps today's rule (an
+// Origin, when present, must equal Host) and records what the new
+// allowlist (twinHosts.js) would refuse; only the exact path is served.
+// Every /api/twin-sync HTTP path goes through the Host guard first.
 // Prototype only: plain ws, LAN, no login — production needs TLS, device
 // enrolment, SSO, signed commands and an audit log (07-production-delta).
 import os from 'node:os';
@@ -15,8 +19,20 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { createSessionHost } from '../../src/operations/tripTwin/twinSessionHost.js';
 import { openSessionStore, resolveDataDir } from './sessionStore.js';
+import { hostCheckFor, twinLogger } from './twinHostCheck.js';
+import {
+  SYNC_PATH,
+  hostVerdict,
+  isLoopbackPeer,
+  isSyncUpgrade,
+  lanAddresses as lanAddressesOf,
+  todayVerdict,
+  twinHostGuard,
+  upgradeVerdict,
+  wouldRefuseLine,
+} from './twinHosts.js';
 
-const PATH = '/api/twin-sync';
+const PATH = SYNC_PATH;
 /** This checkout: a data folder inside it is refused (S-1, sec N2). */
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -26,16 +42,7 @@ const REPO_ROOT = path.resolve(
 
 /** IPv4 LAN addresses (no loopback, no link-local). */
 export function lanAddresses(ifaces = os.networkInterfaces()) {
-  const out = [];
-  for (const list of Object.values(ifaces || {}))
-    for (const a of list || [])
-      if (
-        (a.family === 'IPv4' || a.family === 4) &&
-        !a.internal &&
-        !a.address.startsWith('169.254.')
-      )
-        out.push(a.address);
-  return out;
+  return lanAddressesOf(ifaces);
 }
 
 /** Presence as one socket may see it: no device ids, its own flag. */
@@ -70,8 +77,8 @@ export function createRelay({
   host = createSessionHost(),
   save = () => {},
 } = {}) {
-  const sockets = new Map(); // ws → {id, kind} once accepted
-  const local = new WeakMap(); // ws → opened from this computer
+  const sockets = new Map(); // ws → {id, kind, secure} once accepted
+  const conns = new Map(); // ws → {isLocal, secure} from its upgrade
   const send = (ws, msg) => {
     if (ws.readyState === 1) ws.send(JSON.stringify(msg));
   };
@@ -125,7 +132,11 @@ export function createRelay({
           send(ws, { t: 'welcome', type: 'denied', error: r.error });
           break;
         }
-        const meta = { id: String(m.id), kind: m.kind };
+        const meta = {
+          id: String(m.id),
+          kind: m.kind,
+          secure: Boolean(conns.get(ws)?.secure),
+        };
         sockets.set(ws, meta);
         tellUnpaired(r.unpaired);
         const { unpaired: _u, ...rest } = r;
@@ -142,7 +153,7 @@ export function createRelay({
       }
       case 'setup': {
         // Only the Trip Twin computer itself (localhost) starts a setup.
-        if (!local.get(ws)) {
+        if (!conns.get(ws)?.isLocal) {
           send(ws, {
             t: 'setup',
             ok: false,
@@ -159,6 +170,7 @@ export function createRelay({
         sockets.set(ws, {
           id: `launcher-${String(m.id || 'local')}`,
           kind: 'launcher',
+          secure: Boolean(conns.get(ws)?.secure),
         });
         send(ws, { t: 'setup', ok: true, ...r });
         broadcastState();
@@ -259,17 +271,79 @@ export function createRelay({
 
   return {
     host,
-    attach(ws, { isLocal = true } = {}) {
-      local.set(ws, isLocal);
+    /** `secure`: the upgrade came over TLS (SEC-14; recorded, not used yet). */
+    attach(ws, { isLocal = true, secure = false } = {}) {
+      conns.set(ws, { isLocal: Boolean(isLocal), secure: Boolean(secure) });
       ws.on('message', (raw) => onMessage(ws, raw));
       ws.on('close', () => {
         const me = sockets.get(ws);
         sockets.delete(ws);
+        conns.delete(ws);
         if (me?.id) host.gone(me.id);
         presence();
       });
     },
     presenceTick: presence,
+    /** Open connections as the relay sees them (no ids): tests, health. */
+    connections: () =>
+      [...conns].map(([ws, c]) => ({
+        local: c.isLocal,
+        secure: c.secure,
+        kind: sockets.get(ws)?.kind ?? null,
+      })),
+  };
+}
+
+/**
+ * The relay's HTTP upgrade listener (SEC-15: exported, so a test can drive
+ * it with real `ws` clients on a plain http server). Returns false for an
+ * upgrade that is not the relay's (Vite's HMR keeps its own), else true.
+ * Report mode (K3, S-11): the new allowlist verdict is recorded when it
+ * refuses, and today's rule decides, so nothing refused today is allowed.
+ * Only the exact path is served (a /api/twin-sync… look-alike is refused).
+ */
+export function createTwinUpgrade({
+  relay,
+  check,
+  wss = new WebSocketServer({ noServer: true }),
+}) {
+  return function twinUpgrade(req, socket, head) {
+    if (!isSyncUpgrade(req.url)) return false;
+    const h = req.headers || {};
+    const peer = req.socket?.remoteAddress || '';
+    const secure = Boolean(req.socket?.encrypted);
+    const seen = { url: req.url, host: h.host, origin: h.origin, secure };
+    const port = req.socket?.localPort || check.port();
+    const verdict = upgradeVerdict(seen, check.lists(port));
+    const today = todayVerdict({ host: h.host, origin: h.origin });
+    // The exact path is enforced in every mode; Host/Origin report only.
+    const floor = verdict.reason === 'path' ? verdict : today;
+    if (!verdict.ok)
+      check.record(
+        wouldRefuseLine({
+          at: new Date(check.now()).toISOString(),
+          kind: 'upgrade',
+          mode: check.mode,
+          reason: verdict.reason,
+          today: today.ok ? 'allowed' : 'refused',
+          effect: floor.ok ? 'allowed' : 'refused',
+          host: h.host,
+          origin: h.origin,
+          peer,
+          path: req.url,
+          secure,
+        }),
+      );
+    if (!floor.ok) {
+      // As today: the socket is closed and nothing is written.
+      check.note('upgrade.refused', { reason: floor.reason });
+      socket.destroy();
+      return true;
+    }
+    wss.handleUpgrade(req, socket, head, (ws) =>
+      relay.attach(ws, { isLocal: isLoopbackPeer(peer), secure }),
+    );
+    return true;
   };
 }
 
@@ -304,12 +378,8 @@ export function twinSyncRelay() {
     name: 'trip-twin-sync-relay',
     configureServer(server) {
       // A restart keeps the wall: session, devices and tokens (R18).
-      const logger = server.config?.logger;
-      const log = (event, data) => {
-        const line = `[trip-twin] ${event} ${JSON.stringify(data)}`;
-        if (/error|refused|quarantined|reset/.test(event)) logger?.warn?.(line);
-        else logger?.info?.(line);
-      };
+      const log = twinLogger(server);
+      const check = hostCheckFor(server);
       const store = openRelayStore({ viteRoot: server.config?.root, log });
       const relay = createRelay({
         host: createSessionHost({ restore: store.restore }),
@@ -318,22 +388,8 @@ export function twinSyncRelay() {
       // The last change is written at once when the server stops.
       const flushOnExit = () => store.flush();
       process.once('exit', flushOnExit);
-      const wss = new WebSocketServer({ noServer: true });
-      server.httpServer?.on('upgrade', (req, socket, head) => {
-        if (!req.url?.startsWith(PATH)) return; // Vite's HMR keeps its own
-        // Same origin only: no other web page can open the wall's socket.
-        const origin = req.headers.origin || '';
-        const hostHeader = req.headers.host || '';
-        if (origin && origin.replace(/^https?:\/\//, '') !== hostHeader) {
-          socket.destroy();
-          return;
-        }
-        const ip = req.socket.remoteAddress || '';
-        const isLocal = /^(127\.|::1$|::ffff:127\.)/.test(ip);
-        wss.handleUpgrade(req, socket, head, (ws) =>
-          relay.attach(ws, { isLocal }),
-        );
-      });
+      // Same origin only (today's rule), plus the would-refuse record.
+      server.httpServer?.on('upgrade', createTwinUpgrade({ relay, check }));
       // Presence every 5 s so links and leases age visibly.
       const tick = setInterval(() => relay.presenceTick(), 5000);
       server.httpServer?.on('close', () => {
@@ -341,18 +397,30 @@ export function twinSyncRelay() {
         store.close();
         process.removeListener('exit', flushOnExit);
       });
+      // Every /api/twin-sync HTTP path: the Host guard first (SEC-2).
+      server.middlewares.use(PATH, twinHostGuard({ check }));
+      // hostAllowed/reason let a page say why before it opens a socket
+      // (browsers hide a refused upgrade). No addresses for a refused Host.
       server.middlewares.use(`${PATH}/info`, (req, res) => {
         const addr = server.httpServer?.address();
         const port = typeof addr === 'object' && addr ? addr.port : null;
         const host = server.config.server.host;
         const lan = host === true || host === '0.0.0.0';
+        const allowed = hostVerdict(
+          req.headers.host,
+          check.lists(req.socket?.localPort || port),
+          { secure: Boolean(req.socket?.encrypted) },
+        );
         res.setHeader('content-type', 'application/json');
         res.end(
           JSON.stringify({
             ok: true,
             port,
             lanListening: lan,
-            addresses: lan ? lanAddresses() : [],
+            addresses: lan && allowed.ok ? check.addresses() : [],
+            hostAllowed: allowed.ok,
+            reason: allowed.ok ? null : allowed.reason,
+            hostCheck: check.mode,
           }),
         );
       });

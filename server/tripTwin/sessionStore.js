@@ -64,19 +64,22 @@ const inside = (child, parent) => {
 };
 
 /**
- * The data folder, fenced (S-1, sec N2). Returns {dir, source} or
- * {dir: null, source, refused: {path, reason}}: a refused path is never
- * swapped for the default, so a QA server can never land on the live wall.
+ * A folder named by an env variable (else `fallback`), fenced (S-1, sec
+ * N2): relative paths and paths inside a fence (the repo, Vite's root) are
+ * refused. Returns {dir, source} or {dir: null, source, refused: {path,
+ * reason}}: a refused path is never swapped for the default. Shared by the
+ * data folder (K2) and the audit folder (K3).
  */
-export function resolveDataDir({
+export function resolveFencedDir({
+  name,
   env = process.env,
-  home = os.homedir(),
+  fallback,
   fences = [],
   fs: fsi = fs,
-} = {}) {
-  const asked = env.TRIP_TWIN_DATA_DIR;
-  const source = asked ? 'TRIP_TWIN_DATA_DIR' : 'default';
-  const want = asked || defaultDataDir(home);
+}) {
+  const asked = env[name];
+  const source = asked ? name : 'default';
+  const want = asked || fallback;
   if (!path.isAbsolute(want))
     return {
       dir: null,
@@ -93,6 +96,26 @@ export function resolveDataDir({
       };
   }
   return { dir: path.resolve(want), source };
+}
+
+/**
+ * The data folder, fenced (S-1, sec N2): TRIP_TWIN_DATA_DIR, else
+ * Application Support. A refused path is never swapped for the default, so
+ * a QA server can never land on the live wall.
+ */
+export function resolveDataDir({
+  env = process.env,
+  home = os.homedir(),
+  fences = [],
+  fs: fsi = fs,
+} = {}) {
+  return resolveFencedDir({
+    name: 'TRIP_TWIN_DATA_DIR',
+    env,
+    fallback: defaultDataDir(home),
+    fences,
+    fs: fsi,
+  });
 }
 
 /**

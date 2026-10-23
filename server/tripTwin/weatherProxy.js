@@ -5,6 +5,11 @@
 // it directly; MeteoAlarm sends no CORS headers. Image layers (IEM, nowCOAST,
 // EUMETView) and NWS alerts are CORS-open and are fetched by the browser.
 // Licences: plans/trip-twin/WEATHER-SOURCES.md.
+// Phase CF K3: behind the Trip Twin Host guard (twinHosts.js): cross-site
+// GETs get 403, so no other page can spend the upstream quotas (sec N7),
+// and a Host the new allowlist would refuse is recorded (report, S-11).
+import { hostCheckFor } from './twinHostCheck.js';
+import { twinHostGuard } from './twinHosts.js';
 
 const UA = 'SafeTrekr-TripTwin-prototype/0.1 (+https://safetrekr.com)';
 const MET_TTL_MS = 10 * 60 * 1000;
@@ -90,6 +95,10 @@ export function twinWeatherProxy({ fetchImpl = fetch } = {}) {
   return {
     name: 'safetrekr-trip-twin-weather',
     configureServer(server) {
+      server.middlewares.use(
+        '/api/twin-weather',
+        twinHostGuard({ check: hostCheckFor(server) }),
+      );
       server.middlewares.use('/api/twin-weather', async (req, res) => {
         if (req.method !== 'GET') return send(res, 405, { ok: false });
         const url = new URL(req.url, 'http://local');

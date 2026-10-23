@@ -2,7 +2,11 @@
 // which honours waypoints (through-locations) and avoid-areas
 // (exclude_polygons). Dev-server prototype only; production needs its own
 // routing service (07-production-delta, phase 4). Fair use: one request per
-// operator action, cached.
+// operator action, cached. Phase CF K3: both endpoints sit behind the Trip
+// Twin Host guard (twinHosts.js): cross-site requests get 403, and a Host
+// the new allowlist would refuse is recorded (report mode, S-11).
+import { hostCheckFor } from './twinHostCheck.js';
+import { twinHostGuard } from './twinHosts.js';
 
 const UA = 'SafeTrekr-TripTwin-prototype/0.1 (+https://safetrekr.com)';
 const VALHALLA = 'https://valhalla1.openstreetmap.de/route';
@@ -93,6 +97,9 @@ export function twinRoutingProxy({ fetchImpl = fetch } = {}) {
   return {
     name: 'safetrekr-trip-twin-routing',
     configureServer(server) {
+      const guard = twinHostGuard({ check: hostCheckFor(server) });
+      server.middlewares.use('/api/twin-place', guard);
+      server.middlewares.use('/api/twin-path', guard);
       server.middlewares.use('/api/twin-place', async (req, res) => {
         try {
           const q = new URL(req.url, 'http://x').searchParams;
