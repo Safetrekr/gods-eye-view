@@ -9,6 +9,9 @@
 // reconnecting with it — a wall falls to a fresh id and the pair card, a
 // remote shows its refusal. A replaced window (another window took this
 // identity) stops reconnecting and never touches storage (C16).
+// Phase CF K5 (S-15): every hello says this build's protocol (`proto`). A
+// relay that needs a newer page answers RELOAD, which is not terminal:
+// the page decides (a wall reloads itself at most once per 2 minutes).
 import {
   acquireIdentity,
   browserEnv,
@@ -16,7 +19,13 @@ import {
   localhostUrl,
   safeStorage,
 } from './twinIdentity.js';
-import { CLOSE, DENY, REPLACED, isTerminalDeny } from './twinProtocol.js';
+import {
+  CLOSE,
+  DENY,
+  PROTO,
+  REPLACED,
+  isTerminalDeny,
+} from './twinProtocol.js';
 
 const store = (() => {
   const s = safeStorage(() => globalThis.localStorage);
@@ -93,6 +102,7 @@ export function connectSync({
     ws.send(
       JSON.stringify({
         t: 'hello',
+        proto: PROTO,
         id: identity.id,
         kind,
         name,

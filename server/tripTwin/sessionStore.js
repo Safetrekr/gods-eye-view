@@ -154,7 +154,17 @@ export function checkSnapshot(doc, { legacy = false } = {}) {
       !(Number.isInteger(d.slot) && d.slot >= 1 && d.slot <= 6)
     )
       return bad(`device ${i}: slot ${JSON.stringify(d.slot)}`);
+    if (d.ref != null && typeof d.ref !== 'string')
+      return bad(`device ${i}: ref not a string`);
   }
+  // K5: the ref table and its counter (additive; older builds ignore them).
+  if (
+    doc.refs != null &&
+    (typeof doc.refs !== 'object' || Array.isArray(doc.refs))
+  )
+    return bad('refs not an object');
+  if (doc.nextRef != null && !Number.isInteger(doc.nextRef))
+    return bad('nextRef not a number');
   const l = doc.lease;
   if (l != null) {
     if (typeof l !== 'object') return bad('lease not an object');
@@ -299,6 +309,9 @@ export function openSessionStore({
     session: snap.session,
     devices: snap.devices,
     lease: snap.lease,
+    // K5 (§4.4): every ref ever issued, kept through a Forget (F-0003).
+    ...(snap.refs ? { refs: snap.refs } : {}),
+    ...(Number.isInteger(snap.nextRef) ? { nextRef: snap.nextRef } : {}),
   });
 
   /** Write the store now (and the tmp-path copy until K11). */

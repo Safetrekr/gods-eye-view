@@ -10,6 +10,20 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { createSessionHost } from './twinSessionHost.js';
+import { PROTO } from './twinProtocol.js';
+
+/**
+ * K5 (S-15): a page of this build says its protocol in its hello (and the
+ * launcher's setup). The kit adds `proto: PROTO` to those messages unless
+ * the test set the key itself: `proto: null` (or 1) plays a page from
+ * before K5, which the relay must send to RELOAD.
+ */
+export function asPage(msg) {
+  if (!msg || typeof msg !== 'object') return msg;
+  if ((msg.t === 'hello' || msg.t === 'setup') && !('proto' in msg))
+    return { ...msg, proto: PROTO };
+  return msg;
+}
 
 /**
  * Tests never write to the live ~/Library/Logs/trip-twin/ (K3): if no test
@@ -35,7 +49,7 @@ export function fakeSocket() {
   ws.readyState = 1;
   ws.out = [];
   ws.send = (s) => ws.out.push(JSON.parse(s));
-  ws.say = (m) => ws.emit('message', JSON.stringify(m));
+  ws.say = (m) => ws.emit('message', JSON.stringify(asPage(m)));
   ws.last = (t) => [...ws.out].reverse().find((m) => m.t === t);
   ws.all = (t) => ws.out.filter((m) => m.t === t);
   ws.close = (code = 1000) => {
@@ -117,7 +131,7 @@ export function fakeUpgrade({
 
 /** One masked client → server text frame (what a browser sends). */
 export function clientFrame(msg) {
-  const body = Buffer.from(JSON.stringify(msg));
+  const body = Buffer.from(JSON.stringify(asPage(msg)));
   if (body.length > 65535) throw new Error('clientFrame: message too long');
   const mask = Buffer.from([1, 2, 3, 4]);
   const head =

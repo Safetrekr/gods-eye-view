@@ -4,6 +4,8 @@
 // every write gets a monotonic rev. "All" writes only the fields it names
 // and skips pinned screens. Live / Advance and the day are per screen, so a
 // pinned incident board stays Live. Pure.
+// Phase CF K5 (BE-1, SEC-11): `by` is the actor's public ref ('D3'), never
+// a device id; session fields get `session.meta[field]` like screen fields.
 import { ROLES, defaultRoles } from './twinScreenRoles.js';
 
 /** Wall-wide: one value for every screen. */
@@ -88,11 +90,7 @@ const slotsFor = (state, target) =>
  *                                      defaults — pins included (the wall
  *                                      kill switch says so)
  */
-export function applyCommand(
-  state,
-  cmd,
-  { by = 'remote', at = Date.now() } = {},
-) {
+export function applyCommand(state, cmd, { by = null, at = Date.now() } = {}) {
   const next = clone(state);
   // Undo: session fields → old value; screens → {fields} or {whole}.
   const undo = { session: {}, screens: {} };
@@ -103,6 +101,7 @@ export function applyCommand(
     s.meta = s.meta || {};
     s.meta[field] = { source, rev, by, at };
   };
+  const markSession = (field) => mark(next.session, field, 'session');
   const keepField = (slot, field) => {
     const u = (undo.screens[slot] = undo.screens[slot] || { fields: {} });
     if (u.fields && !(field in u.fields))
@@ -122,6 +121,7 @@ export function applyCommand(
           if (!(k in undo.session))
             undo.session[k] = clone(state.session[k] ?? null);
           next.session[k] = v;
+          markSession(k);
           if (!changed.includes('session')) changed.push('session');
         }
       break;
@@ -195,6 +195,7 @@ export function applyCommand(
       for (const k of ['wxAt', 'spotlight', 'simStorm']) {
         undo.session[k] = clone(state.session[k] ?? null);
         next.session[k] = null;
+        markSession(k);
       }
       changed.push('session');
       for (const slot of Object.keys(state.screens).map(Number)) {
@@ -224,12 +225,12 @@ export function applyCommand(
 
 /**
  * Restore what one command changed, as a new revision (never rewinds rev).
- * A camera framing is never replayed by an undo.
+ * A camera framing is never replayed by an undo. `of`: the rev undone.
  */
 export function applyUndo(
   state,
   undo,
-  { by = 'remote', at = Date.now() } = {},
+  { by = null, at = Date.now(), of = null } = {},
 ) {
   if (!undo) return state;
   const next = clone(state);
@@ -251,7 +252,7 @@ export function applyUndo(
   }
   next.count = Object.keys(next.screens).length;
   next.rev = state.rev + 1;
-  next.lastUndo = { by, at };
+  next.lastUndo = { by, at, of };
   return next;
 }
 

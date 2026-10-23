@@ -26,6 +26,7 @@ import puppeteer from 'puppeteer';
 import WebSocket from 'ws';
 import { startQaServer } from './qa-twin-server.mjs';
 import { fakeSocket } from '../src/operations/tripTwin/twinTestKit.mjs';
+import { PROTO } from '../src/operations/tripTwin/twinProtocol.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
@@ -160,8 +161,11 @@ async function device(base, { id, kind, slot = null, name = '' }) {
   d.hello = async (extra = {}) => {
     d.c = await client(base);
     const welcome = d.c.next('welcome', 8000, `${id} welcome`);
+    // As twinSync.js from K5: the hello says this build's protocol (an
+    // older build ignores it).
     d.c.say({
       t: 'hello',
+      proto: PROTO,
       id,
       kind,
       name,
@@ -183,7 +187,7 @@ async function device(base, { id, kind, slot = null, name = '' }) {
 /** The real launcher's sequence: hello (refused), then setup. */
 async function startSetup(base, count = 6) {
   const c = await client(base);
-  c.say({ t: 'hello', id: 'launcher-qa', kind: 'launcher' });
+  c.say({ t: 'hello', proto: PROTO, id: 'launcher-qa', kind: 'launcher' });
   await c.next('welcome', 8000, 'launcher welcome');
   const got = c.next('setup', 8000, 'setup answer');
   c.say({ t: 'setup', count, tripId: null, siteKey: null });
@@ -297,6 +301,12 @@ const deviceIdIn = (page) =>
  * Remote offline" as soon as it opens, before the paired welcome lands:
  * a window closed then has no token to come back with.
  */
+/**
+ * The S6 chip names the QA remote. From K5 the relay names it: a remote on
+ * this computer is "Trip Twin computer" (CF-D8); an older build shows the
+ * name the page sent ("iPad").
+ */
+const REMOTE_CHIP = /^S6 · Remote: (Trip Twin computer|iPad)\b/;
 const joined = (x, n) =>
   !x.pairShown && x.paired && new RegExp(`^S${n} · Remote`).test(x.chip);
 /** K4: data-tt-link on a wall ('replaced' once another window took it). */
@@ -544,7 +554,7 @@ async function smoke(server, browser) {
       remote = await device(base, {
         id: 'remote-qa-ipad',
         kind: 'remote',
-        name: 'QA iPad',
+        name: 'iPad',
       });
       remote.setup = setup;
       const w = await remote.hello();
@@ -592,7 +602,7 @@ async function smoke(server, browser) {
       must(r.ok && r.slot === 6, `pair-result ${r.ok} ${r.error || ''}`);
       const w = await waitWall(
         page,
-        (x) => !x.pairShown && /^S6 · Remote: QA iPad/.test(x.chip),
+        (x) => !x.pairShown && REMOTE_CHIP.test(x.chip),
         30000,
         'the S6 chip',
       );
@@ -702,6 +712,137 @@ async function smoke(server, browser) {
     return { detail: `rev ${a.rev}` };
   });
 
+  // ---- K5: attribution by ref, no device ids, the protocol gate --------
+  /** Every device id in play: the socket devices and the S6 page's own. */
+  const idsOf = async () => {
+    const s6 = await page
+      ?.evaluate(() => {
+        const rec = JSON.parse(
+          localStorage.getItem('tripTwin.soc.slot.6') || 'null',
+        );
+        return rec?.id || sessionStorage.getItem('tripTwin.soc.device.screen');
+      })
+      .catch(() => null);
+    return ['launcher-qa', remote.id, ...walls.map((d) => d.id), s6].filter(
+      Boolean,
+    );
+  };
+  /** Where any of `ids` appears in what these sockets heard. */
+  const leaks = (socks, ids) => {
+    const hits = [];
+    for (const c of socks)
+      for (const m of c.out) {
+        const text = JSON.stringify(m);
+        for (const id of ids)
+          if (text.includes(id))
+            hits.push(
+              `${m.t}${m.type ? `:${m.type}` : ''} ∋ ${id.slice(0, 10)}…`,
+            );
+      }
+    return hits;
+  };
+  let remoteRef = null;
+  await step(
+    'K5-S1',
+    'attribution: the command and the undo name the remote by ref and host-made name (via touch); state holds refs; no device id in anything the launcher, walls or remote heard',
+    async () => {
+      const changes = walls[0].c.all('state').filter((m) => m.by);
+      must(changes.length >= 3, `${changes.length} attributed broadcasts`);
+      const by = changes.at(-1).by;
+      must(/^D\d+$/.test(by.ref || ''), `by.ref ${by.ref}`);
+      must(
+        by.name === 'Trip Twin computer',
+        `by.name "${by.name}" (a loopback remote)`,
+      );
+      must(
+        by.via === 'touch' && by.kind === 'remote',
+        `via ${by.via}, kind ${by.kind}`,
+      );
+      must(
+        changes.every((m) => m.by.ref === by.ref) &&
+          changes.map((m) => m.cause).join(',') === 'cmd,cmd,undo',
+        `causes ${changes.map((m) => m.cause).join(',')}`,
+      );
+      const st = walls[0].c.last('state').state;
+      must(
+        st.screens[2].meta.role.by === by.ref,
+        'S2 meta.role.by is not the ref',
+      );
+      must(st.lastUndo?.by === by.ref, 'lastUndo.by is not the ref');
+      remoteRef = by.ref;
+      const p = presenceOf(remote.c);
+      const actors = (p?.actors || []).map((a) => `${a.ref} ${a.name}`);
+      must(
+        actors.includes(`${by.ref} Trip Twin computer`),
+        `actors ${actors.join(', ')}`,
+      );
+      // The real S6 page still says "Updated" for a change (info.by is an
+      // object now; the wall tests it for truthiness only).
+      const ack = remote.c.next(
+        (m) => m.t === 'ack' && m.reqId === 41,
+        8000,
+        'ack',
+      );
+      remote.c.say({
+        t: 'cmd',
+        reqId: 41,
+        cmd: { type: 'screens', target: 6, patch: { layers: { qaK5: true } } },
+      });
+      must((await ack).ok, 'S6 command refused');
+      const chip = await waitWall(
+        page,
+        (x) => /· Updated\b/.test(x.chip),
+        8000,
+        'S6 "Updated"',
+      );
+      const ids = await idsOf();
+      const hits = leaks([launcher, remote.c, ...walls.map((d) => d.c)], ids);
+      must(
+        hits.length === 0,
+        `device ids heard: ${hits.slice(0, 4).join('; ')}`,
+      );
+      return {
+        detail: `by ${by.ref} "${by.name}" via ${by.via}; S6 chip "${chip.chip}"; ${actors.length} actors; ${ids.length} ids searched in ${[launcher, remote.c, ...walls.map((d) => d.c)].reduce((n, c) => n + c.out.length, 0)} messages: 0 hits`,
+      };
+    },
+  );
+
+  await step(
+    'K5-S2',
+    'protocol: a wall and a remote page from before K5 (no proto) are told RELOAD with readable text; nothing joins; the S6 chip still reads the remote',
+    async () => {
+      const told = [];
+      for (const [kind, extra] of [
+        ['screen', { slot: 3, setup }],
+        ['remote', { name: 'iPad' }],
+      ]) {
+        const c = await client(base);
+        const w = c.next('welcome', 8000, `${kind} welcome`);
+        c.say({ t: 'hello', id: `${kind}-qa-stale-k5`, kind, ...extra });
+        const m = await w;
+        must(
+          m.type === 'denied' && m.code === 'RELOAD' && m.proto === PROTO,
+          `${kind} got ${m.type} ${m.code ?? ''}`,
+        );
+        must(/out of date/.test(m.error || ''), `${kind} text "${m.error}"`);
+        must(!m.state && !m.presence, `${kind} got state or presence`);
+        told.push(`${kind}: "${m.error}"`);
+        await c.close();
+      }
+      await sleep(300);
+      const p = presenceOf(remote.c);
+      must(p?.screens?.[3]?.online, 'S3 left the wall');
+      must(p.remotes.length === 1, `${p.remotes.length} remotes`);
+      const w = await waitWall(
+        page,
+        (x) => !x.pairShown && REMOTE_CHIP.test(x.chip),
+        15000,
+        'the S6 chip',
+      );
+      return { detail: `${told.join('; ')}; chip "${w.chip}"` };
+    },
+  );
+
   await step(
     'K1-S9',
     'restart: kill the server and start it again (store in the QA data folder)',
@@ -762,7 +903,7 @@ async function smoke(server, browser) {
       if (server.external) return { notRun: true, ok: true };
       const w = await waitWall(
         page,
-        (x) => !x.pairShown && /^S6 · Remote: QA iPad/.test(x.chip),
+        (x) => !x.pairShown && REMOTE_CHIP.test(x.chip),
         60000,
         'S6 to rejoin',
       ).catch(async (e) => {
@@ -816,7 +957,7 @@ async function smoke(server, browser) {
   const s6Back = (what) =>
     waitWall(
       page,
-      (x) => !x.pairShown && /^S6 · Remote: QA iPad/.test(x.chip),
+      (x) => !x.pairShown && REMOTE_CHIP.test(x.chip),
       90000,
       what,
     );
@@ -850,6 +991,52 @@ async function smoke(server, browser) {
       must(/store\.loaded/.test(said), 'did not load the data-folder store');
       return {
         detail: `${server.sha} (was ${built}): store.loaded, no store.migrated`,
+      };
+    },
+  );
+
+  await step(
+    'K5-S3',
+    'after the restarts and the revert drill: the state names refs only, the remote is attributed by a ref and a kind name, and no device id reaches any socket',
+    async () => {
+      if (server.external) return { notRun: true, ok: true };
+      const acks = remote.c.next(
+        (m) => m.t === 'ack' && m.reqId === 51,
+        8000,
+        'ack',
+      );
+      const st = walls[0].c.next(
+        (m) => m.t === 'state' && m.by,
+        8000,
+        'attributed state',
+      );
+      remote.c.say({
+        t: 'cmd',
+        reqId: 51,
+        cmd: { type: 'screens', target: 4, patch: { textScale: 3 } },
+      });
+      const a = await acks;
+      must(a.ok, `ack: ${a.error}`);
+      const s1 = await st;
+      must(/^D\d+$/.test(s1.by?.ref || ''), `by ${JSON.stringify(s1.by)}`);
+      // A pre-K5 build in between rewrites the remote's record (and may
+      // name it as the page did): a new ref, never an old one reused.
+      const bys = [];
+      for (const v of Object.values(s1.state.screens))
+        for (const m of Object.values(v.meta || {})) bys.push(m.by);
+      for (const m of Object.values(s1.state.session.meta || {}))
+        bys.push(m.by);
+      must(
+        bys.every((b) => b === null || /^D\d+$/.test(b)),
+        `meta.by ${bys.filter((b) => !(b === null || /^D\d+$/.test(b))).length} not refs`,
+      );
+      const hits = leaks([remote.c, ...walls.map((d) => d.c)], await idsOf());
+      must(
+        hits.length === 0,
+        `device ids heard: ${hits.slice(0, 4).join('; ')}`,
+      );
+      return {
+        detail: `by ${s1.by.ref} "${s1.by.name}" (before the drill ${remoteRef}); ${bys.length} attributions, all refs or null; 0 id hits`,
       };
     },
   );
@@ -1108,6 +1295,7 @@ async function reproPairing(server, browser) {
         const again = s4.c.next('welcome', 8000, 'S4 welcome after ID_COPIED');
         s4.c.say({
           t: 'hello',
+          proto: PROTO,
           id: 'screen-qa-fresh',
           kind: 'screen',
           slot: 4,
