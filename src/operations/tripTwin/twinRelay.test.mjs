@@ -7,21 +7,22 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { EventEmitter } from 'node:events';
 import {
   clientFrame,
   fakeSocket,
-  fakeUpgrade,
+  fakeViteRelay as kitViteRelay,
   script,
   serverFrames,
   setupOf,
 } from './twinTestKit.mjs';
 
-// The relay keeps its store in os.tmpdir(), fixed when the module loads.
-// Point it at a fresh folder first, so no test can read or write the live
-// wall's session file (cf/06-qa.md N3).
+// The relay keeps its store in TRIP_TWIN_DATA_DIR (K2) and still writes
+// the old os.tmpdir() copy. Point both at a fresh folder first, so no test
+// can read or write the live wall's session files (cf/06-qa.md N3).
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'tt-relay-test-'));
-process.env.TMPDIR = scratch;
+process.env.TMPDIR = path.join(scratch, 'tmp');
+process.env.TRIP_TWIN_DATA_DIR = path.join(scratch, 'data');
+fs.mkdirSync(process.env.TMPDIR);
 // After the relay's debounced save has run (exit waits for its timer).
 process.on('exit', () => fs.rmSync(scratch, { recursive: true, force: true }));
 const { createRelay, lanAddresses, twinSyncRelay } =
@@ -255,26 +256,8 @@ test('a wall changes its own layers and display, nothing else (D5)', () => {
 // Pinned before CF-1 changes it (K3 report mode, K12 enforce), so a change
 // to the accept cases shows up as a failing test (cf/06-qa.md QA-2, QA-3).
 
-/** The relay plugin wired to a fake Vite dev server. */
-function fakeViteRelay() {
-  const httpServer = new EventEmitter();
-  httpServer.address = () => ({ port: 4173 });
-  const server = {
-    httpServer,
-    middlewares: { use() {} },
-    config: { server: { host: 'localhost' } },
-  };
-  twinSyncRelay().configureServer(server);
-  return {
-    upgrade(opts) {
-      const u = fakeUpgrade(opts);
-      httpServer.emit('upgrade', u.req, u.socket, u.head);
-      return u;
-    },
-    // Stops the 5 s presence tick so the test process can end.
-    close: () => httpServer.emit('close'),
-  };
-}
+/** The relay plugin wired to a fake Vite dev server (kit, K2). */
+const fakeViteRelay = () => kitViteRelay(twinSyncRelay());
 
 const tick = () => new Promise((r) => setTimeout(r, 20));
 

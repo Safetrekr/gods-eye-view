@@ -5,17 +5,24 @@
 // this machine's LAN addresses for the QR.
 // A socket's identity is bound only after an accepted hello; refused
 // sockets get nothing; presence never carries device ids. The wall is saved
-// to a file so a restart keeps screens and the remote paired.
+// so a restart keeps screens and the remote paired: sessionStore.js (Phase
+// CF K2) keeps it in TRIP_TWIN_DATA_DIR, written atomically.
 // Prototype only: plain ws, LAN, no login — production needs TLS, device
 // enrolment, SSO, signed commands and an audit log (07-production-delta).
 import os from 'node:os';
-import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { createSessionHost } from '../../src/operations/tripTwin/twinSessionHost.js';
+import { openSessionStore, resolveDataDir } from './sessionStore.js';
 
 const PATH = '/api/twin-sync';
-const STORE = path.join(os.tmpdir(), 'trip-twin-soc-session.json');
+/** This checkout: a data folder inside it is refused (S-1, sec N2). */
+const REPO_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '..',
+);
 
 /** IPv4 LAN addresses (no loopback, no link-local). */
 export function lanAddresses(ifaces = os.networkInterfaces()) {
@@ -266,12 +273,30 @@ export function createRelay({
   };
 }
 
-function loadStore() {
-  try {
-    return JSON.parse(fs.readFileSync(STORE, 'utf8'));
-  } catch {
-    return null;
-  }
+/**
+ * The store for this server: TRIP_TWIN_DATA_DIR (fenced off the repo and
+ * Vite's root), else Application Support. Exposed for tests.
+ */
+export function openRelayStore({
+  env = process.env,
+  viteRoot = null,
+  log = () => {},
+  ...opts
+} = {}) {
+  const where = resolveDataDir({
+    env,
+    fences: [
+      { name: 'the repo', path: REPO_ROOT },
+      viteRoot && { name: "Vite's root", path: viteRoot },
+    ],
+  });
+  if (where.refused)
+    log('store.dir_refused', {
+      source: where.source,
+      ...where.refused,
+      effect: 'the wall runs unsaved until this is fixed',
+    });
+  return openSessionStore({ dir: where.dir, log, ...opts });
 }
 
 export function twinSyncRelay() {
@@ -279,17 +304,20 @@ export function twinSyncRelay() {
     name: 'trip-twin-sync-relay',
     configureServer(server) {
       // A restart keeps the wall: session, devices and tokens (R18).
-      let timer = null;
-      const save = (snap) => {
-        clearTimeout(timer);
-        timer = setTimeout(() => {
-          fs.promises.writeFile(STORE, JSON.stringify(snap)).catch(() => {});
-        }, 300);
+      const logger = server.config?.logger;
+      const log = (event, data) => {
+        const line = `[trip-twin] ${event} ${JSON.stringify(data)}`;
+        if (/error|refused|quarantined|reset/.test(event)) logger?.warn?.(line);
+        else logger?.info?.(line);
       };
+      const store = openRelayStore({ viteRoot: server.config?.root, log });
       const relay = createRelay({
-        host: createSessionHost({ restore: loadStore() }),
-        save,
+        host: createSessionHost({ restore: store.restore }),
+        save: (snap) => store.queue(snap),
       });
+      // The last change is written at once when the server stops.
+      const flushOnExit = () => store.flush();
+      process.once('exit', flushOnExit);
       const wss = new WebSocketServer({ noServer: true });
       server.httpServer?.on('upgrade', (req, socket, head) => {
         if (!req.url?.startsWith(PATH)) return; // Vite's HMR keeps its own
@@ -308,7 +336,11 @@ export function twinSyncRelay() {
       });
       // Presence every 5 s so links and leases age visibly.
       const tick = setInterval(() => relay.presenceTick(), 5000);
-      server.httpServer?.on('close', () => clearInterval(tick));
+      server.httpServer?.on('close', () => {
+        clearInterval(tick);
+        store.close();
+        process.removeListener('exit', flushOnExit);
+      });
       server.middlewares.use(`${PATH}/info`, (req, res) => {
         const addr = server.httpServer?.address();
         const port = typeof addr === 'object' && addr ? addr.port : null;

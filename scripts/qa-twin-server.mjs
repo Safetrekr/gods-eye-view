@@ -5,16 +5,20 @@
 //     working tree never hot-reload a page under test;
 //   - Vite runs on :4181 (loopback only), HMR off, no file watching, its own
 //     cacheDir;
-//   - TMPDIR points into the QA folder, so the relay's session file
-//     (os.tmpdir()/trip-twin-soc-session.json) is never the live wall's;
+//   - TRIP_TWIN_DATA_DIR (K2) and TMPDIR point into the QA folder, so the
+//     relay's store (<data>/session.json) and its old tmp-path copy
+//     (os.tmpdir()/trip-twin-soc-session.json) are never the live wall's;
 //   - the server's environment is built from scratch: only
 //     GOOGLE_MAPS_API_KEY and CESIUM_ION_TOKEN are read from .env.local, so
 //     3D tiles load and FIRMS still answers 503. Nothing from that file is
 //     ever printed, logged or written.
 // CLI (runs until Ctrl-C):
 //   node scripts/qa-twin-server.mjs --dir <qa folder> [--port 4181]
-//     [--ref HEAD] [--env-file <path>]
-// Module: startQaServer({dir, port, ref, envFile}) → {url, restart, stop, …}
+//     [--ref HEAD|worktree] [--env-file <path>]
+// `--ref worktree` serves the working tree as it is (tracked and new files,
+// .gitignore respected), for a slice gate before its commit.
+// Module: startQaServer({dir, port, ref, envFile}) → {url, restart({ref}),
+//   stop, storeFile, legacyFile, dataDir, …}
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -28,7 +32,11 @@ export const PASSED_KEYS = Object.freeze([
   'CESIUM_ION_TOKEN',
 ]);
 export const QA_PORT = 4181;
-const SESSION_FILE = 'trip-twin-soc-session.json';
+/** The relay's store in the data folder (K2) and its old tmp-path copy. */
+const STORE_FILE = 'session.json';
+const LEGACY_FILE = 'trip-twin-soc-session.json';
+/** Serve the working tree, not a commit. */
+export const WORKTREE = 'worktree';
 
 const git = (...a) =>
   spawnSync('git', a, { cwd: ROOT, encoding: 'utf8' }).stdout?.trim() || '';
@@ -70,18 +78,38 @@ export function readPassedKeys(file) {
   return out;
 }
 
-/** `git archive <ref>` into <dir>/app, with node_modules linked in. */
+/**
+ * `git archive <ref>` into <dir>/app, with node_modules linked in. With
+ * ref `worktree`, the working tree's files instead (git ls-files: tracked
+ * and untracked, ignored files left out); git state is only read.
+ */
 export function archiveApp(dir, ref = 'HEAD') {
-  const sha = git('rev-parse', '--short', ref);
-  if (!sha) throw new Error(`qa-twin-server: unknown ref ${ref}`);
+  const head = git('rev-parse', '--short', 'HEAD');
+  const sha =
+    ref === WORKTREE ? `${head}+worktree` : git('rev-parse', '--short', ref);
+  if (!sha || (ref === WORKTREE && !head))
+    throw new Error(`qa-twin-server: unknown ref ${ref}`);
   const app = path.join(dir, 'app');
   fs.rmSync(app, { recursive: true, force: true });
   fs.mkdirSync(app, { recursive: true });
-  const tar = spawnSync(
-    'sh',
-    ['-c', `git archive --format=tar "$0" | tar -x -C "$1"`, ref, app],
-    { cwd: ROOT, encoding: 'utf8' },
-  );
+  let tar;
+  if (ref === WORKTREE) {
+    const files = git('ls-files', '-co', '--exclude-standard')
+      .split('\n')
+      .filter((f) => f && fs.existsSync(path.join(ROOT, f)));
+    const list = path.join(dir, 'worktree-files.txt');
+    fs.writeFileSync(list, `${files.join('\n')}\n`);
+    tar = spawnSync(
+      'sh',
+      ['-c', 'tar -c -f - -T "$0" | tar -x -C "$1"', list, app],
+      { cwd: ROOT, encoding: 'utf8' },
+    );
+  } else
+    tar = spawnSync(
+      'sh',
+      ['-c', `git archive --format=tar "$0" | tar -x -C "$1"`, ref, app],
+      { cwd: ROOT, encoding: 'utf8' },
+    );
   if (tar.status !== 0)
     throw new Error(`qa-twin-server: git archive failed: ${tar.stderr}`);
   const modules = fs.realpathSync(path.join(ROOT, 'node_modules'));
@@ -133,8 +161,9 @@ export async function startQaServer({
 } = {}) {
   if (!dir) throw new Error('qa-twin-server: --dir is required');
   fs.mkdirSync(dir, { recursive: true });
-  const { app, sha, modules } = archiveApp(dir, ref);
+  let { app, sha, modules } = archiveApp(dir, ref);
   const tmp = path.join(dir, 'tmp');
+  const dataDir = path.join(dir, 'data');
   const cacheDir = path.join(dir, 'vite-cache');
   fs.mkdirSync(tmp, { recursive: true });
   const keys = readPassedKeys(envFile);
@@ -144,6 +173,7 @@ export async function startQaServer({
     USER: process.env.USER,
     LANG: process.env.LANG || 'en_GB.UTF-8',
     TMPDIR: tmp,
+    TRIP_TWIN_DATA_DIR: dataDir,
     QA_HOST: host,
     QA_PORT: String(port),
     QA_CACHE_DIR: cacheDir,
@@ -213,20 +243,26 @@ export async function startQaServer({
   await launch();
   const origin = `http://localhost:${port}`;
   log(
-    `QA server ${origin} · ${sha} · TMPDIR in QA folder · ${Object.keys(keys).length} of ${PASSED_KEYS.length} map keys passed`,
+    `QA server ${origin} · ${sha} · data folder and TMPDIR in QA folder · ${Object.keys(keys).length} of ${PASSED_KEYS.length} map keys passed`,
   );
   return {
     url: origin,
     origin,
     port,
     app,
-    sha,
+    get sha() {
+      return sha;
+    },
     dir,
     tmp,
-    storeFile: path.join(tmp, SESSION_FILE),
+    dataDir,
+    storeFile: path.join(dataDir, STORE_FILE),
+    legacyFile: path.join(tmp, LEGACY_FILE),
     keysPassed: Object.keys(keys).length,
-    async restart() {
+    /** Stop and start again; `ref` swaps the code first (revert drills). */
+    async restart({ ref: next } = {}) {
       await kill();
+      if (next) ({ app, sha } = archiveApp(dir, next));
       await launch();
     },
     stop: kill,

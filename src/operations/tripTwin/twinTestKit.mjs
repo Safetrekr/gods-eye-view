@@ -180,3 +180,51 @@ export function script(relay, steps) {
 
 /** The setup token a launcher socket was given (script helper). */
 export const setupOf = (ws) => ws?.last('setup')?.setup;
+
+/**
+ * The relay's Vite plugin on a fake dev server (Phase CF K2): a real
+ * configureServer, so the store opens as it does under Vite. `root` is
+ * Vite's root (fenced by the store); `logs` collects the relay's log lines.
+ * `hello(msg)` upgrades, says one message and resolves the first reply.
+ */
+export function fakeViteRelay(
+  plugin,
+  { root = '/nonexistent-vite-root' } = {},
+) {
+  const httpServer = new EventEmitter();
+  httpServer.address = () => ({ port: 4173 });
+  const logs = [];
+  const logger = {
+    info: (m) => logs.push(m),
+    warn: (m) => logs.push(m),
+    error: (m) => logs.push(m),
+  };
+  const server = {
+    httpServer,
+    middlewares: { use() {} },
+    config: { server: { host: 'localhost' }, root, logger },
+  };
+  plugin.configureServer(server);
+  const upgrade = (opts) => {
+    const u = fakeUpgrade(opts);
+    httpServer.emit('upgrade', u.req, u.socket, u.head);
+    return u;
+  };
+  return {
+    logs,
+    upgrade,
+    /** Say each message on one new socket; resolve every frame it got. */
+    async talk(msgs, opts = {}) {
+      const u = upgrade(opts);
+      for (const m of [].concat(msgs)) u.socket.emit('data', clientFrame(m));
+      await new Promise((r) => setTimeout(r, 20));
+      return serverFrames(u.socket.written);
+    },
+    async hello(msg, opts) {
+      const frames = await this.talk(msg, opts);
+      return frames.find((m) => m.t === 'welcome' || m.t === 'setup');
+    },
+    // Stops the 5 s presence tick and flushes the store, as Vite's close.
+    close: () => httpServer.emit('close'),
+  };
+}
