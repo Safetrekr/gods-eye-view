@@ -21,6 +21,7 @@ import {
   SETUP_TTL_MS,
   createSessionHost,
 } from './twinSessionHost.js';
+import { clockHost } from './twinTestKit.mjs';
 
 test('default roles: first N in order of importance, small counts merge', () => {
   assert.deepEqual(ROLE_ORDER, [
@@ -231,20 +232,6 @@ test('confirm and preview for wide pushes', () => {
     /S1, S2, S4 · S3 pinned, unchanged/,
   );
 });
-
-function clockHost() {
-  let t = 1_000_000;
-  let seed = 0.123;
-  const host = createSessionHost({
-    now: () => t,
-    random: () => {
-      seed = (seed * 9301 + 0.49297) % 1;
-      return seed;
-    },
-  });
-  const setup = host.setup({ count: 4 }).setup;
-  return { host, tick: (ms) => (t += ms), setup };
-}
 
 test('pairing: code, single use, expiry, lockout, token rejoin, unpaired notice', () => {
   const { host, tick, setup } = clockHost();

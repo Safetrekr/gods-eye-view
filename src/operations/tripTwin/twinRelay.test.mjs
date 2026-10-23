@@ -1,19 +1,31 @@
-// Trip Twin SOC relay (phase 10): hello / setup / command / thumbnails with
-// fake sockets — no network, no Vite.
+// Trip Twin SOC relay (phase 10; moved here in Phase CF K1 so `npm test`
+// runs it, PHASE-CF-PLAN S-3): hello / setup / command / thumbnails with
+// fake sockets, and today's upgrade rule through the real handler — no
+// network, no Vite.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { EventEmitter } from 'node:events';
-import { createRelay, lanAddresses } from './syncRelay.js';
+import {
+  clientFrame,
+  fakeSocket,
+  fakeUpgrade,
+  script,
+  serverFrames,
+  setupOf,
+} from './twinTestKit.mjs';
 
-function fakeSocket() {
-  const ws = new EventEmitter();
-  ws.readyState = 1;
-  ws.out = [];
-  ws.send = (s) => ws.out.push(JSON.parse(s));
-  ws.say = (m) => ws.emit('message', JSON.stringify(m));
-  ws.last = (t) => [...ws.out].reverse().find((m) => m.t === t);
-  return ws;
-}
+// The relay keeps its store in os.tmpdir(), fixed when the module loads.
+// Point it at a fresh folder first, so no test can read or write the live
+// wall's session file (cf/06-qa.md N3).
+const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'tt-relay-test-'));
+process.env.TMPDIR = scratch;
+// After the relay's debounced save has run (exit waits for its timer).
+process.on('exit', () => fs.rmSync(scratch, { recursive: true, force: true }));
+const { createRelay, lanAddresses, twinSyncRelay } =
+  await import('../../../server/tripTwin/syncRelay.js');
 
 test('setup → local screen joins → remote controls → all screens get state', () => {
   const relay = createRelay();
@@ -145,16 +157,29 @@ test('a spoofed remote id gets nothing and cannot command (R1)', () => {
 
 test('a screen whose slot is given away is told', () => {
   const relay = createRelay();
-  const launcher = fakeSocket();
-  relay.attach(launcher);
-  launcher.say({ t: 'setup', count: 2 });
-  const { setup } = launcher.last('setup');
-  const a = fakeSocket();
-  relay.attach(a);
-  a.say({ t: 'hello', id: 'A', kind: 'screen', setup, slot: 2 });
-  const b = fakeSocket();
-  relay.attach(b);
-  b.say({ t: 'hello', id: 'B', kind: 'screen', setup, slot: 2 });
+  const { a, b } = script(relay, [
+    { as: 'launcher', say: { t: 'setup', count: 2 } },
+    {
+      as: 'a',
+      say: (s) => ({
+        t: 'hello',
+        id: 'A',
+        kind: 'screen',
+        setup: setupOf(s.launcher),
+        slot: 2,
+      }),
+    },
+    {
+      as: 'b',
+      say: (s) => ({
+        t: 'hello',
+        id: 'B',
+        kind: 'screen',
+        setup: setupOf(s.launcher),
+        slot: 2,
+      }),
+    },
+  ]);
   assert.ok(a.last('unpaired'), 'old screen told');
   assert.equal(b.last('welcome').slot, 2);
 });
@@ -224,4 +249,85 @@ test('a wall changes its own layers and display, nothing else (D5)', () => {
     cmd: { type: 'screens', target: 2, patch: { scale: 'building' } },
   });
   assert.equal(remote.last('ack')?.reqId, undefined);
+});
+
+// ---- Today's upgrade rule, through the real Vite plugin handler --------
+// Pinned before CF-1 changes it (K3 report mode, K12 enforce), so a change
+// to the accept cases shows up as a failing test (cf/06-qa.md QA-2, QA-3).
+
+/** The relay plugin wired to a fake Vite dev server. */
+function fakeViteRelay() {
+  const httpServer = new EventEmitter();
+  httpServer.address = () => ({ port: 4173 });
+  const server = {
+    httpServer,
+    middlewares: { use() {} },
+    config: { server: { host: 'localhost' } },
+  };
+  twinSyncRelay().configureServer(server);
+  return {
+    upgrade(opts) {
+      const u = fakeUpgrade(opts);
+      httpServer.emit('upgrade', u.req, u.socket, u.head);
+      return u;
+    },
+    // Stops the 5 s presence tick so the test process can end.
+    close: () => httpServer.emit('close'),
+  };
+}
+
+const tick = () => new Promise((r) => setTimeout(r, 20));
+
+test('upgrade today: a same-origin page is accepted, another origin is refused', () => {
+  const v = fakeViteRelay();
+  try {
+    assert.equal(v.upgrade({}).verdict, 'accepted');
+    assert.equal(
+      v.upgrade({ host: '[::1]:4173', origin: 'http://[::1]:4173' }).verdict,
+      'accepted',
+    );
+    assert.equal(
+      v.upgrade({ host: 'localhost:4173', origin: 'http://evil.example' })
+        .verdict,
+      'refused',
+    );
+    // Today a rebinding pair (Host and Origin both foreign) still passes:
+    // the K3/K12 allowlist is what refuses it.
+    assert.equal(
+      v.upgrade({
+        host: 'evil.example:4173',
+        origin: 'http://evil.example:4173',
+      }).verdict,
+      'accepted',
+    );
+  } finally {
+    v.close();
+  }
+});
+
+test('upgrade today: no Origin header is accepted; other paths are left to Vite', () => {
+  const v = fakeViteRelay();
+  try {
+    assert.equal(v.upgrade({ origin: null }).verdict, 'accepted');
+    assert.equal(v.upgrade({ url: '/@vite/client' }).verdict, 'untouched');
+  } finally {
+    v.close();
+  }
+});
+
+test('upgrade today: only a loopback peer can start a setup through the real handler', async () => {
+  const v = fakeViteRelay();
+  try {
+    const lan = v.upgrade({ remoteAddress: '192.168.1.40' });
+    lan.socket.emit('data', clientFrame({ t: 'setup', count: 2 }));
+    const local = v.upgrade({ remoteAddress: '::1' });
+    local.socket.emit('data', clientFrame({ t: 'setup', count: 2 }));
+    await tick();
+    const said = (u) => serverFrames(u.socket.written).find((m) => m.t);
+    assert.equal(said(lan).ok, false);
+    assert.equal(said(local).ok, true);
+    assert.match(said(local).setup, /^[0-9a-z]{24}$/);
+  } finally {
+    v.close();
+  }
 });
