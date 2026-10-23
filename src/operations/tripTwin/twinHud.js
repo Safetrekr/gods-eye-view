@@ -271,10 +271,10 @@ export function createHud({
   const fixed = el('div', 'tt-rail-fixed');
   peopleCard.body.append(fixed);
   const peopleHead = el('div', 'tt-line tt-people-asof');
-  const siteSplit = el('div', 'tt-line tt-site-line');
+  const siteSplit = el('div', 'tt-line tt-site-line tt-people-foot');
   const roster = el('div', 'tt-roster');
-  const zone = el('div', 'tt-line');
-  const chap = el('div', 'tt-line');
+  const zone = el('div', 'tt-line tt-people-foot');
+  const chap = el('div', 'tt-line tt-people-foot');
   const find = el('div', 'tt-find');
   const findInput = el('input');
   findInput.type = 'search';

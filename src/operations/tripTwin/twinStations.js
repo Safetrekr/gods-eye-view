@@ -226,12 +226,14 @@ export function createStationRail({ onPick, onBack, onToggle, menu = [] }) {
     t.innerHTML = icon || '';
     const pill = el('span', 'tt-st-pill');
     pill.hidden = true;
-    t.append(el('span', 'num', num || ''), el('span', 'lab', label), pill);
+    // A disabled tile says why (visual pass, 12-ui §14).
+    const why = el('span', 'why');
+    t.append(el('span', 'num', num || ''), el('span', 'lab', label), why, pill);
     if (title) t.title = title;
     t.addEventListener('click', () => {
       if (!t.disabled) action();
     });
-    return { t, pill };
+    return { t, pill, why };
   }
   let gridKey = '';
   let cells = new Map();
@@ -315,8 +317,9 @@ export function createStationRail({ onPick, onBack, onToggle, menu = [] }) {
       // while inside a station, so nothing hides behind a station.
       const signalBadge = state.backBadge || null;
       for (const x of list) {
-        const { t, pill } = cells.get(x.key);
+        const { t, pill, why } = cells.get(x.key);
         if (x.empty) continue;
+        why.textContent = x.disabled && x.reason ? x.reason : '';
         const on = inStation ? Boolean(x.on) : x.key === s.id;
         if (on) t.setAttribute('aria-current', 'true');
         else t.removeAttribute('aria-current');

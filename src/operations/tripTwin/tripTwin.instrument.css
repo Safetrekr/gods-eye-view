@@ -2618,3 +2618,171 @@ body:not([data-view='screen']) #tt-rail .tt-rail-scroll.more-below::after {
 .tt-cut-run .t {
   padding-left: 6px;
 }
+
+/* ===================== visual pass (23 Oct 2026) =====================
+   Depth (Jesse: "I like the z-depth — use it where it is legit"): three
+   levels by what truly sits on what. Level 1 floats a panel over the map;
+   level 2 is the stations rail; level 3 is a sheet or popover over
+   everything. List edges never get a shadow. */
+:root {
+  --tt-depth-1:
+    0 10px 28px -10px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.25);
+  --tt-depth-2:
+    0 22px 48px -14px rgba(0, 0, 0, 0.65), 0 4px 12px rgba(0, 0, 0, 0.3);
+  --tt-depth-3:
+    0 40px 100px -20px rgba(0, 0, 0, 0.75), 0 8px 24px rgba(0, 0, 0, 0.4);
+  --tt-blur-lg: 24px;
+}
+body:not([data-view='screen']) #tt-rail > .tt-rail-head,
+body:not([data-view='screen'])
+  #tt-rail
+  .tt-sec:not([data-state='attention']):not([data-state='hazard']),
+.tt-mapbar,
+.tt-toolbar,
+.tt-aperture {
+  box-shadow:
+    var(--tt-depth-1),
+    inset 0 1px 0 var(--tt-light);
+}
+body:not([data-view='screen']) #tt-rail .tt-sec[data-state='attention'] {
+  box-shadow:
+    0 0 0 1px rgba(245, 158, 11, 0.18),
+    0 0 18px rgba(245, 158, 11, 0.16),
+    var(--tt-depth-1),
+    inset 0 1px 0 var(--tt-light);
+}
+body:not([data-view='screen']) #tt-rail .tt-sec[data-state='hazard'] {
+  box-shadow:
+    0 0 0 1px rgba(238, 119, 137, 0.25),
+    0 0 22px rgba(238, 119, 137, 0.24),
+    var(--tt-depth-1),
+    inset 0 1px 0 var(--tt-light);
+}
+.tt-st {
+  box-shadow:
+    var(--tt-depth-2),
+    inset 0 1px 0 var(--tt-light);
+}
+body:not([data-view='screen']) .tt-sheet:not([hidden]),
+.tt-pop:not([hidden]),
+.tt-more:not([hidden]) {
+  box-shadow:
+    var(--tt-depth-3),
+    inset 0 1px 0 var(--tt-light);
+}
+/* A sheet dims what it covers a little more, so it reads as above. */
+body:not([data-view='screen']):has(.tt-sheet:not([hidden])) #cesiumContainer {
+  filter: brightness(0.7);
+  transition: filter 0.2s linear;
+}
+
+/* Top bar: one chip recipe — 24 px, radius 6, hairline, mono 11. */
+.tt-bar .tt-mode,
+.tt-bar .tt-live-alert,
+.tt-bar .tt-other-alert,
+.tt-bar .tt-appmode,
+.tt-bar .tt-more-btn {
+  height: 24px;
+  box-sizing: border-box;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+}
+.tt-bar .tt-mode,
+.tt-bar .tt-live-alert,
+.tt-bar .tt-other-alert {
+  padding: 0 10px;
+  font: 500 11px/1 var(--tt-mono);
+  letter-spacing: 0.1em;
+}
+.tt-bar .tt-appmode button {
+  height: 22px;
+  line-height: 22px;
+}
+.tt-bar .tt-appmode button:first-child {
+  border-radius: 5px 0 0 5px;
+}
+.tt-bar .tt-appmode button:last-child {
+  border-radius: 0 5px 5px 0;
+}
+
+/* Disabled tiles say why, in a quiet mono line under the label. */
+.tt-st-tile .why {
+  position: absolute;
+  bottom: 26px;
+  left: 12px;
+  right: 10px;
+  font: 500 9px/12px var(--tt-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tt-text-dim);
+  opacity: 0.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tt-st-tile .why:empty {
+  display: none;
+}
+
+/* The logo in the one light (#eef5f3), not pure white. */
+.tt-brand-mark,
+.rm-brand img {
+  opacity: 0.94;
+}
+
+/* People card: the detail lines become one quiet footer. */
+body:not([data-view='screen']) .tt-people-foot {
+  font: 400 11px/16px var(--tt-font);
+  color: var(--tt-text-dim);
+  margin-top: 2px;
+}
+body:not([data-view='screen']) .tt-roster + .tt-people-foot {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--tt-hair);
+}
+
+/* 2560 and up: the rail's tiles and lead numbers use the room. */
+@media (min-width: 2300px) {
+  body:not([data-view='screen']) {
+    --st-tile: 100px;
+  }
+  .tt-st-hero .n {
+    font-size: 48px;
+    line-height: 48px;
+  }
+  .tt-sum-n {
+    font-size: 52px;
+    line-height: 48px;
+  }
+}
+/* The chip recipe must never un-hide a hidden chip. */
+.tt-bar [hidden] {
+  display: none !important;
+}
+/* Layers sheet: masonry columns, so groups of different heights pack. */
+body:not([data-view='screen']) #tt-layers.tt-sheet:not([hidden]) {
+  display: block;
+  column-count: 3;
+  column-gap: 16px;
+}
+#tt-layers.tt-sheet > .tt-pop-head {
+  column-span: all;
+}
+#tt-layers.tt-sheet .tt-layer-group {
+  break-inside: avoid;
+  margin: 0 0 16px;
+  display: inline-block;
+  width: 100%;
+}
+@media (max-width: 1599px) {
+  body:not([data-view='screen']) #tt-layers.tt-sheet:not([hidden]) {
+    column-count: 3;
+  }
+}
+@media (min-width: 2300px) {
+  body:not([data-view='screen']) #tt-layers.tt-sheet:not([hidden]) {
+    column-count: 5;
+  }
+}

@@ -531,6 +531,7 @@ async function main() {
         label: 'Next to check',
         icon: ICON.next,
         disabled: !flatNeeds().length,
+        reason: 'No one to check',
         title: 'Select the next person to check (A, then ] and [)',
         action: () => {
           const list = flatNeeds();
@@ -622,6 +623,7 @@ async function main() {
             icon: ICON.report,
             on: has,
             disabled: appMode === 'advance',
+            reason: 'Live only',
             title:
               appMode === 'advance'
                 ? 'Reports are live data — switch to Live'
@@ -635,6 +637,7 @@ async function main() {
             label: 'Copy for responders',
             icon: ICON.copy,
             disabled: !incident,
+            reason: 'Needs an incident',
             title: incident
               ? 'Copy the incident summary for responders'
               : 'Available with an incident',
@@ -648,6 +651,7 @@ async function main() {
             label: has ? `Frame floor ${label}` : 'Frame floor',
             icon: ICON.topdown,
             disabled: !has,
+            reason: 'Needs a floor',
             title: has
               ? `Look at floor ${label} and who may be on it`
               : 'Available once a floor is reported',
@@ -662,6 +666,7 @@ async function main() {
             label: 'Frame the storm',
             icon: ICON.storm,
             disabled: !ncView()?.ap?.core && !lastCtx?.weather?.approach,
+            reason: 'No storm near',
             title:
               ncView()?.ap?.core || lastCtx?.weather?.approach
                 ? 'Fit the site and the storm core in view'
