@@ -1301,11 +1301,13 @@ body:not([data-view='screen']) #tt-rail .tt-sec-body .tt-group:last-child {
 .tt-more-item.sim {
   color: var(--tt-hazard-text);
 }
-/* The All-in-one rail column fades at its bottom edge instead of cutting. */
-body:not([data-view='screen']) #tt-rail .tt-rail-scroll {
-  -webkit-mask-image: linear-gradient(#000 calc(100% - 28px), transparent);
-  mask-image: linear-gradient(#000 calc(100% - 28px), transparent);
-  padding-bottom: 28px;
+/* No mask on the rail column: a mask makes it a backdrop root and the
+   cards inside stop blurring the map (Jesse, 23 Oct: blur the background
+   behind the cards so they read better, but keep it visible). */
+body:not([data-view='screen']) #tt-rail > .tt-rail-head,
+body:not([data-view='screen']) #tt-rail .tt-sec {
+  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
 }
 @media (max-width: 1599px) {
   .tt-bar-place > .tt-kicker {
