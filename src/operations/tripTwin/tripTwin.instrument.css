@@ -2272,3 +2272,30 @@ body.tt-incident-open.tt-st-open .tt-rcol > .tt-card {
   flex: 0 1 auto;
   max-height: 28%;
 }
+
+/* Card status (Jesse, 23 Oct): outline and glow carry the state — red for
+   urgent (an incident), amber for attention; calm cards stay steel. The
+   same rule for the left cards, the Summary and the incident board. */
+body:not([data-view='screen']) #tt-rail .tt-sec[data-state='attention'],
+body:not([data-view='screen'])
+  #tt-rail
+  > .tt-rail-head[data-state='attention'] {
+  border-color: rgba(245, 158, 11, 0.75);
+  box-shadow:
+    0 0 0 1px rgba(245, 158, 11, 0.18),
+    0 0 18px rgba(245, 158, 11, 0.16),
+    inset 0 1px 0 var(--tt-light);
+}
+body:not([data-view='screen']) #tt-rail .tt-sec[data-state='hazard'],
+body:not([data-view='screen']) #tt-rail > .tt-rail-head[data-state='hazard'] {
+  border-color: var(--tt-hazard);
+  box-shadow:
+    0 0 0 1px rgba(238, 119, 137, 0.25),
+    0 0 22px rgba(238, 119, 137, 0.24),
+    inset 0 1px 0 var(--tt-light);
+}
+body.tt-st-open:not([data-view='screen'])
+  .tt-rcol
+  > .tt-incident:not([hidden]) {
+  box-shadow: 0 -10px 24px -14px rgba(238, 119, 137, 0.5);
+}

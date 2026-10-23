@@ -605,6 +605,35 @@ export function createHud({
       ...ctx.sources.map((l) => el('div', 'tt-line', l)),
     );
 
+    // Card status (Jesse, 23 Oct): an urgent card is outlined and glows
+    // red, a card needing attention amber; calm cards stay steel.
+    {
+      const c = a.counts;
+      const hasNear = (ctx.fires?.details || []).some((d) =>
+        // Only an actual detection with a distance ("Heat detection 1.2 mi
+        // NE"), not the source or caveat lines.
+        /\bheat detection [\d.]/i.test(
+          typeof d === 'string' ? d : d?.text || '',
+        ),
+      );
+      const wxAttn = Boolean(
+        ctx.weather?.approach || ctx.weather?.official?.length,
+      );
+      const state = {
+        needs: incidentNow ? 'hazard' : m.total ? 'attention' : '',
+        people: c['Not current'] || c['Not located'] ? 'attention' : '',
+        hazards: hasNear || wxAttn ? 'attention' : '',
+        safety: '',
+        sources: m.degraded ? 'attention' : '',
+      };
+      for (const [k, v] of Object.entries(state))
+        cards[k].sec.dataset.state = v;
+      head.dataset.state = incidentNow
+        ? 'hazard'
+        : m.mode === 'watch' || wxAttn || m.degraded
+          ? 'attention'
+          : '';
+    }
     for (const c of Object.values(cards)) applyCard(c);
     scroll.scrollTop = top;
   }
