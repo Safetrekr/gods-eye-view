@@ -425,3 +425,17 @@ body.rm-alert .rm-content.sw-in,
 body.rm-alert .rm-content.sw-out {
   animation: none !important;
 }
+/* The SafeTrekr shield leads the remote's plate (review/shell R2-4). */
+.rm-brand {
+  display: inline-block;
+  width: 14px;
+  height: 16px;
+  overflow: hidden;
+  flex: none;
+  margin-right: 4px;
+}
+.rm-brand img {
+  display: block;
+  width: 89px;
+  height: 16px;
+}

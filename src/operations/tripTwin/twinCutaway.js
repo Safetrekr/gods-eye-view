@@ -186,6 +186,39 @@ export function createCutaway({ compact = false, onPick = () => {} } = {}) {
       });
       return b;
     });
+    // Runs of 4+ quiet floors fold into one row (review/shell R2-6), worded
+    // so it cannot be read as "floor clear": no estimates, not no one.
+    const rows = [];
+    let run = [];
+    const flush = () => {
+      if (run.length >= 4) {
+        const top = run[0].dataset.label;
+        const bottom = run[run.length - 1].dataset.label;
+        const r = el('div', 'tt-cut-run');
+        r.style.height = `${tall}px`;
+        r.append(
+          el('span', 'g num', ''),
+          el('span', 't', `${bottom}–${top} · no estimates`),
+        );
+        r.setAttribute(
+          'aria-label',
+          `Floors ${bottom} to ${top}: no floor estimates · not a headcount`,
+        );
+        rows.push(r);
+        for (const b of run) b.dataset.folded = '1';
+      } else rows.push(...run);
+      run = [];
+    };
+    for (const b of buttons) {
+      if (b.classList.contains('quiet') && !b.classList.contains('focus'))
+        run.push(b);
+      else {
+        flush();
+        rows.push(b);
+      }
+    }
+    flush();
+    buttons = buttons.filter((b) => !b.dataset.folded);
     // One tab stop: the focused floor, else the reported floor, else the top.
     const stop =
       buttons.find((b) => b.dataset.label === prevFocus) ||
@@ -193,7 +226,7 @@ export function createCutaway({ compact = false, onPick = () => {} } = {}) {
       buttons.find((b) => b.dataset.state === 'reported') ||
       buttons[0];
     if (stop) stop.tabIndex = 0;
-    list.replaceChildren(...buttons);
+    list.replaceChildren(...rows);
     if (prevFocus) stop?.focus();
     foot.textContent = footerLine(occ.footer);
     setPlate(null);

@@ -293,7 +293,16 @@ app.append(head, grid, aperture);
 function renderHead() {
   const t = tripById(ui.state?.session?.tripId);
   const plate = el('div', 'rm-plate');
+  // The SafeTrekr shield leads the remote too (review/shell R2-4).
+  const brand = el('span', 'rm-brand');
+  const logo = document.createElement('img');
+  logo.src = '/safetrekr-logo.svg';
+  logo.alt = 'SafeTrekr';
+  logo.width = 89;
+  logo.height = 16;
+  brand.append(logo);
   plate.append(
+    brand,
     el('span', 'mono', t.orgShort),
     el('span', 'org', `${t.title} · ${t.org}`),
   );
@@ -782,15 +791,26 @@ function renderRail() {
     if (s.id === 'trips' && otherIncident)
       t.append(el('span', 'pill', 'REPORTED'));
     // A core on its way to the site shows on the Weather tile (amber).
+    // Same order as the All-in-one: an official warning, the demo
+    // warning, then the storm's time pill (review/shell R2-4).
+    const lines = ui.wx?.lines || [];
     const pill =
-      s.id === 'weather'
-        ? weatherPill(wxT, ui.wx?.sim, regionOf(ui.wx?.site?.timezone) === 'us')
-        : '';
+      s.id !== 'weather'
+        ? ''
+        : lines.some((l) => l.official)
+          ? 'WARNING'
+          : lines.some((l) => l.sim)
+            ? 'SIM WARNING'
+            : weatherPill(
+                wxT,
+                ui.wx?.sim,
+                regionOf(ui.wx?.site?.timezone) === 'us',
+              );
     if (pill)
       t.append(
         el(
           'span',
-          `pill ${wxT.level === 'attention' ? 'attn' : 'watch'}`,
+          `pill ${/WARNING/.test(pill) || wxT?.level === 'attention' ? 'attn' : 'watch'}`,
           pill,
         ),
       );

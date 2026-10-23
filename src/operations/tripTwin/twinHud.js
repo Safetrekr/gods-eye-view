@@ -195,6 +195,16 @@ export function createHud({
   const head = el('div', 'tt-rail-head');
   const scroll = el('div', 'tt-rail-scroll');
   rail.replaceChildren(head, scroll);
+  // Edge fades only where there is more to scroll to (Jesse, 23 Oct).
+  const edges = () => {
+    scroll.classList.toggle('more-above', scroll.scrollTop > 2);
+    scroll.classList.toggle(
+      'more-below',
+      scroll.scrollTop + scroll.clientHeight < scroll.scrollHeight - 2,
+    );
+  };
+  scroll.addEventListener('scroll', edges, { passive: true });
+  new ResizeObserver(edges).observe(scroll);
   // The summary text is rebuilt each render; the find box beside it is not.
   const sum = el('div', 'tt-sum');
   head.append(sum);
@@ -653,6 +663,7 @@ export function createHud({
       if (row && isOpen(needsCard)) row.scrollIntoView({ block: 'nearest' });
     }
     lastSelId = ctx.selectedPersonId || null;
+    edges();
   }
 
   function renderIncident(a, ctx) {

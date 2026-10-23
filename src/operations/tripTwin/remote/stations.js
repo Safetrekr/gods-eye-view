@@ -329,7 +329,7 @@ function trip(ctx) {
   if (!day.events.length)
     out.push(el('div', 'rm-note', 'No events on the plan for this day.'));
   if (day.flags.length) {
-    out.push(kick(`To check · ${day.flags.length}`));
+    out.push(kick(`Plan checks · ${day.flags.length}`));
     for (const fl of day.flags) out.push(el('div', 'rm-flag', fl));
   }
   out.push(kick(`Sites & places · sunset ${day.sunset || '—'}`, WALL));
@@ -408,7 +408,7 @@ function tripContext(ctx) {
     row(
       `D${d.day}`,
       `Day ${d.day} · ${dayText(d.date)}${d.day === data.today ? ' · today' : ''}`,
-      `${d.events.length} event${d.events.length === 1 ? '' : 's'}${d.flags.length ? ` · ${d.flags.length} to check` : ''}`,
+      `${d.events.length} event${d.events.length === 1 ? '' : 's'}${d.flags.length ? ` · ${d.flags.length} plan check${d.flags.length === 1 ? '' : 's'}` : ''}`,
       '',
       () => ctx.pickDay(d.day),
       d.day === pick,
@@ -949,17 +949,10 @@ const RENDER = {
   day: trip,
   trips: tripsOnWatch,
 };
-const REMOTE_SUB = {
-  site: '3D site picture · scale',
-  travelers: 'Roster & spotlight',
-  incident: 'Report, board & responders',
-  weather: 'See it coming · alerts · lightning',
-  day: 'Days, plan & Live / Advance',
-  trips: 'Every active trip · switch',
-};
 export const STATIONS = WALL_STATIONS.map((s) => ({
   ...s,
-  sub: REMOTE_SUB[s.id] || s.sub,
+  // One subtitle per station on every screen (review/shell R2-4).
+  sub: s.sub,
   render: RENDER[s.id],
   context: s.id === 'day' ? tripContext : undefined,
 }));

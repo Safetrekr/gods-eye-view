@@ -437,13 +437,15 @@ async function main() {
   // operator's: leaving Site releases it so the next station's panel shows
   // (review/shell round 2). A selection the operator made is kept (D3).
   let siteAutoSel = null;
+  let stormFramedOnce = false;
   function enterStation(id) {
     const role = ROLES[id];
     // One camera move per pick (motion round 2): skip the scale flight
     // when a framing flight follows.
     const framesItself =
       !selection &&
-      (id === 'travelers' || (id === 'weather' && ncView()?.ap?.core));
+      (id === 'travelers' ||
+        (id === 'weather' && ncView()?.ap?.core && !stormFramedOnce));
     if (role?.scale && !framesItself) screenApi.scale(role.scale);
     const keys = STATION_LAYERS[id];
     if (keys) {
@@ -464,7 +466,17 @@ async function main() {
       siteAutoSel = hotelId();
     }
     if (id === 'travelers' && !selection) screenApi.frame({ kind: 'topdown' });
-    if (id === 'weather' && ncView()?.ap?.core && !selection) frameStorm();
+    // Frame the storm by itself only the first time Weather opens in a
+    // session (R2-5); the tile does it on demand after that.
+    if (
+      id === 'weather' &&
+      ncView()?.ap?.core &&
+      !selection &&
+      !stormFramedOnce
+    ) {
+      stormFramedOnce = true;
+      frameStorm();
+    }
   }
   function pickStation(id) {
     if (!stationsOpen) setStationsOpen(true);
@@ -754,22 +766,9 @@ async function main() {
     n.textContent = String(a.rows.length);
     const t = document.createElement('span');
     t.className = 't';
-    t.textContent = `people on this trip · as of ${lastCtx?.asOf || ''}`;
+    t.textContent = `people · ${c['Inside (likely)'] ?? 0} inside · ${(c['Not current'] ?? 0) + (c['Not located'] ?? 0)} not current or located · as of ${lastCtx?.asOf || ''}`;
     hero.append(n, t);
     node.append(hero);
-    add('tt-kicker', 'WHERE THEY ARE');
-    for (const [k, label] of [
-      ['Inside (likely)', `Inside the ${siteNounNow()} (likely)`],
-      ['At hotel, undetermined', `At the ${siteNounNow()}, undetermined`],
-      ['Outside, nearby', 'Outside, nearby'],
-      ['Away', 'Away from this site'],
-      ['Not current', 'Not current'],
-      ['Not located', 'Not located'],
-    ])
-      add(
-        `tt-wall-line${(k === 'Not current' || k === 'Not located') && c[k] ? ' warn' : ''}`,
-        `${label} · ${c[k] ?? 0}`,
-      );
     if (lastSiteCounts) {
       add('tt-kicker', 'BY SITE');
       add('tt-wall-line', siteCountsLine(lastSiteCounts, siteKey));
@@ -793,7 +792,149 @@ async function main() {
         `${e.clock || ''} · ${e.text}`,
       );
   }
-  /** The station's panel in the rail's middle (wall panels, rail size). */
+  // ---- station panels (review/shell R2-1…R2-3) ----
+  // One home per fact: the left cards keep the lists; a station panel
+  // shows what the cards cannot, led by one big thin number.
+  const elx = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  };
+  function heroRow(n, caption, level = '') {
+    const h = elx('div', `tt-st-hero ${level}`);
+    h.append(elx('span', 'n', n), elx('span', 't', caption));
+    return h;
+  }
+  // R2-1: the Day plan panel's day (null = the default below).
+  let stationDay = null;
+  function defaultPlanDay() {
+    const evs = advEvents();
+    const today = todayDay();
+    const now = Date.now();
+    const left = evs.filter(
+      (e) => e.day === today && Number.isFinite(e.epoch) && e.epoch > now,
+    );
+    if (left.length || !evs.some((e) => e.day > today)) return today;
+    return evs.find((e) => e.day > today)?.day ?? today;
+  }
+  // R2-2: another trip's report the operator has seen (this screen only,
+  // logged; a new report on that trip raises the signal again).
+  const seenReports = new Set();
+  const reportKey = (o) =>
+    `${o.trip.id}:${o.inc.id || `${o.inc.kind}-${o.inc.floor_label}`}`;
+  let flashTrip = null;
+  function switchToTrip(t) {
+    const q = new URLSearchParams(location.search);
+    q.set('city', t.city);
+    q.set('scenario', t.scenario);
+    q.set('site', t.city);
+    location.search = `?${q}`;
+  }
+  function incidentCalmPanel(node) {
+    const m = lastCtx?.mode;
+    node.replaceChildren(
+      heroRow(
+        String(m?.total ?? 0),
+        'to check on · no incident reported',
+        m?.total ? 'attn' : '',
+      ),
+      elx('div', 'tt-kicker', 'WHEN A FLOOR IS REPORTED'),
+      elx(
+        'div',
+        'tt-wall-line',
+        'The incident board opens here: who may be at or above the floor, the floors, Copy for responders.',
+      ),
+      elx('div', 'tt-wall-note', 'Report floor is the first tile (R).'),
+    );
+  }
+  function weatherHero() {
+    const pill = weatherPill(nc.text, Boolean(nc.simStart), region === 'us');
+    if (pill)
+      return heroRow(
+        pill.replace(/^SIM /, ''),
+        `storm${nc.simStart ? ' (simulated)' : ''} · ${nc.text?.lead || 'radar track'}`,
+        'attn',
+      );
+    const parts = [...$('tt-wx').children].map((n) => n.textContent.trim());
+    return heroRow(parts[1] || '—', parts[2] || 'at the site');
+  }
+  function dayHero(day) {
+    const now = Date.now();
+    const next =
+      advEvents().find(
+        (e) => e.day === day && Number.isFinite(e.epoch) && e.epoch > now,
+      ) || advEvents().find((e) => e.day === day);
+    return next
+      ? heroRow(next.start, `Day ${day} · ${next.title}`)
+      : heroRow('—', `Day ${day} · nothing on the plan`);
+  }
+  function dayChips(day) {
+    const days = [...new Set(advEvents().map((e) => e.day))].sort(
+      (x, y) => x - y,
+    );
+    const row = elx('div', 'tt-st-days');
+    row.setAttribute('role', 'group');
+    row.setAttribute('aria-label', 'Day');
+    for (const d of days) {
+      const b = elx(
+        'button',
+        `tt-st-day${d === day ? ' on' : ''}`,
+        `Day ${d}${d === todayDay() ? ' · today' : ''}`,
+      );
+      b.type = 'button';
+      b.setAttribute('aria-pressed', String(d === day));
+      b.addEventListener('click', () => {
+        stationDay = d;
+        renderStations();
+      });
+      row.append(b);
+    }
+    return row;
+  }
+  function tripActions(node) {
+    // Wall panel content, plus actions on the All-in-one: switch, seen.
+    const others = otherTripIncidents();
+    for (const card of node.querySelectorAll('.tt-trip')) {
+      const title = card.querySelector('.t')?.textContent;
+      const t = DEMO_TRIPS.find((x) => x.title === title);
+      if (!t || t.id === focusTrip.id) continue;
+      const acts = elx('div', 'tt-trip-acts');
+      const sw = elx('button', 'tt-btn', 'Switch to this trip');
+      sw.type = 'button';
+      sw.title = 'Reloads the twin into this trip and its city';
+      sw.addEventListener('click', () => switchToTrip(t));
+      acts.append(sw);
+      const o = others.find((x) => x.trip.id === t.id);
+      if (o) {
+        const key = reportKey(o);
+        const seen = seenReports.has(key);
+        const sb = elx(
+          'button',
+          `tt-btn${seen ? ' on' : ''}`,
+          seen ? 'Seen' : 'Mark seen',
+        );
+        sb.type = 'button';
+        sb.disabled = seen;
+        sb.title =
+          'This screen only: the aperture stops signalling this report; a new report raises it again';
+        sb.addEventListener('click', () => {
+          seenReports.add(key);
+          changeLog.unshift({
+            at: Date.now(),
+            clock: lastCtx?.snapshot ? sampleClock(lastCtx.snapshot) : '',
+            text: `Seen on this screen: report on ${t.title}`,
+          });
+          renderStations();
+        });
+        acts.append(sb);
+      }
+      if (flashTrip === t.id) card.classList.add('flash');
+      card.append(acts);
+    }
+    flashTrip = null;
+  }
+  /** The station's panel in the rail's middle (rail size). */
   function renderStationPanel() {
     const p = stations?.panel;
     if (!p) return;
@@ -804,19 +945,29 @@ async function main() {
     // Leave the panel alone while the operator reads or scrolls it.
     if (p.matches(':hover') && p.childElementCount) return busy;
     if (station === 'site') {
-      const k = document.createElement('div');
-      k.className = 'tt-kicker';
-      k.textContent = 'NOTHING SELECTED';
-      const n = document.createElement('div');
-      n.className = 'tt-wall-note';
-      n.textContent =
-        'Select the hotel, a place or a person on the map; its card shows here. Building, Neighborhood and City change the scale.';
-      p.replaceChildren(k, n);
+      p.replaceChildren(
+        elx('div', 'tt-kicker', 'NOTHING SELECTED'),
+        elx(
+          'div',
+          'tt-wall-note',
+          'Select the hotel, a place or a person on the map; its card shows here. Building, Neighborhood and City change the scale.',
+        ),
+      );
     } else if (station === 'travelers') peoplePanel(p);
-    else if (station === 'weather') screenApi.weatherPanel(p);
-    else if (station === 'day') screenApi.dayPanel(p);
-    else if (station === 'trips') screenApi.tripsPanel(p);
-    else screenApi.idlePanel(p);
+    else if (station === 'incident') incidentCalmPanel(p);
+    else if (station === 'weather') {
+      const body = elx('div', 'tt-st-body');
+      screenApi.weatherPanel(body);
+      p.replaceChildren(weatherHero(), body);
+    } else if (station === 'day') {
+      const day = stationDay ?? defaultPlanDay();
+      const body = elx('div', 'tt-st-body');
+      screenApi.dayPanel(body, day);
+      p.replaceChildren(dayHero(day), dayChips(day), body);
+    } else if (station === 'trips') {
+      screenApi.tripsPanel(p);
+      tripActions(p);
+    }
     return busy;
   }
   // Another trip on watch with a reported incident (D1). Cached 30 s:
@@ -861,6 +1012,7 @@ async function main() {
         text: 'REPORTED',
         say: `incident reported on ${o.trip.title}`,
         other: o,
+        seen: seenReports.has(reportKey(o)),
       });
     // Official lines (round 2): a real warning says WARNING; the demo
     // alert SIM WARNING; a source that is down NOT CHECKED.
@@ -944,8 +1096,11 @@ async function main() {
     const other = otherTripIncidents()[0];
     const chip = $('tt-other-alert');
     chip.hidden = !other;
-    if (other)
-      chip.textContent = `OTHER TRIP · ${other.trip.title.toUpperCase()} · REPORTED › 06`;
+    if (other) {
+      const seen = seenReports.has(reportKey(other));
+      chip.textContent = `OTHER TRIP · ${other.trip.title.toUpperCase()} · REPORTED${seen ? ' · SEEN' : ''} › 06`;
+      chip.classList.toggle('seen', seen);
+    }
     const m = lastCtx?.mode;
     const age = formatAge((Date.now() - lastFeed) / 1000);
     const advance = appMode === 'advance';
@@ -958,7 +1113,7 @@ async function main() {
     // 06, the top-bar chip and the aperture bead (review/shell round 2).
     const mine = sig.filter((x) => !x.other);
     const top = mine.find((x) => x.level !== 'sim') || null;
-    const otherOn = sig.some((x) => x.other);
+    const otherOn = sig.some((x) => x.other && !x.seen);
     const busy = renderStationPanel();
     stations.render({
       station,
@@ -5788,16 +5943,23 @@ async function main() {
     const sphere = Cesium.BoundingSphere.fromPoints(
       pts.map((p) => Cesium.Cartesian3.fromDegrees(p.lon, p.lat, 0)),
     );
-    // Look across the track, so the storm moves left to right in view.
-    const heading = hasMotion(v?.motion)
+    // Look across the track, so the storm moves left to right in view —
+    // but never swing more than 60° (motion review R2-5): beyond that keep
+    // the operator's heading and pull back instead.
+    const now = viewer.camera.heading;
+    const across = hasMotion(v?.motion)
       ? Cesium.Math.toRadians((v.motion.headingDeg + 270) % 360)
-      : viewer.camera.heading;
+      : now;
+    const turn = Math.abs(Cesium.Math.negativePiToPi(across - now));
+    const heading = turn > Cesium.Math.toRadians(60) ? now : across;
+    const incidentNow = lastCtx?.mode?.mode === 'incident';
     twin.flySafe(sphere, {
       heading,
       pitch: Cesium.Math.toRadians(-30),
       range: Math.max(14000, sphere.radius * 3.4),
       fit: true,
-      duration: reducedMotion() ? 0 : 1.6,
+      // 1.2 s; 600 ms during an incident; none with Reduce motion.
+      duration: reducedMotion() ? 0 : incidentNow ? 0.6 : 1.2,
     });
     stormKey = '';
     drawWeather();
@@ -6962,7 +7124,7 @@ async function main() {
       }
     },
     /** S5 · Day plan: the day's schedule, sunset, official alerts. */
-    dayPanel(node) {
+    dayPanel(node, dayOverride = null) {
       const add = (cls, t) => {
         const n = document.createElement('div');
         n.className = cls;
@@ -6970,7 +7132,7 @@ async function main() {
         node.append(n);
       };
       node.replaceChildren();
-      const d = shownDay() ?? todayDay();
+      const d = dayOverride ?? shownDay() ?? todayDay();
       add('tt-kicker', `SCHEDULE · DAY ${d}`);
       const evs = advEvents().filter((e) => e.day === d);
       if (!evs.length)
@@ -7170,7 +7332,11 @@ async function main() {
       ],
     });
     cleanups.push(() => stations?.dispose());
-    $('tt-other-alert').addEventListener('click', () => pickStation('trips'));
+    $('tt-other-alert').addEventListener('click', () => {
+      flashTrip = otherTripIncidents()[0]?.trip.id || null;
+      pickStation('trips');
+      renderStations();
+    });
     // A card opening or closing in the right column swaps the rail's
     // middle at once, not on the next 5 s refresh.
     let rcolFrame = 0;

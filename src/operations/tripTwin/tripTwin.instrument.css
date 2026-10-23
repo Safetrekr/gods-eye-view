@@ -2545,3 +2545,76 @@ body:not([data-view='screen']) #tt-help.tt-sheet:not([hidden]) {
     column-count: 2;
   }
 }
+/* Fades only where there is more: none at the top until scrolled, none at
+   the bottom once at the end (Jesse, 23 Oct). */
+body:not([data-view='screen']) #tt-rail .tt-rail-scroll::before,
+body:not([data-view='screen']) #tt-rail .tt-rail-scroll::after {
+  opacity: 0;
+  transition: opacity 0.15s linear;
+}
+body:not([data-view='screen']) #tt-rail .tt-rail-scroll.more-above::before,
+body:not([data-view='screen']) #tt-rail .tt-rail-scroll.more-below::after {
+  opacity: 1;
+}
+/* R2-1 / R2-3 station panels: hero levels, day chips, trip actions. */
+.tt-st-hero.attn .n {
+  color: var(--tt-attention);
+}
+.tt-st-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 10px;
+}
+.tt-st-day {
+  all: unset;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--tt-border);
+  font: 500 11px/16px var(--tt-mono);
+  letter-spacing: 0.06em;
+  color: var(--tt-text-2);
+}
+.tt-st-day.on {
+  border-color: rgba(238, 245, 243, 0.75);
+  background: rgba(238, 245, 243, 0.1);
+  color: var(--tt-text);
+}
+.tt-st-day:focus-visible {
+  outline: 2px solid var(--tt-focus);
+  outline-offset: 2px;
+}
+.tt-st-panel .tt-trip-acts {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.tt-st-panel .tt-trip-acts .tt-btn {
+  font-size: 11px;
+  padding: 4px 8px;
+}
+.tt-st-panel .tt-trip.flash {
+  box-shadow:
+    0 0 0 1px var(--tt-hazard),
+    0 0 18px rgba(238, 119, 137, 0.3);
+}
+.tt-other-alert.seen {
+  color: var(--tt-text-2);
+  border-color: var(--tt-edge-ctl);
+}
+/* R2-6: a folded run of quiet floors. */
+.tt-cut-run {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  align-items: center;
+  font: 500 10px/1 var(--tt-mono);
+  letter-spacing: 0.06em;
+  color: var(--tt-text-dim);
+  border: 1px dashed rgba(184, 195, 199, 0.18);
+  border-radius: 2px;
+  margin: 1px 0;
+}
+.tt-cut-run .t {
+  padding-left: 6px;
+}
