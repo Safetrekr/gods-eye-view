@@ -334,3 +334,81 @@ Console errors in the repro runs (2 per run) are the known SwiftShader artefact:
 - `k4/gate1.txt`, `k4/gate2.txt` (gate with names), `k4/build.log`, `k4/smoke1.txt`, `k4/smoke2.txt`, `k4/repro1.txt` … `k4/repro5.txt`
 - `qa-k4/runs/smoke-2026-10-23T21-55-32/`, `qa-k4/runs/repro-pairing-2026-10-23T21-56-49/`, `…T22-11-29/`, `…T22-24-46/` (the R-H4 shot with the pair code), `…T22-39-32/` (final, all GREEN); `qa-k4-final/runs/smoke-2026-10-23T22-51-58/`
 - `k4dbg-src/h4.mjs` (the scratch R-H4 debug script; it prints no token or link)
+
+## K5 · protocol versions and attribution data (server side; proto → 2)
+
+- **Date:** 23 Oct 2026, 17:55–18:40 CDT. **Machine:** MacBook (macOS 26.5), Node 22.21.1, headless puppeteer (Chrome for Testing, SwiftShader).
+- **Code under test:** the `cf/core` working tree on top of `9e8199f` (K4), served with `--ref worktree`. The revert drill restarts on `HEAD` (`9e8199f`, the K4 code) and then on the working tree again.
+- **QA server:** `:4181` on 127.0.0.1; data, audit and `TMPDIR` in the QA folder. Map keys passed 0 of 2 (as K1–K4). The live store paths were only ever `stat`ed; the live :4173 server was never contacted.
+- **Proto numbers:** `PROTO = 2`, `PROTO_MIN = 2` (S-15). Every page before K5 sends no `proto` and is told `RELOAD`.
+- **Gate verdict: PASS.**
+
+### What landed
+
+- `src/operations/tripTwin/twinProtocol.js` (completed): `PROTO`, `PROTO_MIN`, `protoOk()`; `reloadText(kind)` (Appendix D rows 1, 1a, 1c, readable by an old page as it is); command codes (02 §3.3 plus `PENDING_BUSY` and `CMDID_REUSED`; 02's `IDEMPOTENCY_CONFLICT` is `CMDID_REUSED`, S-18); `CAUSE` (`cmd`, `undo`, `setup`, `pair`, `join`); `VIA` (`touch`, `system`); `HOST_REF = 'D0'`, `HOST_NAME = 'Trip Twin computer'`, `REMOTE_NAMES` (`iPad`, `Phone`, `Laptop`), `isRef()`; `ACTOR_FIELDS` (refused inside `cmd`); `shapeOf()`/`mergeShape()` for the schema hash; `reloadGuard()` for walls (a `sessionStorage` stamp; no working storage means no self-reload, so no loop).
+- **Actor record (§4.4):** `{ref: 'D3', kind: 'remote'|'screen'|'host', name: 'iPad 2', slot: n|null, via: 'touch'|'system'}`. `ref` is sequential, persisted (`nextRef`) and never the device id. State holds only the ref (`meta[field].by`, `session.meta[field].by`, `lastUndo.by`). The host keeps a ref table `{D3: {kind, name, slot}}` for every ref it has issued (saved as `refs`); a ref's name never changes, so a label reads as it did when the change was made, also after the device is gone (F-0003). A screen's ref is named `S<slot>`; a screen moved to another slot gets a new ref.
+- `src/operations/tripTwin/twinSessionHost.js`: refs and the ref table; names owned by the host (CF-D8): a remote whose socket is on this computer is "Trip Twin computer", otherwise the page's kind from the closed list (anything else is "Laptop", as `remote.js` itself decides), made unique per kind ("iPad", "iPad 2") among the devices on the wall, fixed at pairing (a later hello cannot rename it). Setup and pairing write as the host (`D0`). `actor(ref)`, `actorOf(id, via)`; presence gains `actors` (the host, devices on the wall, and every ref the state names, so a gone device still resolves), `screens[n].ref`, `remotes[].ref`, `remotes[].controlSince` (when the lease last changed hands; heartbeats do not move it), `handover.fromRef`. Command and undo refusals carry a code (`LEASE_NOT_CONTROLLER`, `UNKNOWN_COMMAND`, `UNDO_EXPIRED`, `VALIDATION_COMMAND`); pairing refusal by a viewer carries `LEASE_NOT_CONTROLLER`. **Restore migration**, before the first broadcast: refs for devices from a pre-K5 store; table entries rebuilt from the records' refs when a reverted build dropped the table; `meta.by`/`lastUndo.by`: a known ref stays, a device id becomes its ref, `'setup'` becomes `D0`, anything else (the old default `'remote'`, an unknown id) becomes `null`; a ref the state names but no record holds is never issued again.
+- `src/operations/tripTwin/twinSession.js`: `by` is the actor's ref (default `null`, was `'remote'`); session fields get `session.meta[field] = {source: 'session', rev, by, at}` like screen fields (incl. the three `returnLive` clears); `lastUndo = {by, at, of}`.
+- `server/tripTwin/syncRelay.js`: a hello below `PROTO_MIN` (or with none) is refused `{t:'welcome', type:'denied', code:'RELOAD', error, proto}` before the host sees it; a setup from a launcher page below `PROTO_MIN` gets `{t:'setup', ok:false, code:'RELOAD', error}` (the page's `proto` from its hello, or on the setup). Every welcome says `proto`. Command and undo broadcasts carry `by: Actor` (via `touch`, from the socket's device) and `cause`; setup, pairing and a wall joining carry `cause` only, so walls do not flash "Updated" for them (unchanged on screen); `undone: {of}`. `presenceFor()` passes refs, `actors`, `controlSince`, `fromRef`, never an id. **Fix found on the way:** a pair result spread the host's answer, so the remote received the paired screen's raw device id **and its token**; it now carries `{ok, slot}` (or `error`, `code`) only. Envelope `by`/`via`/`name` beside `cmd` are never read; inside `cmd` they are refused `VALIDATION_COMMAND` (S-18, F-0009).
+- `server/tripTwin/sessionStore.js`: the document carries `refs` and `nextRef` when present (additive; K4 loads it, and ignores them); a light shape check (`refs` an object, `nextRef` an integer, `device.ref` a string).
+- `src/operations/tripTwin/twinSync.js`: every hello says `proto: PROTO`. `RELOAD` is not terminal: the page keeps its id and token and its handler decides.
+- `src/operations/tripTwin/twinScreen.js` (non-visual hunk only): on `RELOAD` the wall reloads itself at most once per 2 minutes (`tripTwin.soc.protoReloadAt` in `sessionStorage`); refused again within 2 minutes it waits them out and tries once more; until then it keeps what it shows (K8 adds the out-of-date card).
+- Kit (`twinTestKit.mjs`): `asPage()`: a hello or setup said through the kit gets `proto: PROTO` unless the test sets the key (`proto: null` plays a pre-K5 page). Gate script: baseline 234.
+- Harness (`qa-twin-multiview.mjs`): socket-level hellos say `proto`; the QA remote says `name: 'iPad'`; the S6 chip check accepts "Trip Twin computer" (K5: the QA remote is on loopback) or "iPad" (the K4 build in the revert drill); new steps K5-S1, K5-S2, K5-S3 (below).
+- Runbook: `deploy-mac-studio.md` per-slice row for K5 (proto bump: reload every page by hand; store fields; rollback; "Trip Twin computer" for a remote opened on the Mac Studio).
+
+### Gate
+
+| Check | Command | Result |
+|---|---|---|
+| Trip Twin tests | `node scripts/test-trip-twin.mjs` | **PASS** (final run, 21 s). 234 tests in 28 files: 234 pass, 0 fail, 0 skip, 0 todo; baseline 234 (213 + 21). |
+| Wiring (warnings until K7) | same | Unchanged: `/api/route` at `twinCustomPaths.js:148`, `twinPaths.js:44`; `Math.random` at `twinSessionHost.js:99` (the host's injectable `random`, K7). |
+| Shared-file guard | same | Clean (4 CF commits checked, plus the working tree). |
+| Repo tests | `npm test` (run by the gate) | **PASS.** Exit 0; 3240 tests, 3239 pass, 0 fail, 1 skip (Windows-only DACL test); allocation probes skipped on Node 22. |
+| Twin build | `npx vite build --config vite.twin.config.js --outDir <scratchpad>/twin-dist` | **PASS** (exit 0; the usual chunk-size note). |
+| Smoke | `node scripts/qa-twin-multiview.mjs smoke --ref worktree --dir <scratchpad>/qa-k5-final2` | **PASS** on the final bytes (`smoke-2026-10-23T23-29-49`): 21 pass, 6 TODO (after shell step C), 0 pageerror, 0 console.error. K5-S1: by `D6` "Trip Twin computer" via touch; the real S6 page reads "S6 · Remote: Trip Twin computer · Updated"; 8 ids searched in 107 messages, 0 hits. K5-S2: the pre-K5 wall and remote are told RELOAD with Appendix D text, nothing joins. K5-S3 (after both restarts and the revert drill): 11 attributions, all refs or `null`; 0 id hits; the remote is `D8` "iPad" (was `D6`, see Notes). |
+| Restart and revert | same run | K1-S9 to S13 (restart-and-reconnect: S1–S5 rejoin with no codes, the remote gets its lease, the S6 page reloads and rejoins) and K2-S1/K2-S2 (revert to `9e8199f`: every page reloads onto the K4 client and rejoins, the K4 relay loads the K5 store; forward again: `store.loaded`, no `store.migrated`) pass. |
+| Earlier smoke attempts | same, `qa-k5`, `qa-k5-final` | Run 1 (`smoke-2026-10-23T23-14-00`) PASS with one `console.error` on the S6 wall ("Rendering has stopped": a Cesium worker fetch failed while the server restarted); not repeated in runs 2–4 (S-5 flake rule). Run 2 failed K3-S1 only because it reused run 1's QA folder, whose would-refuse file still held run 1's four probe lines; run 3 (fresh folder) passed; run 4 adds the "Updated" assertion to K5-S1. |
+| Mutation check | `by: 'remote'` in the broadcast; raw id into `applyCommand`; the old pair-result spread; no proto check; no `proto` in the client hello; `via` inside `cmd` accepted; client names kept | 4, 5, 3, 2, 1, 1 and 1 of the K5 tests turn red (the two K5 files only; the K4 identity tests also go red for the client one); restored code green. |
+| CF-2 repro | `node scripts/qa-twin-multiview.mjs repro-pairing --wait-expiry --ref worktree --dir <scratchpad>/qa-k5-repro` | **All 12 automated steps GREEN** (`repro-pairing-2026-10-23T23-17-15`), R-H4 (live, 11 min) included; 7 by hand on the Mac Studio, as K4. The 6 console errors are the known SwiftShader artefact (a headless popup gets no WebGL context: "open failed … webgl2"). |
+| K5 gate cases | in the tests above | No hello id in any `state`, `presence` or other message, nor in state (T8.1: a unit walk across setup, pairing, commands, undo, handover, a duplicate window and a restart; smoke K5-S1, K5-S3); "iPad" and "iPad 2" (T8.3); a gone device's ref still resolves (F-0003); a stale page (no `proto`, or 1) gets RELOAD (unit for screen, remote, launcher and setup; smoke K5-S2); a shape change without a bump fails the schema test (sensitivity test); walls still show "Updated" (unit: `by` truthy after a command and an undo; smoke: the real S6 page). |
+
+### Test names added in K5
+
+`twinAttribution.test.mjs`:
+- `K5 T8.1: after setup, pairing, commands, undo, a handover, a duplicate window and a restart, no device id appears in any message to any socket, nor anywhere in state`
+- `K5 T8.2: two remotes, Laptop and iPad, hand over control; each broadcast names the device that acted (ref, kind, name, via touch)`
+- `K5 T8.3, CF-D8: two iPads are "iPad" and "iPad 2"; a remote on this computer is "Trip Twin computer"; a name the page makes up is never shown`
+- `K5 F-0003: a ref still names its device after the device is gone (a restart without it; a screen whose slot went to another)`
+- `K5: a restart keeps refs, names and the ref table; a screen moved to another slot gets a new ref, so an old label never changes`
+- `K5 restore migration: a pre-K5 store’s device ids in meta.by and lastUndo.by become refs; "setup" becomes the host; anything else becomes null`
+- `K5 revert: a store written by the K4 build (refs on device records, no ref table) still names the same devices, and a remote paired meanwhile gets a new ref`
+- `K5 S-18, F-0009: a by, via or name beside cmd is ignored; inside cmd it is refused VALIDATION_COMMAND and nothing changes`
+- `K5: walls still see a truthy `by` after a command and after an undo; setup, pairing and a wall joining carry a cause and no `by``
+- `K5: setup and pairing are written by the host (D0, Trip Twin computer, via system); session fields get session.meta like screen fields`
+- `K5: presence carries actors (no ids) and the controller’s controlSince; a handover names fromRef`
+- `K5 SEC-11: a pair result names the slot only, never the screen’s id or token`
+- `K5 clockHost: the shared fake-clock host attributes setup to the host`
+
+`twinProtocol.test.mjs`:
+- `K5 S-15: a page with no proto, or proto 1, is refused RELOAD with text it can show; nothing reaches the host`
+- `K5 S-15: a launcher page from before K5 cannot start a setup (RELOAD); this build’s can, after its refused hello`
+- `K5 S-15: every welcome says PROTO; PROTO_MIN equals PROTO at this slice; protoOk takes integers from PROTO_MIN up`
+- `K5 schema hash: the golden transcript’s message shapes match the row for this PROTO (a change of shape needs a bump)`
+- `K5 schema hash: renaming one field, or adding one, changes the hash; a value change does not`
+- `K5 wall reload guard: reloads once, waits out 2 minutes, then may reload again; never without working storage`
+- `K5 client: every hello from twinSync.js says PROTO; RELOAD is not terminal (the page keeps its id and token and hears the refusal)`
+- `K5 S-8: the protocol lists each code once; terminal codes and unpaired reasons are deny codes`
+
+### Notes and deferred
+
+- **Behaviour to know:** remotes are named by the host now. A remote opened on the Mac Studio itself reads "Trip Twin computer" on the wall chips ("S4 · Remote: Trip Twin computer · changed 2:14 ago" is 50 characters, 61 with " · hands-on", past the 56 K8 budgets; K8 owns the chip and its truncation). Two iPads read "iPad" and "iPad 2". The remote header still says "In control · this iPad" from the page's own guess until K8.
+- **Revert edge (by design):** the K4 build rewrites a remote's record on its hello and drops the ref table, so after revert-and-forward that remote gets a new ref, named from what the page sent while K4 ran ("iPad" for the QA remote, which K5 itself would call "Trip Twin computer"); changes it made before the revert then read "by nobody" (`null`), never by the wrong device, and the old ref is never issued again (K5-S3: D6 before, D8 after).
+- **Not in K5 (as planned):** the chip and card copy that renders `by` ("by iPad · 21:32", out-of-date card, "Last change … by …", the status strip control cell) is K8; `controlSince` is sent, not shown; `cmdId`, confirm and the full `validateCommand` are K10; the audit sink that maps refs to devices on disk is K6; Forget (which deletes a record but keeps its ref) is K11; initials stay CF-later L7 (CF-D8).
+- **Schema hash:** one row per `PROTO` in `twinProtocol.test.mjs` (`2: 21bbf078…`), over the relay → page messages of a golden transcript on a fake clock (every message type, every refusal shape). Rows are never edited; a change of shape adds row `PROTO + 1` with the bump. `TRIP_TWIN_SHAPES=<file>` writes the shapes for a diff. Client → relay shapes are not hashed (the transcript writes them by hand).
+- **Old pages after the deploy:** a pre-K5 page cannot reload itself (the guard ships with K5); Vite's client reloads open pages when the server comes back (K1 finding), and the deploy checklist reloads every page by hand.
+
+### Evidence (session scratchpad, `/private/tmp/claude-501/-Users-jessetarvambp1-Sites-Safetrekr/bee4faae-35c4-47cb-aef3-657c3e2a12f6/scratchpad/`)
+
+- `k5/gate1.txt`, `k5/gate2.txt` (gate with names, before and after the last harness edit), `k5/build.log`, `k5/smoke1.txt` … `k5/smoke4.txt`, `k5/repro1.txt`, `k5-shapes.json` (the proto 2 shapes, from `TRIP_TWIN_SHAPES`)
+- `qa-k5/runs/smoke-2026-10-23T23-14-00/`, `…T23-15-06/` (run 2, the reused folder); `qa-k5-final/runs/smoke-2026-10-23T23-16-15/`; `qa-k5-final2/runs/smoke-2026-10-23T23-29-49/` (final); `qa-k5-repro/runs/repro-pairing-2026-10-23T23-17-15/`

@@ -4,9 +4,13 @@
 // who controls it and how old its link is, and sends a snapshot to the
 // remote every few seconds. It never moves its camera on its own: camera
 // changes come only from an operator's frame request.
+// Phase CF K5 (S-15): a wall the relay calls out of date (RELOAD) reloads
+// itself at most once per 2 minutes and otherwise keeps what it shows
+// (K8 adds the card). Non-visual.
 import { toJpeg } from 'html-to-image';
 import { ROLES, wallName } from './twinScreenRoles.js';
 import { connectSync } from './twinSync.js';
+import { DENY, reloadGuard } from './twinProtocol.js';
 import { setNameStyle } from './twinHud.js';
 import { createWallSheet } from './twinWallSheet.js';
 
@@ -571,12 +575,30 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     }
   }
 
+  // Out of date (RELOAD): reload once; refused again within 2 minutes,
+  // try again when the 2 minutes are up. No sessionStorage: never.
+  let reloadTimer = null;
+  const reloadOutOfDate = () => {
+    clearTimeout(reloadTimer);
+    let store = null;
+    try {
+      store = sessionStorage;
+    } catch {
+      /* no storage: the guard says no */
+    }
+    const g = reloadGuard({ storage: store, now: () => Date.now() });
+    if (g.reload) location.reload();
+    else if (g.waitMs) reloadTimer = setTimeout(reloadOutOfDate, g.waitMs);
+  };
+
   sync = connectSync({
     kind: 'screen',
     slot,
     setup,
     on: {
       welcome(m) {
+        if (m.type === 'denied' && m.code === DENY.RELOAD)
+          return reloadOutOfDate();
         welcomeAt = Date.now();
         presence = m.presence;
         if (m.type === 'paired') {
@@ -671,6 +693,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       paint();
     },
     dispose() {
+      clearTimeout(reloadTimer);
       clearInterval(tick);
       clearInterval(snapTimer);
       clearInterval(panelTimer);

@@ -17,6 +17,12 @@
 // {t:'replaced'} and is closed (4003); a device is offline only when its
 // last socket closes; `paired` goes only to the socket that showed the
 // code; one accepted hello per socket (a second one closes it, 4002).
+// Protocol and attribution (Phase CF K5, S-15, §4.4): a hello (and a setup)
+// from a page below PROTO_MIN is refused RELOAD; welcomes say PROTO. A
+// change is broadcast with `by` (the actor from the socket: ref, kind, the
+// host's name for it, slot, via) and every state broadcast says its
+// `cause`; state and presence carry refs, never a device id, and a pair
+// result never carries the screen's id or token.
 // Prototype only: plain ws, LAN, no login — production needs TLS, device
 // enrolment, SSO, signed commands and an audit log (07-production-delta).
 import os from 'node:os';
@@ -25,10 +31,16 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { createSessionHost } from '../../src/operations/tripTwin/twinSessionHost.js';
 import {
+  CAUSE,
   CLOSE,
+  CODE,
   DENY,
+  PROTO,
   REPLACED,
   UNPAIRED,
+  VIA,
+  protoOk,
+  reloadText,
 } from '../../src/operations/tripTwin/twinProtocol.js';
 import { openSessionStore, resolveDataDir } from './sessionStore.js';
 import { hostCheckFor, twinLogger } from './twinHostCheck.js';
@@ -57,26 +69,40 @@ export function lanAddresses(ifaces = os.networkInterfaces()) {
   return lanAddressesOf(ifaces);
 }
 
-/** Presence as one socket may see it: no device ids, its own flag. */
+/**
+ * Presence as one socket may see it: no device ids, its own flag. Actors
+ * by ref (K5): who is on the wall and every ref the state names.
+ */
 export function presenceFor(p, meId) {
   const screens = {};
   for (const [slot, s] of Object.entries(p.screens || {}))
     screens[slot] = {
       online: s.online,
       lastSeen: s.lastSeen,
+      ref: s.ref ?? null,
       you: s.id === meId,
     };
   return {
     screens,
     remotes: (p.remotes || []).map((r) => ({
+      ref: r.ref ?? null,
       name: r.name,
       online: r.online,
       controller: r.controller,
+      controlSince: r.controlSince ?? null,
       you: r.id === meId,
+    })),
+    actors: (p.actors || []).map((a) => ({
+      ref: a.ref,
+      kind: a.kind,
+      name: a.name,
+      slot: a.slot ?? null,
+      online: Boolean(a.online),
     })),
     youControl: Boolean(meId) && p.controller === meId,
     anyController: Boolean(p.controller),
     handover: p.handover && {
+      fromRef: p.handover.fromRef ?? null,
       fromName: p.handover.fromName,
       at: p.handover.at,
       you: p.handover.from === meId,
@@ -90,7 +116,7 @@ export function createRelay({
   save = () => {},
 } = {}) {
   const sockets = new Map(); // ws → {id, kind, secure, place} once accepted
-  const conns = new Map(); // ws → {isLocal, secure} from its upgrade
+  const conns = new Map(); // ws → {isLocal, secure, proto} from its upgrade
   const waiting = new Map(); // device id → the socket that shows its code
   const send = (ws, msg) => {
     if (ws.readyState === 1) ws.send(JSON.stringify(msg));
@@ -157,8 +183,23 @@ export function createRelay({
             type: 'denied',
             code: DENY.ALREADY_IDENTIFIED,
             error: 'This connection has already said hello',
+            proto: PROTO,
           });
           ws.close(CLOSE.ALREADY_IDENTIFIED, 'already identified');
+          break;
+        }
+        // A page older than PROTO_MIN reloads (S-15); nothing else reaches
+        // the host. Its socket stays open, as for every refusal today.
+        const conn = conns.get(ws);
+        if (conn) conn.proto = m.proto;
+        if (!protoOk(m.proto)) {
+          send(ws, {
+            t: 'welcome',
+            type: 'denied',
+            code: DENY.RELOAD,
+            error: reloadText(m.kind),
+            proto: PROTO,
+          });
           break;
         }
         const id = String(m.id || '');
@@ -171,6 +212,7 @@ export function createRelay({
           setup: m.setup,
           slot: m.slot,
           live: prev && { kind: prev.meta.kind, slot: prev.meta.place },
+          local: Boolean(conn?.isLocal),
         });
         if (r.type === 'denied') {
           send(ws, {
@@ -178,6 +220,7 @@ export function createRelay({
             type: 'denied',
             code: r.code,
             error: r.error,
+            proto: PROTO,
           });
           break;
         }
@@ -200,10 +243,11 @@ export function createRelay({
         send(ws, {
           t: 'welcome',
           ...rest,
+          proto: PROTO,
           state: host.state,
           presence: view(meta),
         });
-        if (r.type === 'paired') broadcastState();
+        if (r.type === 'paired') broadcastState({ cause: CAUSE.JOIN });
         else presence();
         break;
       }
@@ -214,6 +258,16 @@ export function createRelay({
             t: 'setup',
             ok: false,
             error: 'Start multi-view on the Trip Twin computer',
+          });
+          break;
+        }
+        // The launcher's page says its protocol in its hello (or here).
+        if (!protoOk(m.proto ?? conns.get(ws)?.proto)) {
+          send(ws, {
+            t: 'setup',
+            ok: false,
+            code: CODE.RELOAD,
+            error: reloadText('launcher'),
           });
           break;
         }
@@ -229,12 +283,15 @@ export function createRelay({
           secure: Boolean(conns.get(ws)?.secure),
         });
         send(ws, { t: 'setup', ok: true, ...r });
-        broadcastState();
+        broadcastState({ cause: CAUSE.SETUP });
         break;
       }
       case 'pair': {
         const r = host.pair({ by: me.id, code: m.code, slot: m.slot });
-        const { unpaired, ...rest } = r;
+        // The screen's id and token are for that screen only (K5, SEC-11).
+        const { unpaired, deviceId: _d, token: _t, ...rest } = r;
+        void _d;
+        void _t;
         send(ws, { t: 'pair-result', reqId: m.reqId, ...rest });
         if (r.ok) {
           tellUnpaired(unpaired);
@@ -246,18 +303,21 @@ export function createRelay({
             meta.place = r.slot;
             send(to, { t: 'paired', slot: r.slot, token: r.token });
           }
-          broadcastState();
+          broadcastState({ cause: CAUSE.PAIR });
         }
         break;
       }
+      // `by` comes from this socket's device, never from the message: an
+      // envelope `by`, `via` or `name` beside `cmd` is not read (S-18).
       case 'cmd': {
         const r = host.command({ by: me.id, cmd: m.cmd });
         send(ws, { t: 'ack', reqId: m.reqId, ...r });
         if (r.ok)
           broadcastState({
+            cause: CAUSE.CMD,
             changed: r.changed,
             skipped: r.skipped,
-            by: 'remote',
+            by: host.actorOf(me.id, VIA.TOUCH),
           });
         break;
       }
@@ -278,7 +338,12 @@ export function createRelay({
       case 'undo': {
         const r = host.undo({ by: me.id, undoId: m.undoId });
         send(ws, { t: 'ack', reqId: m.reqId, ...r });
-        if (r.ok) broadcastState({ undone: true, by: 'remote' });
+        if (r.ok)
+          broadcastState({
+            cause: CAUSE.UNDO,
+            undone: { of: r.of },
+            by: host.actorOf(me.id, VIA.TOUCH),
+          });
         break;
       }
       case 'hb':
