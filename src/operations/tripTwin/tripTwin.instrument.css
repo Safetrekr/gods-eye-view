@@ -1267,8 +1267,16 @@ body:not([data-view='screen']) #tt-rail .tt-sec-body .tt-group:last-child {
   letter-spacing: 0.04em;
 }
 .tt-more-btn.sim {
-  border-color: var(--tt-hazard);
-  color: var(--tt-hazard-text);
+  /* Simulated is steel plus the word, never red (red = incidents). */
+  border-style: dashed;
+  border-color: var(--tt-edge-ctl);
+  color: var(--tt-text);
+}
+.tt-more-btn.sim::after {
+  content: 'SIM';
+  font: 600 9px/1 var(--tt-mono);
+  letter-spacing: 0.1em;
+  margin-left: 4px;
 }
 .tt-more {
   bottom: auto;
@@ -1303,7 +1311,7 @@ body:not([data-view='screen']) #tt-rail .tt-sec-body .tt-group:last-child {
   color: var(--tt-text);
 }
 .tt-more-item.sim {
-  color: var(--tt-hazard-text);
+  color: var(--tt-text);
 }
 /* No mask on the rail column: a mask makes it a backdrop root and the
    cards inside stop blurring the map (Jesse, 23 Oct: blur the background
@@ -1335,7 +1343,8 @@ body:not([data-view='screen']) #tt-rail .tt-sec {
   margin-left: auto;
 }
 #tt-more #tt-proto-btn.sim {
-  color: var(--tt-hazard-text);
+  color: var(--tt-text);
+  border: 1px dashed var(--tt-edge-ctl);
 }
 body.tt-incident-open:not([data-view='screen']) #tt-rail > .tt-rail-head {
   border-color: var(--tt-hazard);
@@ -1994,5 +2003,93 @@ body:not([data-view='screen']) .tt-mapbar .tt-compass-caption {
   padding: 0;
   font-size: calc(11px / 0.68);
   line-height: calc(14px / 0.68);
+  color: var(--tt-text-dim);
+}
+
+/* Another trip on watch has a reported incident (shell X1): red, in the
+   always-visible status zone; opens 06 Trips on watch. */
+.tt-other-alert {
+  font: 600 11px/14px var(--tt-mono);
+  letter-spacing: 0.06em;
+  color: var(--tt-hazard-text);
+  background: rgba(238, 119, 137, 0.12);
+  border: 1px solid var(--tt-hazard);
+  border-radius: 3px;
+  padding: 3px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tt-other-alert[hidden] {
+  display: none;
+}
+.tt-st-pill.sim {
+  background: transparent;
+  border: 1px dashed var(--tt-edge-ctl);
+  color: var(--tt-text-2);
+  line-height: 13px;
+}
+
+/* ---------- shell fix list (review/shell 20-FIX-LIST) ---------- */
+/* X15: an empty slot keeps its place, quietly. */
+.tt-st-tile.empty {
+  background: transparent;
+  border-style: solid;
+  border-color: rgba(184, 195, 199, 0.06);
+  box-shadow: none;
+  opacity: 1;
+  cursor: default;
+}
+/* X12: rail motion is Cinematic, never while a red or amber signal shows,
+   and the incident card appears in one frame. */
+.tt-m-event .tt-st:not([hidden]),
+.tt-m-event .tt-st.tt-st-wave .tt-st-tile,
+.tt-m-event.tt-st-open .tt-ap-scan {
+  animation: none;
+}
+.tt-m-cine .tt-st:not([hidden]) {
+  animation: ttStIn 0.42s var(--fog-in) both;
+}
+.tt-m-cine .tt-st.tt-st-wave .tt-st-tile {
+  animation: ttStTile 0.42s var(--fog-in) var(--rd, 0s) both;
+}
+.tt-m-cine.tt-st-open .tt-ap-scan {
+  animation: ttApScan 0.9s var(--fog-in) 1;
+}
+body.tt-st-alert .tt-st,
+body.tt-st-alert .tt-st .tt-st-tile,
+.tt-m-reduced .tt-st,
+.tt-m-reduced .tt-st .tt-st-tile,
+.tt-m-reduced .tt-ap-scan {
+  animation: none !important;
+}
+.tt-m-cine .tt-incident:not([hidden]) {
+  animation: none;
+}
+.tt-ap-bead,
+.tt-ap-ring {
+  transition: none;
+}
+/* X6: an incident gives the rail's middle more room. */
+body.tt-incident-open .tt-st {
+  --st-tile: 60px;
+}
+body.tt-incident-open .tt-st .tt-st-tile svg {
+  display: none;
+}
+/* X8: a big thin numeral leads a station panel. */
+.tt-st-hero {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.tt-st-hero .n {
+  font: 200 40px/40px var(--tt-display);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--tt-text);
+}
+.tt-st-hero .t {
+  font-size: 12px;
   color: var(--tt-text-dim);
 }

@@ -153,6 +153,7 @@ import {
   STATIONS,
   createStationRail,
   stationKey,
+  weatherPill,
 } from './twinStations.js';
 import { ROLES } from './twinScreenRoles.js';
 import { showEntry, showLaunch } from './twinEntry.js';
@@ -399,10 +400,22 @@ async function main() {
     renderStations();
     stations?.focusTile(station);
   }
+  /** Weather that matters now: storm layers must stay on (D2). */
+  const stormActive = () =>
+    Boolean(
+      lastCtx?.weather?.approach ||
+      lastCtx?.weather?.official?.length ||
+      lastCtx?.weather?.lightning?.near ||
+      nc.simStart,
+    );
   function leaveStation() {
     if (!layerSnap) return;
-    for (const [k, was] of Object.entries(layerSnap.before))
-      if (layerOn(k) === layerSnap.set[k]) screenApi.setLayer(k, was);
+    // Put back only what this station switched on, only if the operator
+    // has not changed it since, and never while weather matters (D2).
+    if (!stormActive())
+      for (const [k, was] of Object.entries(layerSnap.before))
+        if (!was && layerOn(k) === layerSnap.set[k])
+          screenApi.setLayer(k, false);
     layerSnap = null;
     renderLayers();
   }
@@ -420,14 +433,12 @@ async function main() {
       renderLayers();
     }
     if (STATION_CARD[id]) hud.openCard(STATION_CARD[id]);
-    // The middle of the rail: Site shows the building; the others show
-    // their own panel, so the selection card steps aside (an incident
-    // panel stays — it is not a selection).
-    if (id === 'site') {
-      if (!isHotelSel() && hotelId()) twin.select(hotelId());
-    } else if (selection) twin.select(null);
-    if (id === 'travelers') screenApi.frame({ kind: 'topdown' });
-    if (id === 'weather' && ncView()?.ap?.core) frameStorm();
+    // A station change keeps the operator's selection (D3): the station's
+    // panel shows in the rail only when nothing is selected. Site picks
+    // the hotel only when nothing is selected.
+    if (id === 'site' && !selection && hotelId()) twin.select(hotelId());
+    if (id === 'travelers' && !selection) screenApi.frame({ kind: 'topdown' });
+    if (id === 'weather' && ncView()?.ap?.core && !selection) frameStorm();
   }
   function pickStation(id) {
     if (!stationsOpen) setStationsOpen(true);
@@ -508,14 +519,40 @@ async function main() {
         },
       },
     };
+    const flag = (key, label, icon, on, title, toggle) => ({
+      key,
+      label,
+      icon,
+      on,
+      title,
+      action: () => {
+        toggle(!on);
+        renderLayers();
+        renderStations();
+      },
+    });
     switch (id) {
       case 'site':
         return [
           scaleTile('building', 'Building'),
           scaleTile('neighborhood', 'Neighborhood'),
           scaleTile('city', 'City'),
+          {
+            key: 'floors',
+            label: 'Floors',
+            icon: ICON.building,
+            title: 'The hotel card and its floors (go to a floor)',
+            action: () => {
+              if (!isHotelSel() && hotelId()) twin.select(hotelId());
+              setTimeout(() => {
+                const f = document.querySelector(
+                  '#tt-card input[aria-label^="Go to floor"]',
+                );
+                f?.focus();
+              }, 300);
+            },
+          },
           T.waysOut,
-          T.layers,
         ];
       case 'travelers':
         return [
@@ -525,28 +562,27 @@ async function main() {
             key: 'topdown',
             label: 'From above',
             icon: ICON.topdown,
-            title: 'Look straight down on the group',
+            title: 'Look straight down on the group (keeps the heading)',
             action: () => screenApi.frame({ kind: 'topdown' }),
           },
-          {
-            key: 'clear',
-            label: 'Clear selection',
-            icon: ICON.clear,
-            disabled: !selection,
-            title: 'Clear the selection (Esc)',
-            action: () => twin.select(null),
-          },
-          T.layers,
+          flag(
+            'floorsLayer',
+            'Floor estimates',
+            ICON.building,
+            twin.layers.floors !== false,
+            'People by floor estimate inside the hotel',
+            (on) => screenApi.setLayer('floors', on),
+          ),
         ];
-      case 'incident':
+      case 'incident': {
+        const label = lastCtx?.reportedLabel;
+        const has = Number.isFinite(label);
         return [
           {
             key: 'report',
-            label: Number.isFinite(lastCtx?.reportedLabel)
-              ? `Floor ${lastCtx.reportedLabel}`
-              : 'Report floor',
+            label: has ? `Floor ${label}` : 'Report floor',
             icon: ICON.report,
-            on: Number.isFinite(lastCtx?.reportedLabel),
+            on: has,
             disabled: appMode === 'advance',
             title:
               appMode === 'advance'
@@ -563,26 +599,35 @@ async function main() {
             disabled: !incident,
             title: incident
               ? 'Copy the incident summary for responders'
-              : 'Opens with an incident',
+              : 'Available with an incident',
             action: () =>
               document
-                .querySelector(
-                  '#tt-incident .tt-copy, #tt-incident button.primary',
-                )
+                .querySelector('#tt-incident button.tt-btn.primary')
                 ?.click(),
           },
-          T.layers,
+          {
+            key: 'frameFloor',
+            label: has ? `Frame floor ${label}` : 'Frame floor',
+            icon: ICON.topdown,
+            disabled: !has,
+            title: has
+              ? `Look at floor ${label} and who may be on it`
+              : 'Available once a floor is reported',
+            action: () => focusFloor(label),
+          },
         ];
+      }
       case 'weather':
         return [
           {
             key: 'storm',
             label: 'Frame the storm',
             icon: ICON.storm,
-            disabled: !ncView()?.ap?.core,
-            title: ncView()?.ap?.core
-              ? 'Fit the site and the storm core in view'
-              : 'No storm core on radar near the site',
+            disabled: !ncView()?.ap?.core && !lastCtx?.weather?.approach,
+            title:
+              ncView()?.ap?.core || lastCtx?.weather?.approach
+                ? 'Fit the site and the storm core in view'
+                : 'No storm core on radar near the site',
             action: () => frameStorm(),
           },
           {
@@ -592,37 +637,36 @@ async function main() {
             title: 'Weather timeline (T)',
             action: () => focusWeather(),
           },
-          {
-            key: 'radar',
-            label: 'Radar with height',
-            icon: ICON.radar,
-            on: wx.layers.radar3d,
-            title: 'Storm shells from radar',
-            action: () => {
-              screenApi.setLayer('radar3d', !wx.layers.radar3d);
-              renderLayers();
-              renderStations();
-            },
-          },
-          {
-            key: 'lightning',
-            label: 'Lightning',
-            icon: ICON.lightning,
-            on: wx.layers.lightning,
-            title: 'Lightning strike density',
-            action: () => {
-              screenApi.setLayer('lightning', !wx.layers.lightning);
-              renderLayers();
-              renderStations();
-            },
-          },
-          T.layers,
+          flag(
+            'radar',
+            'Storm shells (3D)',
+            ICON.radar,
+            wx.layers.radar3d,
+            'Storm shells from radar',
+            (on) => screenApi.setLayer('radar3d', on),
+          ),
+          flag(
+            'lightning',
+            'Lightning',
+            ICON.lightning,
+            wx.layers.lightning,
+            'Lightning strike density',
+            (on) => screenApi.setLayer('lightning', on),
+          ),
+          flag(
+            'alertAreas',
+            'Official alert areas',
+            ICON.sites,
+            wx.layers.alertAreas,
+            'Official warning areas',
+            (on) => screenApi.setLayer('alertAreas', on),
+          ),
         ];
       case 'day':
         return [
           {
             key: 'advance',
-            label: appMode === 'advance' ? 'Back to Live' : 'Advance plan',
+            label: appMode === 'advance' ? 'Back to Live' : 'Advance',
             icon: ICON.advance,
             on: appMode === 'advance',
             title: 'Live or Advance planning (V)',
@@ -630,31 +674,98 @@ async function main() {
               setAppMode(appMode === 'advance' ? 'live' : 'advance'),
           },
           {
+            key: 'sites',
+            label: 'Sites',
+            icon: ICON.sites,
+            title: 'Sites on this trip (S)',
+            action: () => {
+              openPop('tt-sites');
+              renderSites();
+            },
+          },
+          {
             key: 'paths',
-            label: 'Safety & paths',
+            label: 'Paths',
             icon: ICON.paths,
             title: 'Paths to the rally points',
             action: () => hud.openCard('safety'),
           },
-          T.sites,
-          scaleTile('city', 'City'),
-          T.layers,
         ];
       case 'trips':
         return [
-          T.sites,
           {
-            key: 'site',
-            label: 'This site',
-            icon: ICON.site,
-            title: 'Back to the site in focus (station 01)',
-            action: () => pickStation('site'),
+            key: 'switch',
+            label: 'Switch trip',
+            icon: ICON.trips,
+            title: 'Trips on watch and their sites (S)',
+            action: () => {
+              openPop('tt-sites');
+              renderSites();
+            },
           },
-          T.layers,
         ];
       default:
         return [];
     }
+  }
+  /** 02 People's own panel (review/shell X8): headcount first. */
+  function peoplePanel(node) {
+    const add = (cls, t) => {
+      const n = document.createElement('div');
+      n.className = cls;
+      n.textContent = t;
+      node.append(n);
+      return n;
+    };
+    node.replaceChildren();
+    const a = lastA;
+    if (!a?.counts) return add('tt-wall-note', 'People · loading');
+    const c = a.counts;
+    const hero = document.createElement('div');
+    hero.className = 'tt-st-hero';
+    const n = document.createElement('span');
+    n.className = 'n';
+    n.textContent = String(a.rows.length);
+    const t = document.createElement('span');
+    t.className = 't';
+    t.textContent = `people on this trip · as of ${lastCtx?.asOf || ''}`;
+    hero.append(n, t);
+    node.append(hero);
+    add('tt-kicker', 'WHERE THEY ARE');
+    for (const [k, label] of [
+      ['Inside (likely)', `Inside the ${siteNounNow()} (likely)`],
+      ['At hotel, undetermined', `At the ${siteNounNow()}, undetermined`],
+      ['Outside, nearby', 'Outside, nearby'],
+      ['Away', 'Away from this site'],
+      ['Not current', 'Not current'],
+      ['Not located', 'Not located'],
+    ])
+      add(
+        `tt-wall-line${(k === 'Not current' || k === 'Not located') && c[k] ? ' warn' : ''}`,
+        `${label} · ${c[k] ?? 0}`,
+      );
+    if (lastSiteCounts) {
+      add('tt-kicker', 'BY SITE');
+      add('tt-wall-line', siteCountsLine(lastSiteCounts, siteKey));
+    }
+    const ch = a.chaperones || [];
+    if (ch.length) {
+      const cur = ch.filter((r) => r.pos.current).length;
+      add('tt-kicker', 'CHAPERONES');
+      add(
+        `tt-wall-line${ch.length - cur ? ' warn' : ''}`,
+        `${ch.length} · ${cur} current${ch.length - cur ? ` · ${ch.length - cur} not current` : ''}`,
+      );
+    }
+    add('tt-kicker', 'CHANGED · LAST 10 MIN');
+    const recent = changeLog.filter((e) => Date.now() - e.at < 600000);
+    if (!recent.length)
+      add('tt-wall-line', 'Nothing changed in the last 10 min');
+    for (const e of recent.slice(0, 6))
+      add(
+        `tt-wall-line${e.warn ? ' warn' : ''}`,
+        `${e.clock || ''} · ${e.text}`,
+      );
   }
   /** The station's panel in the rail's middle (wall panels, rail size). */
   function renderStationPanel() {
@@ -675,30 +786,114 @@ async function main() {
       n.textContent =
         'Select the hotel, a place or a person on the map; its card shows here. Building, Neighborhood and City change the scale.';
       p.replaceChildren(k, n);
-    } else if (station === 'weather') screenApi.weatherPanel(p);
+    } else if (station === 'travelers') peoplePanel(p);
+    else if (station === 'weather') screenApi.weatherPanel(p);
     else if (station === 'day') screenApi.dayPanel(p);
     else if (station === 'trips') screenApi.tripsPanel(p);
     else screenApi.idlePanel(p);
     return busy;
   }
+  // Another trip on watch with a reported incident (D1). Cached 30 s:
+  // building every trip's snapshot is not free.
+  let otherIncCache = { at: 0, v: [] };
+  function otherTripIncidents() {
+    const now = Date.now();
+    if (otherIncCache.at > now - 30000) return otherIncCache.v;
+    const v = DEMO_TRIPS.filter((t) => t.id !== focusTrip.id)
+      .map((t) => ({
+        trip: t,
+        inc: (tripTwinDemoSnapshot(t.city, t.scenario, {
+          now,
+          startMs: scenarioEpoch,
+        }).reported_incidents || [])[0],
+      }))
+      .filter((x) => x.inc);
+    otherIncCache = { at: now, v };
+    return v;
+  }
+  /**
+   * Every signal the shell shows, worst first (review/shell X4): an
+   * incident here, an incident on another trip, an official warning, a
+   * storm on its way, people to check, delayed data, simulated data. The
+   * station tiles, Back, the aperture and the top bar all read this list.
+   */
+  function shellSignals() {
+    const m = lastCtx?.mode;
+    const out = [];
+    if (m && (m.mode === 'incident' || m.mode === 'incident_elsewhere'))
+      out.push({
+        station: 'incident',
+        level: 'hazard',
+        text: 'REPORTED',
+        say: 'incident reported',
+      });
+    for (const o of otherTripIncidents())
+      out.push({
+        station: 'trips',
+        level: 'hazard',
+        text: 'REPORTED',
+        say: `incident reported on ${o.trip.title}`,
+        other: o,
+      });
+    const official = lastCtx?.weather?.official?.length;
+    if (official)
+      out.push({
+        station: 'weather',
+        level: 'attn',
+        text: 'WARNING',
+        say: 'official weather warning',
+      });
+    const pill = weatherPill(nc.text, Boolean(nc.simStart), region === 'us');
+    if (pill)
+      out.push({
+        station: 'weather',
+        level:
+          nc.text?.level === 'attention' || nc.text?.status !== 'arriving'
+            ? 'attn'
+            : 'watch',
+        text: pill,
+        say: `storm ${pill.toLowerCase()}`,
+      });
+    if (m?.total)
+      out.push({
+        station: 'incident',
+        level: 'attn',
+        text: String(m.total),
+        say: `${m.total} to check on`,
+      });
+    if (m?.degraded)
+      out.push({
+        station: null,
+        level: 'attn',
+        text: 'DELAYED',
+        say: 'traveler data delayed',
+      });
+    if (simulationOn())
+      out.push({
+        station: null,
+        level: 'sim',
+        text: 'SIM',
+        say: 'simulated data on',
+      });
+    return out;
+  }
   function renderStations() {
     if (!stations) return;
+    // The top-bar chip for another trip's incident (D1).
+    const other = otherTripIncidents()[0];
+    const chip = $('tt-other-alert');
+    chip.hidden = !other;
+    if (other)
+      chip.textContent = `INCIDENT · ${other.trip.title.toUpperCase()} › 06`;
     const m = lastCtx?.mode;
-    const incident =
-      m && (m.mode === 'incident' || m.mode === 'incident_elsewhere');
-    const total = m?.total || 0;
-    const ap = lastCtx?.weather?.approach;
     const age = formatAge((Date.now() - lastFeed) / 1000);
     const advance = appMode === 'advance';
+    const sig = shellSignals();
     const badges = {};
-    if (incident) badges.incident = { text: 'OPEN', level: 'hazard' };
-    else if (total)
-      badges.incident = { text: String(total).padStart(2, '0'), level: 'attn' };
-    if (ap)
-      badges.weather = {
-        text: ap.level === 'attention' ? 'ALERT' : 'WATCH',
-        level: ap.level === 'attention' ? 'attn' : 'watch',
-      };
+    for (const x of sig)
+      if (x.station && !badges[x.station])
+        badges[x.station] = { text: x.text, level: x.level };
+    const top = sig.find((x) => x.level !== 'sim') || null;
     const busy = renderStationPanel();
     stations.render({
       station,
@@ -706,23 +901,12 @@ async function main() {
       tiles: gridMode === 'station' ? stationTiles(station) : [],
       panelBusy: busy,
       open: stationsOpen,
-      statusText: advance
-        ? `ADVANCE · data ${age}`
-        : m?.degraded
-          ? `● STALE · data ${age}`
-          : `● LIVE · data ${age}`,
+      statusText: `${advance ? 'ADVANCE' : m?.degraded ? '● DATA DELAYED' : simulationOn() ? '● SIMULATED' : '● LIVE'} · data ${age}`,
       statusLevel: advance ? 'advance' : m?.degraded ? 'stale' : 'live',
       badges,
-      signal: incident
-        ? 'incident'
-        : total || ap?.level === 'attention'
-          ? 'attention'
-          : 'calm',
-      signalText: incident
-        ? 'incident reported'
-        : total
-          ? `${total} to check on`
-          : '',
+      backBadge: top ? { text: top.text, level: top.level } : null,
+      signal: top?.level === 'hazard' ? 'incident' : top ? 'attention' : 'calm',
+      signalText: sig.map((x) => x.say).join(' · '),
     });
   }
   // Operator floor numbering per site (Part E): browser-only convenience.
@@ -1015,7 +1199,7 @@ async function main() {
     if (!f) return { line: 'Satellite heat detections · loading' };
     if (!f.visible) return { line: 'Satellite heat detections · layer off' };
     const base = {
-      live: `NASA FIRMS · updated ${f.fetchedAt ? `${formatAge((Date.now() - Date.parse(f.fetchedAt)) / 1000)} ago` : 'recently'}`,
+      live: `NASA FIRMS · updated ${f.fetchedAt && formatAge((Date.now() - Date.parse(f.fetchedAt)) / 1000) ? `${formatAge((Date.now() - Date.parse(f.fetchedAt)) / 1000)} ago` : 'just now'}`,
       stale: 'NASA FIRMS · from cache',
       simulated: 'SIMULATED heat detections (prototype)',
       no_key: 'Satellite heat detections unavailable · no FIRMS key',
@@ -1274,13 +1458,7 @@ async function main() {
       lastModeKey = mode.mode;
       // Top bar: mode chip, data age, sample clock, trip in the breadcrumb.
       const chip = $('tt-mode');
-      chip.textContent =
-        mode.chip +
-        (mode.degraded ? ' · DATA DELAYED' : '') +
-        (simulationOn() ? ' · SIMULATED DATA' : '') +
-        (wx.at != null && appMode === 'live'
-          ? ` · WEATHER ${relText(wx.at, Math.floor(Date.now() / 9e5) * 9e5)}`
-          : '');
+      chip.textContent = mode.chip + chipSuffix();
       chip.className = `tt-mode ${mode.mode}${mode.degraded ? ' degraded' : ''}`;
       $('tt-age').textContent = `data ${formatAge(ageS)}`;
       $('tt-age').title = `Traveler data ${formatAge(ageS)} old`;
@@ -2723,6 +2901,17 @@ async function main() {
       source: `Day ${ev.day} ${ev.start} · MET Norway`,
     };
   }
+  /** What the mode chip adds in Live and in Advance alike (review X5). */
+  function chipSuffix() {
+    const m = lastCtx?.mode;
+    return (
+      (m?.degraded ? ' · DATA DELAYED' : '') +
+      (simulationOn() ? ' · SIMULATED DATA' : '') +
+      (wx.at != null
+        ? ` · WEATHER ${relText(wx.at, Math.floor(Date.now() / 9e5) * 9e5)}`
+        : '')
+    );
+  }
   function applyAppMode() {
     const advance = appMode === 'advance';
     document.body.classList.toggle('tt-advance-mode', advance);
@@ -2740,7 +2929,7 @@ async function main() {
     alert.hidden = !(advance && hot);
     if (advance) {
       const chip = $('tt-mode');
-      chip.textContent = 'PLANNING';
+      chip.textContent = 'PLANNING' + chipSuffix();
       chip.className = 'tt-mode advance';
       // The live data age stays visible while planning (shell review 03).
       renderAdvance();
@@ -5476,7 +5665,7 @@ async function main() {
   }
   function alertAreasNote() {
     if (region !== 'us')
-      return 'MeteoAlarm areas come without a shape · alerts are listed in the rail';
+      return 'MeteoAlarm areas come without a shape · alerts are listed in the Summary';
     const list = alertList();
     if (!list.length)
       return `No official alerts for this point · NWS checked ${wx.warningsAt ? ago(wx.warningsAt) : 'at load'}`;
@@ -6061,7 +6250,7 @@ async function main() {
           Cesium.Math.toRadians(p.pitch),
           p.range,
         ),
-        duration: flightMs(Math.abs(d - p.range)) / 1000,
+        duration: reducedMotion() ? 0 : flightMs(Math.abs(d - p.range)) / 1000,
         easingFunction: Cesium.EasingFunction.QUARTIC_IN_OUT,
       });
       document
@@ -6510,8 +6699,9 @@ async function main() {
             c.lat,
             twin.scene.hotelBase + up,
           ),
+          // Keep the operator's heading (D6): only the pitch changes.
           orientation: {
-            heading: 0,
+            heading: viewer.camera.heading,
             pitch: -Cesium.Math.PI_OVER_TWO,
             roll: 0,
           },
@@ -6632,7 +6822,9 @@ async function main() {
       );
       add(
         'tt-wall-note',
-        'A reported floor opens the board here · needs attention is on the left',
+        document.body.dataset.view === 'screen'
+          ? 'A reported floor opens the board here · needs attention is on the left'
+          : 'A reported floor opens the incident board here',
       );
       if (lastA?.counts)
         add(
@@ -6718,10 +6910,11 @@ async function main() {
         /* no sunset line */
       }
       officialInto(add);
-      add(
-        'tt-wall-note',
-        'Checks and notes for each stop are in the brief on the left · reviewed on the All-in-one',
-      );
+      if (document.body.dataset.view === 'screen')
+        add(
+          'tt-wall-note',
+          'Checks and notes for each stop are in the brief on the left · reviewed on the All-in-one',
+        );
     },
     /** Weather & alerts: official first, then sensed, then now (S4). */
     weatherPanel(node) {
@@ -6892,6 +7085,7 @@ async function main() {
       ],
     });
     cleanups.push(() => stations?.dispose());
+    $('tt-other-alert').addEventListener('click', () => pickStation('trips'));
     // A card opening or closing in the right column swaps the rail's
     // middle at once, not on the next 5 s refresh.
     let rcolFrame = 0;

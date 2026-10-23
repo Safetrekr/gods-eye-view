@@ -365,7 +365,7 @@ export function createHud({
     const hero = !wall() && m.mode !== 'incident' && !m.degraded && m.total > 0;
     if (hero) {
       const box = el('div', `tt-sum-hero ${m.mode}`);
-      const n = el('span', 'tt-sum-n', String(m.total).padStart(2, '0'));
+      const n = el('span', 'tt-sum-n', String(m.total));
       const txt = el('div', 'tt-sum-txt');
       txt.append(
         el('div', 'tt-sum-k', 'to check on'),
@@ -472,7 +472,7 @@ export function createHud({
     }
 
     // ---- Needs attention ----
-    needsCard.cnt.textContent = String(m.total).padStart(2, '0');
+    needsCard.cnt.textContent = String(m.total);
     needsCard.sec.classList.toggle('has-items', m.total > 0);
     {
       const g = m.groups[0];
@@ -700,7 +700,7 @@ export function createHud({
         el(
           'li',
           'more',
-          `+${allRows.length - shownRows.length} more · listed in the rail`,
+          `+${allRows.length - shownRows.length} more · listed under Needs attention`,
         ),
       );
     incident.append(names);
@@ -710,7 +710,7 @@ export function createHud({
         el(
           'div',
           'tt-line',
-          `${inB.rows.length} ${m.comparable === false ? '' : 'more '}may still be inside · listed in the rail`,
+          `${inB.rows.length} ${m.comparable === false ? '' : 'more '}may still be inside · listed under Needs attention`,
         ),
       );
     const copy = el('button', 'tt-btn primary', 'Copy for responders');
@@ -874,7 +874,7 @@ export function createHud({
         if (key !== 'needs') onCardToggle(key, true);
         applyCard(c);
       }
-      c.sec.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      // No scrolling: Needs attention must stay in view (review/shell X9).
     },
     focusFind() {
       // Walls keep the box in People: "/" opens People first there.

@@ -2576,8 +2576,8 @@ body.tt-editing .tt-edit-chip {
 }
 /* J9 simulation stays visible */
 #tt-proto-btn.sim {
-  border-color: var(--tt-hazard);
-  color: var(--tt-hazard-text);
+  border-color: var(--tt-edge-ctl);
+  color: var(--tt-text);
 }
 
 /* J15 Advance */

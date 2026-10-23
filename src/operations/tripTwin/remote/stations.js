@@ -657,6 +657,14 @@ function layers(ctx) {
     return vals.every((v) => v === vals[0]) ? vals[0] : null;
   };
   const out = [...head('Layers & display', `Applies to ${tgtName(target)}`)];
+  layersAndDisplay(ctx, out, value, slots);
+  return out;
+}
+
+/** 01 Site: the scale of the 3D site picture (review/shell D5). */
+function site(ctx) {
+  const { state, target } = ctx;
+  const out = [...head('Site', `3D site picture · ${tgtName(target)}`)];
   out.push(kick('Scale', scopeOf(target)));
   const sc = el('div', 'rm-actions');
   const cur = target === 'all' ? null : state.screens[target]?.scale;
@@ -678,6 +686,25 @@ function layers(ctx) {
       ),
     );
   out.push(sc);
+  out.push(
+    el(
+      'div',
+      'rm-note',
+      'Layers, display and motion are in Layers & display, at the foot of the stations.',
+    ),
+  );
+  const a = el('div', 'rm-actions');
+  a.append(
+    btn('rm-btn', `Reset ${tgtName(target)} to role defaults`, () =>
+      ctx.send({ type: 'reset', target }, `${tgtName(target)} reset`),
+    ),
+  );
+  out.push(a);
+  return out;
+}
+
+function layersAndDisplay(ctx, out, value, slots) {
+  const { state, target } = ctx;
   for (const g of LAYER_CATALOG) {
     out.push(kick(g.group, scopeOf(target)));
     for (const L of g.layers) {
@@ -759,7 +786,6 @@ function layers(ctx) {
     ),
   );
   out.push(a);
-  return out;
 }
 
 // --------------------------------------------------------------- 03 Weather
@@ -916,7 +942,7 @@ function weather(ctx) {
 }
 
 const RENDER = {
-  site: layers,
+  site,
   travelers: people,
   incident,
   weather,
@@ -924,7 +950,7 @@ const RENDER = {
   trips: tripsOnWatch,
 };
 const REMOTE_SUB = {
-  site: 'Scale, layers & display',
+  site: '3D site picture · scale',
   travelers: 'Roster & spotlight',
   incident: 'Report, board & responders',
   weather: 'See it coming · alerts · lightning',
@@ -939,6 +965,14 @@ export const STATIONS = WALL_STATIONS.map((s) => ({
 }));
 /** Stations reached from the rail foot, not a tile. */
 export const FOOT_STATIONS = [
+  {
+    id: 'layers',
+    num: '',
+    label: 'Layers & display',
+    sub: 'Layers, display & motion',
+    icon: ICON.layers,
+    render: layers,
+  },
   {
     id: 'screens',
     num: '',

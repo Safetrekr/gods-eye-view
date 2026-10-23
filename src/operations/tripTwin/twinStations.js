@@ -77,12 +77,22 @@ export const ICON = {
   ),
 };
 
+/** Short tile labels (review/shell D8); the full name is in the pane. */
+const SHORT = {
+  site: 'Site',
+  travelers: 'People',
+  incident: 'Incident',
+  weather: 'Weather',
+  day: 'Day plan',
+  trips: 'Trips',
+};
 /** The six stations: id = wall role key, number = wall slot order. */
 export const STATIONS = Object.freeze(
   ROLE_ORDER.map((id, i) => ({
     id,
     num: String(i + 1).padStart(2, '0'),
     label: ROLES[id].label,
+    short: SHORT[id],
     sub: ROLES[id].sub,
     icon: ICON[id],
   })),
@@ -96,6 +106,22 @@ export function stationKey(e) {
   const m = /^Digit([0-6])$/.exec(e.code || '');
   if (!m) return null;
   return m[1] === '0' ? 'rail' : STATIONS[Number(m[1]) - 1].id;
+}
+
+/**
+ * The storm's time pill, shared by the All-in-one and the remote: the same
+ * time as the big figure (the core within 6 mi / 10 km). "" when none.
+ */
+export function weatherPill(t, sim, us = true) {
+  if (!t) return '';
+  const m = t.nearMin ?? t.overMin;
+  let p = '';
+  if (t.status === 'over') p = 'OVERHEAD';
+  else if (t.status === 'near') p = us ? 'WITHIN 6 MI' : 'WITHIN 10 KM';
+  else if (t.status === 'arriving' && m != null && m <= 90)
+    p = `IN ~${Math.max(5, Math.round(m / 5) * 5)} MIN`;
+  if (!p) return '';
+  return sim ? `SIM ${p.replace(/ MIN$/, '')}` : p;
 }
 
 const el = (tag, cls, text) => {
@@ -125,10 +151,7 @@ export function createStationRail({ onPick, onBack, onToggle, menu = [] }) {
   rail.setAttribute('aria-label', 'Stations');
   const head = el('div', 'tt-st-head');
   const trail = el('span', 'tt-st-trail');
-  head.append(
-    trail,
-    el('span', 'num', String(STATIONS.length).padStart(2, '0')),
-  );
+  head.append(trail);
   const active = el('div', 'tt-st-active');
   const ak = el('div', 'tt-st-k');
   const status = el('span', 'tt-st-status');
@@ -180,8 +203,17 @@ export function createStationRail({ onPick, onBack, onToggle, menu = [] }) {
   ro.observe(bottom);
 
   /** One tile: icon, number or nothing top-right, label bottom-left. */
-  function tile({ key, label, icon, num, title, action }) {
-    const t = el('button', 'tt-st-tile');
+  function tile({ key, label, icon, num, title, action, empty }) {
+    const t = el('button', `tt-st-tile${empty ? ' empty' : ''}`);
+    if (empty) {
+      // A fixed slot with nothing in it: positions never move.
+      t.type = 'button';
+      t.disabled = true;
+      t.dataset.tile = key;
+      t.setAttribute('aria-hidden', 'true');
+      t.tabIndex = -1;
+      return { t, pill: el('span', 'tt-st-pill') };
+    }
     t.type = 'button';
     t.dataset.tile = key;
     t.innerHTML = icon || '';
@@ -241,13 +273,19 @@ export function createStationRail({ onPick, onBack, onToggle, menu = [] }) {
           ]
         : STATIONS.map((st, i) => ({
             key: st.id,
-            label: st.label,
+            label: st.short,
             icon: st.icon,
             num: st.num,
             title: `${st.label} · ${st.sub} (⌥${i + 1})`,
             action: () => onPick(st.id),
           }));
+      // Always six slots (review/shell X15).
+      while (list.length < 6)
+        list.push({ key: `empty${list.length}`, label: '', empty: true });
       const key = `${state.mode}|${s.id}|${list.map((x) => x.key).join(',')}`;
+      // No rail or tile animation while a red or amber signal shows: the
+      // badge must arrive at once (review/shell X12).
+      document.body.classList.toggle('tt-st-alert', state.signal !== 'calm');
       if (key !== gridKey) {
         const changed = gridKey !== '';
         gridKey = key;
@@ -265,13 +303,12 @@ export function createStationRail({ onPick, onBack, onToggle, menu = [] }) {
         );
         if (changed) waveIn();
       }
-      // Badges: station tiles in the picker; on Back while inside one.
-      const signalBadge =
-        state.signal === 'incident'
-          ? { text: 'OPEN', level: 'hazard' }
-          : state.badges?.incident || null;
+      // Badges: station tiles in the picker; the worst signal on Back
+      // while inside a station, so nothing hides behind a station.
+      const signalBadge = state.backBadge || null;
       for (const x of list) {
         const { t, pill } = cells.get(x.key);
+        if (x.empty) continue;
         const on = inStation ? Boolean(x.on) : x.key === s.id;
         if (on) t.setAttribute('aria-current', 'true');
         else t.removeAttribute('aria-current');

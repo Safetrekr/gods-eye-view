@@ -21,6 +21,7 @@ import {
   simulatedAlert,
 } from '../twinNowcastLoad.js';
 import { STATIONS, FOOT_STATIONS, btn, stationOf } from './stations.js';
+import { weatherPill } from '../twinStations.js';
 
 const params = new URLSearchParams(location.search);
 const app = document.getElementById('rm-app');
@@ -733,19 +734,6 @@ async function refreshWx(force = false) {
   renderRail();
   if (ui.station === 'weather') renderContent(true);
 }
-/** The Weather tile's pill: "IN ~25 MIN", "OVERHEAD", "SIM IN ~25". */
-function wxPill(t, sim, us = true) {
-  if (!t) return '';
-  // The same time as the big figure: the core within 6 mi (10 km).
-  const m = t.nearMin ?? t.overMin;
-  let p = '';
-  if (t.status === 'over') p = 'OVERHEAD';
-  else if (t.status === 'near') p = us ? 'WITHIN 6 MI' : 'WITHIN 10 KM';
-  else if (t.status === 'arriving' && m != null && m <= 90)
-    p = `IN ~${Math.max(5, Math.round(m / 5) * 5)} MIN`;
-  if (!p) return '';
-  return sim ? `SIM ${p.replace(/ MIN$/, '')}` : p;
-}
 function renderRail() {
   if (!ui.state) return;
   const st = stationOf(ui.station);
@@ -766,9 +754,11 @@ function renderRail() {
   if (st.context) list.append(...st.context(ctx()));
   else list.append(targetCard());
   const g = el('div', 'r-grid');
-  const incidentOpen =
-    (Boolean(ui.state.session.report) && !ui.state.session.incidentAck) ||
-    otherTripIncident();
+  // Same rules as the All-in-one (review/shell X1, X4): 03 carries the
+  // trip in focus only (the operator's report or its own data, acknowledged
+  // or not); another trip's report lights 06 Trips on watch.
+  const focusIncident = incidentOpen();
+  const otherIncident = otherTripIncident();
   const wxT = ui.wx?.text;
   for (const s of STATIONS) {
     const t = btn(
@@ -786,12 +776,14 @@ function renderRail() {
       `${(STATIONS.length - 1 - STATIONS.indexOf(s)) * 0.05}s`,
     );
     t.append(el('span', 'num', s.num), el('span', 'lab', s.label));
-    if (s.id === 'incident' && incidentOpen)
-      t.append(el('span', 'pill', 'OPEN'));
+    if (s.id === 'incident' && focusIncident)
+      t.append(el('span', 'pill', 'REPORTED'));
+    if (s.id === 'trips' && otherIncident)
+      t.append(el('span', 'pill', 'REPORTED'));
     // A core on its way to the site shows on the Weather tile (amber).
     const pill =
       s.id === 'weather'
-        ? wxPill(wxT, ui.wx?.sim, regionOf(ui.wx?.site?.timezone) === 'us')
+        ? weatherPill(wxT, ui.wx?.sim, regionOf(ui.wx?.site?.timezone) === 'us')
         : '';
     if (pill)
       t.append(
