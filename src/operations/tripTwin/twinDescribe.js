@@ -483,7 +483,9 @@ function logRow(change, o) {
 /**
  * A device's name from an actor `{ref, kind, name}` (a broadcast's `by`)
  * or a ref looked up in presence `actors`. Never an id: an actor nobody
- * knows is "another device". V1 prefixes "Voice · " for via 'voice'.
+ * knows is "another device". A wall acts only from its own keyboard sheet
+ * (shell D5), so a screen reads "S4 keyboard". V1 prefixes "Voice · " for
+ * via 'voice'.
  */
 export function byText(actor, actors = []) {
   const a =
@@ -492,6 +494,7 @@ export function byText(actor, actors = []) {
       : actor;
   const name =
     a?.name && typeof a.name === 'string' ? a.name : 'another device';
+  if (a?.kind === 'screen' && a.name) return `${name} keyboard`;
   return a?.via === 'voice' ? `Voice · ${name}` : name;
 }
 

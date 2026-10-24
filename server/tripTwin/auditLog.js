@@ -565,7 +565,7 @@ const ACTOR_SPEC = {
   kind: oneOf(['remote', 'screen', 'launcher', 'host']),
   name: actorName,
   slot: nul(slot),
-  via: oneOf(['touch', 'system']),
+  via: oneOf(['touch', 'system', 'keyboard']),
 };
 const CORR_SPEC = {
   reqId: (v) => (Number.isInteger(v) && v >= 0 && v <= 1e12 ? v : undefined),

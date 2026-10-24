@@ -549,8 +549,8 @@ test('K7 sec S6: a socket with no accepted hello is closed after 5 s; one refuse
   assert.equal(r.relay.health().counters.limits['hello-deadline'], 2);
 });
 
-test('K7 S-15 stale page: a page from K5 or K6 (proto 2) is told RELOAD with text it can show; this build says proto 3; nothing reaches the host', () => {
-  assert.equal(PROTO, 3);
+test('K7 S-15 stale page: a page from K5 or K6 (proto 2) is told RELOAD with text it can show; this build says its own proto (3 at K7); nothing reaches the host', () => {
+  assert.ok(PROTO >= 3);
   const r = rig();
   const before = JSON.stringify(r.host.snapshot());
   for (const [kind, text] of [
@@ -570,7 +570,7 @@ test('K7 S-15 stale page: a page from K5 or K6 (proto 2) is told RELOAD with tex
     const w = ws.last('welcome');
     assert.equal(w.code, DENY.RELOAD, kind);
     assert.match(w.error, text);
-    assert.equal(w.proto, 3);
+    assert.equal(w.proto, PROTO);
     assert.equal(w.state, undefined);
     assert.equal(w.presence, undefined);
   }

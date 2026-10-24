@@ -397,6 +397,7 @@ test('K8 SUP-4: the chip fits 56 characters with the longest trip title, every h
     'Laptop',
     HOST_NAME,
     `${HOST_NAME} 2`,
+    'S6 keyboard', // a wall's own L / D sheet (shell D5)
   ];
   const longestTrip = [...DEMO_TRIPS].sort(
     (a, b) => b.title.length - a.title.length,
@@ -466,6 +467,15 @@ test('K8 CL-11 byText: a name from the actor or its ref; "another device" when u
   assert.equal(byText(null), 'another device');
   assert.equal(byText({ ref: 'D4', id: 'remote-abc123' }), 'another device');
   assert.equal(byText({ ...IPAD, via: 'voice' }), 'Voice · iPad');
+  // A wall acts only from its own keyboard sheet (shell D5).
+  assert.equal(
+    byText({ ref: 'D6', kind: 'screen', name: 'S4', slot: 4, via: 'keyboard' }),
+    'S4 keyboard',
+  );
+  assert.equal(
+    byText('D6', [{ ref: 'D6', kind: 'screen', name: 'S4', slot: 4 }]),
+    'S4 keyboard',
+  );
 });
 
 test('K8 SUP-4 status strip control cell: in control, view only with since, no remote in control, not connected, and after 15 s can’t reach (Appendix D 2d)', () => {

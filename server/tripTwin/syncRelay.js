@@ -786,16 +786,40 @@ export function createRelay({
         break;
       }
       case 'screen-cmd': {
-        // A wall's own L / D sheet: its own slot, display fields only.
+        // A wall's own L / D sheet (shell D5): its own slot, display fields
+        // only. The same per-device limit as a remote's commands (S-16);
+        // the broadcast is a CMD state whose `by` is the wall's actor (via
+        // 'keyboard'), so no message changes shape. The page's free-text
+        // `label` is never read: every page words the change itself.
         if (me.kind !== 'screen') break;
+        const lim = limiter.command(me.id, now());
+        if (!lim.ok) {
+          limitHit('device-cmd', {
+            kind: me.kind,
+            retryAfterMs: lim.retryAfterMs,
+          });
+          record('cmd.refused', {
+            actor: host.actorOf(me.id, VIA.KEYBOARD),
+            data: { type: m.cmd?.type, code: CODE.RATE_LIMITED },
+          });
+          send(ws, {
+            t: 'ack',
+            reqId: m.reqId,
+            ok: false,
+            code: CODE.RATE_LIMITED,
+            error: 'Too many changes at once · nothing changed · try again',
+            retryAfterMs: lim.retryAfterMs,
+          });
+          break;
+        }
         const r = host.screenCommand({ by: me.id, cmd: m.cmd });
         send(ws, { t: 'ack', reqId: m.reqId, ...r });
         if (r.ok)
           broadcastState({
+            cause: CAUSE.CMD,
             changed: r.changed,
-            by: 'screen',
-            slot: r.slot,
-            label: String(m.label || '').slice(0, 80),
+            skipped: r.skipped,
+            by: host.actorOf(me.id, VIA.KEYBOARD),
           });
         break;
       }

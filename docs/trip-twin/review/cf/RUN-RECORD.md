@@ -699,3 +699,31 @@ Retired: `store: revert-and-restart: the pre-K2 loader still finds the wall in t
 - `k8/gate1.txt` (final gate), `k8/build.log`, `k8/smoke1.txt` … `k8/smoke5.txt` (5 final; 1 and 3 red: a name clash in the new harness code, then the log item's 30 s retry and the K1-S12 reload race), `k8/repro1.txt`, `k8/cap.mjs`, `k8/sat.mjs`, `k8/sat2.mjs`
 - `qa-k8/runs/smoke-2026-10-24T03-41-46/` (results and shots), `qa-k8-repro/runs/repro-pairing-2026-10-24T03-17-52/`
 - `k8/shots/`: walls at 2560 and 5K (chip change and idle, unpaired, replaced, slot taken, out of date, rate limited, busy, refused, lost, link used), the remote at iPad size (view only, in control with the active-station card, Screens & devices wrong code and pause, Log not writing, out of date), the launcher (Log not writing, normal, out of date). A host-card shot was deleted: it printed a (throwaway) setup link.
+
+## Rebase onto shell `fac0f77`, and wall keyboard commands under the CF contract (proto → 4)
+
+- **Date:** 24 Oct 2026, 23:00–00:10 CDT. **Machine:** MacBook (macOS 26.5), Node 22.21.1, headless puppeteer (SwiftShader). Load average 9–25.
+- **Why:** the shell track (Jesse, paused) committed `6615570` (no dot grid over the 3D view) and `fac0f77` (D5: L / D / K open a wall's own sheets) after CF's base `b7e2576`. `fac0f77` added a page → relay message `screen-cmd` in CF-owned files (`syncRelay.js`, `twinSessionHost.js`), written against pre-CF code: raw `by: 'screen'` and `by: 'S<n>'`, a free-text `label` in the broadcast, no audit line, no rate limit, no refusal codes.
+- **Rebase:** `git rebase fac0f77` of `deb0751` … `ecd4e2c`; shell commits untouched. Conflicts were resolved by keeping both sides (the shell's sheet wiring beside K8's chip and describer; the shell's D5 relay test moved with K1's test file to `twinRelay.test.mjs`). The shell's "Set at this screen" wall text gave way to K8's chip, which now names the wall ("by S6 keyboard"). The calm unpaired card keeps its dot-grid field only while 3D is paused; the live 3D view has no grid, as `6615570` wants. The rebase itself was done by a builder that then stopped (account usage limit); the integration below was done by the coordinator.
+- **Integration (new commit on top):**
+  - `twinProtocol.js`: `screen-cmd` joins `MSG_TYPES`; `VIA.KEYBOARD = 'keyboard'`; **`PROTO = PROTO_MIN = 4`**. The CMD state a wall causes has `by` = the wall's actor, whose `slot` is a number (a remote's is null): the schema hash changed (`by.slot`: null → null|number), so the rule (S-15) bumps. Nothing from CF is deployed yet, so this costs no extra reload. **Later numbers shift by one: K9 → 5, K10 → 6, K11 → 7** (PHASE-CF-PLAN §6.4 still says 4/5/6).
+  - `twinSessionHost.js` `screenCommand`: the shell's allowlist is kept as written; attribution is the wall's ref (`refOfId`), never `S<n>`; refusals carry `VALIDATION_COMMAND` (or `UNKNOWN_COMMAND`) and write `cmd.refused`; an applied change writes `cmd.applied` (actor via `keyboard`, diffs as for a remote). No Undo entry and no lease, as the shell designed it.
+  - `syncRelay.js`: `screen-cmd` goes through the per-device command limit (`RATE_LIMITED` + `retryAfterMs`, `limit.hit device-cmd`), then broadcasts `{cause: 'cmd', changed, skipped, by: actor}`. The page's `label` is never read or sent on: every page words the change with the describer.
+  - `auditLog.js`: actor `via` may be `keyboard`. `twinDescribe.js` `byText`: a screen actor reads "S6 keyboard". Remote: the shell's notice keeps its words, with the describer's text: "S6 · scale grid on · set at the screen".
+- **Tests:** the shell's D5 relay test adapted to the actor shape (and refusal codes); new: limit and no-claimed-actor (relay), cmd.applied / cmd.refused via keyboard with a planted label kept out of the folder (audit), byText for screens, "S6 keyboard" in the 56-character chip test, `screen-cmd` in the golden transcript (schema row 4). Baseline **298**.
+- **Smoke:** new step **D5-S1**: the S6 page presses L, turns the grid on in its own sheet; the remote hears a CMD state by S6 via keyboard (no label, no raw id); the chip reads "S6 · Scale grid on · by S6 keyboard · HH:MM · hands-on". K7-S6 (5K thumbnails) missed its 30 s wait once in four runs under load and now waits 60 s (it checks format, size and spacing, not speed).
+
+### Gate
+
+| Check | Result |
+|---|---|
+| `node scripts/test-trip-twin.mjs` | **PASS**: 298/298; `npm test` exit 0, 3304 tests, 1 skip (Windows-only); canary, L5 scan and migration, Math.random and the shared-file guard clean. |
+| Twin build | **PASS** (`rebase-fac0f77/twin-dist`). |
+| Smoke `--ref worktree` | **PASS** (`smoke4.txt`): 46 pass, 0 fail, 0 TODO, 0 pageerror (console.error: FIRMS 503 and SwiftShader WebGL only). Earlier runs: D5-S1 regex first missed the chip's "hands-on" ending; K7-S6 once (above). |
+| `repro-pairing --wait-expiry` | **PASS**: 12/12 GREEN incl. the live R-H4 wait (`qa-repro/runs/repro-pairing-2026-10-24T04-58-12`); 0 pageerror. |
+
+### For K9 and K10 (what the wall's keyboard path must meet)
+
+- **K9 (revision-checked undo):** a wall can now change a field the remote's open Undo would restore (e.g. the remote turns radar on S4, then S4's sheet turns it off). The rev check must skip that field and say so; the wall's own change has no Undo entry.
+- **K10 (server confirm):** `screen-cmd` touches only a wall's own layers, motion, scale and text size: all Tier A (no confirm). Keep it so: anything that would need a confirm stays off this path. A wall changes state **without the lease**, by design (D5): "In control" on the remote means control of every wall-wide and cross-wall change, not of each wall's own display.
+- **Visitor mode** hides names; the wall sheets change no names, but K10/K13 should check the sheet shows nothing a visitor should not see.

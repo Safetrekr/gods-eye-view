@@ -50,6 +50,7 @@ const { createRelay } = await import('../../../server/tripTwin/syncRelay.js');
 const WIRE_SCHEMA = Object.freeze({
   2: '21bbf078de4aa135d7f800c2685ed4ffd5a931b563c71a8b922d87609af5a199',
   3: 'c89e2144cc6ab7cb9626508850956fa7bbca62ff626360657212d2936534cd51',
+  4: '6806f367d0ae2fa55feea8f6f16820626a904c76982da0bb61b6be21a66cc4f3',
 });
 
 /** A host on a fake clock with a seeded random (deterministic tokens). */
@@ -148,6 +149,19 @@ function goldenTranscript() {
     cmd: { type: 'screens', target: 1, patch: {}, via: 'voice' },
   });
   v.say({ t: 'cmd', reqId: 9, cmd: { type: 'returnLive' } });
+  // A wall's own L / D sheet (shell D5): applied and refused. Same `ack`
+  // and `state` shapes as a remote's command, so no row of its own.
+  s2.say({
+    t: 'screen-cmd',
+    reqId: 90,
+    label: 'Rain map on',
+    cmd: { type: 'screens', target: 2, patch: { layers: { precip: true } } },
+  });
+  s2.say({
+    t: 'screen-cmd',
+    reqId: 91,
+    cmd: { type: 'screens', target: 1, patch: { role: 'day' } },
+  });
   r.say({ t: 'undo', reqId: 10, undoId });
   r.say({ t: 'undo', reqId: 11, undoId });
   // Thumbnails, hands-on, identify, control and handover.
@@ -299,7 +313,7 @@ test('K5 S-15: a launcher page from before K5 cannot start a setup (RELOAD); thi
 });
 
 test('K5 S-15: every welcome says PROTO; PROTO_MIN equals PROTO at this slice; protoOk takes integers from PROTO_MIN up', () => {
-  assert.equal(PROTO, 3);
+  assert.equal(PROTO, 4);
   assert.equal(PROTO_MIN, PROTO);
   for (const p of [PROTO, PROTO + 1]) assert.equal(protoOk(p), true);
   for (const p of [undefined, null, 0, 1, '2', 1.5, NaN])
