@@ -30,6 +30,18 @@
 // auditLog.js writes them (allowlists, async, fail open). Heartbeats and
 // thumbnails are never logged. GET /api/twin-sync/health and /log answer
 // only this computer (localOnly()).
+// Pending sockets and limits (Phase CF K7, SEC-7, SEC-8, S-16, review B4,
+// sec S5, S6): a socket is `new` (no accepted hello), `pending` (a screen
+// showing its code) or `paired`. A pending screen gets only its code (again
+// when it expires), then `paired` or `unpaired`: no state, no presence, no
+// identify, no thumbnails. Launchers get presence only. Limits from
+// twinLimits.js: 1 MiB frames; a per-socket message budget (closed after
+// 10 s over); commands per device; upgrades per IP with loopback's own
+// budget; 64 sockets, 24 per IP, 16 without a pairing (the oldest LAN or
+// unspoken one gives way); a 5 s hello deadline; wrong tokens are counted
+// by (IP, device id) and never lock anyone out. One bad message never stops
+// the relay (try/catch around dispatch). A newly issued token writes the
+// store at once. Presence carries `health {audit, store}` (K8 reads it).
 // Prototype only: plain ws, LAN, no login — production needs TLS, device
 // enrolment, SSO, signed commands and an append-only audit store off the
 // host (07-production-delta).
@@ -44,6 +56,7 @@ import {
   CLOSE,
   CODE,
   DENY,
+  MSG_TYPES,
   PROTO,
   DRIFT_REASONS,
   REPLACED,
@@ -54,6 +67,7 @@ import {
 } from '../../src/operations/tripTwin/twinProtocol.js';
 import { auditLogFor } from './auditLog.js';
 import { openSessionStore, resolveDataDir } from './sessionStore.js';
+import { LIMITS, createLimiter, socketBudget, thumbOk } from './twinLimits.js';
 import { hostCheckFor, twinLogger } from './twinHostCheck.js';
 import {
   SYNC_PATH,
@@ -83,9 +97,11 @@ export function lanAddresses(ifaces = os.networkInterfaces()) {
 
 /**
  * Presence as one socket may see it: no device ids, its own flag. Actors
- * by ref (K5): who is on the wall and every ref the state names.
+ * by ref (K5): who is on the wall and every ref the state names. `health`
+ * (K7, CF-D9; K8 shows "Log not writing"): is the audit log writing, is
+ * the store saving.
  */
-export function presenceFor(p, meId) {
+export function presenceFor(p, meId, health = {}) {
   const screens = {};
   for (const [slot, s] of Object.entries(p.screens || {}))
     screens[slot] = {
@@ -119,6 +135,10 @@ export function presenceFor(p, meId) {
       at: p.handover.at,
       you: p.handover.from === meId,
     },
+    health: {
+      audit: Boolean(health.audit),
+      store: Boolean(health.store),
+    },
   };
 }
 
@@ -143,19 +163,41 @@ const STORE_AUDIT = Object.freeze({
   'store.memory_only': 'memory_only',
 });
 
+/** Real timers, unref'd: a hello deadline never keeps the process alive. */
+const REAL_TIMERS = Object.freeze({
+  set(fn, ms) {
+    const h = setTimeout(fn, ms);
+    h.unref?.();
+    return h;
+  },
+  clear: (h) => h && clearTimeout(h),
+});
+
 /**
  * Wire a host to sockets. Exposed for tests (no Vite needed). `audit`
  * (auditLog.js, K6) gets every event; without one nothing is written, and
- * the counters and timings for health are kept all the same.
+ * the counters and timings for health are kept all the same. K7: `now` and
+ * `timers` (a fake clock in tests), `limits` (twinLimits.js), and
+ * `healthFlags()` → {audit, store} for presence. `save(snapshot, {flush})`:
+ * `flush` asks for the store to be written at once (a token was issued).
  */
 export function createRelay({
   host = createSessionHost(),
   save = () => {},
   audit = null,
+  now = Date.now,
+  timers = REAL_TIMERS,
+  limits = LIMITS,
+  healthFlags = null,
 } = {}) {
-  const sockets = new Map(); // ws → {id, kind, secure, place} once accepted
-  const conns = new Map(); // ws → {isLocal, secure, peer, proto} from its upgrade
+  const sockets = new Map(); // ws → {id, kind, secure, place}: paired
+  const pending = new Map(); // ws → {id, kind, secure, place}: showing a code
+  // ws → {isLocal, secure, peer, proto, state, hellos, budget, deadline}
+  // from its upgrade; state is 'new' (no accepted hello), 'pending' or
+  // 'paired' (screens with a slot, remotes, launchers).
+  const conns = new Map();
   const waiting = new Map(); // device id → the socket that shows its code
+  const limiter = createLimiter({ limits });
   // Health (BE-10): counters from the events, timings of commands.
   const counters = {
     cmdApplied: 0,
@@ -171,6 +213,15 @@ export function createRelay({
     confirmBypass: 0,
     thumbs: 0,
     msgDropped: 0,
+    // K7: limits and pending sockets.
+    preHelloDropped: 0,
+    pendingDropped: 0,
+    budgetDropped: 0,
+    thumbDropped: 0,
+    msgError: 0,
+    wsError: 0,
+    wrongToken: 0,
+    limits: {},
   };
   const timings = { applyMs: [], applyToBroadcastMs: [] };
   const sample = (k, ms) => {
@@ -204,6 +255,24 @@ export function createRelay({
     });
   }
   host.onEvent?.(record);
+  const peerOf = (c) => c && { ip: c.peer, local: c.isLocal };
+  // One `limit.hit` line per limit per auditEveryMs; the next one says
+  // how many were left out (a flood never floods the log).
+  const hits = new Map(); // limit → {at, held}
+  function limitHit(limit, data = {}, ev = {}) {
+    bump(counters.limits, limit);
+    const t = now();
+    const h = hits.get(limit);
+    if (h && t - h.at < limits.auditEveryMs) {
+      h.held += 1;
+      return;
+    }
+    hits.set(limit, { at: t, held: 0 });
+    record('limit.hit', {
+      ...ev,
+      data: { limit, ...data, dropped: h?.held || 0 },
+    });
+  }
   // Each wall's last hands-on and drift, so only a change is logged.
   const walls = new Map(); // slot → {on, drift}
   const send = (ws, msg) => {
@@ -212,33 +281,101 @@ export function createRelay({
   const each = (fn) => {
     for (const [ws, meta] of sockets) fn(ws, meta);
   };
-  const view = (meta) => presenceFor(host.presence(), meta.id);
-  /** The accepted socket that holds this device id, other than `not`. */
+  /** Presence health (K7): is the log writing, is the store saving. */
+  const flags = () => {
+    try {
+      return healthFlags
+        ? healthFlags()
+        : { audit: Boolean(audit?.health?.()?.ok), store: false };
+    } catch {
+      return { audit: false, store: false };
+    }
+  };
+  const view = (meta, hf = flags()) =>
+    presenceFor(host.presence(), meta.id, hf);
+  /** The socket that holds this device id (paired or pending), not `not`. */
   const liveOf = (id, not = null) => {
-    for (const [ws, meta] of sockets)
-      if (ws !== not && meta.id === id && meta.kind !== 'launcher')
-        return { ws, meta };
+    for (const map of [sockets, pending])
+      for (const [ws, meta] of map)
+        if (ws !== not && meta.id === id && meta.kind !== 'launcher')
+          return { ws, meta };
     return null;
   };
+  // A device token issued since the last save: the store is written at
+  // once, not after the debounce (ET-7 R6c).
+  let issuedSeen = host.tokensIssued ?? 0;
+  const persist = () => {
+    const issued = host.tokensIssued ?? 0;
+    const flush = issued !== issuedSeen;
+    issuedSeen = issued;
+    save(host.snapshot(), flush ? { flush: true } : undefined);
+  };
+  const persistIfIssued = () => {
+    if ((host.tokensIssued ?? 0) !== issuedSeen) persist();
+  };
+  /** State to the wall; launchers get presence only (SEC-7). */
   const broadcastState = (extra = {}) => {
-    save(host.snapshot());
+    persist();
+    const hf = flags();
     each((ws, meta) =>
-      send(ws, {
-        t: 'state',
-        state: host.state,
-        presence: view(meta),
-        ...extra,
-      }),
+      send(
+        ws,
+        meta.kind === 'launcher'
+          ? { t: 'presence', presence: view(meta, hf) }
+          : {
+              t: 'state',
+              state: host.state,
+              presence: view(meta, hf),
+              ...extra,
+            },
+      ),
     );
   };
-  const presence = () =>
-    each((ws, meta) => send(ws, { t: 'presence', presence: view(meta) }));
+  const presence = () => {
+    const hf = flags();
+    each((ws, meta) => send(ws, { t: 'presence', presence: view(meta, hf) }));
+  };
+  /** A socket's hello deadline (sec S6): no accepted hello, closed. */
+  function armDeadline(ws, conn) {
+    timers.clear(conn.deadline);
+    conn.deadline = timers.set(() => {
+      conn.deadline = null;
+      if (conns.get(ws) !== conn || conn.state !== 'new') return;
+      limitHit(
+        'hello-deadline',
+        {},
+        { peer: peerOf(conn), secure: conn.secure },
+      );
+      release(ws);
+      ws.close(CLOSE.NO_HELLO, 'no hello');
+    }, limits.helloDeadlineMs);
+  }
+  /** An accepted hello (or setup): the socket's new state. */
+  function accept(ws, conn, state, meta) {
+    if (conn) {
+      timers.clear(conn.deadline);
+      conn.deadline = null;
+      conn.state = state;
+    }
+    if (state === 'pending') {
+      sockets.delete(ws);
+      pending.set(ws, meta);
+    } else {
+      pending.delete(ws);
+      sockets.set(ws, meta);
+    }
+  }
   /** Tell devices their slot went to another device (R10). */
   const tellUnpaired = (ids = []) =>
     each((ws, meta) => {
       if (ids.includes(meta.id)) {
         send(ws, { t: 'unpaired', reason: UNPAIRED.SLOT_TAKEN });
         sockets.delete(ws);
+        const conn = conns.get(ws);
+        if (conn) {
+          conn.state = 'new';
+          armDeadline(ws, conn);
+        }
       }
     });
   /**
@@ -247,12 +384,90 @@ export function createRelay({
    */
   const replace = (ws) => {
     sockets.delete(ws);
+    pending.delete(ws);
     for (const [id, w] of waiting) if (w === ws) waiting.delete(id);
     send(ws, { t: REPLACED });
     ws.close(CLOSE.REPLACED, 'replaced');
   };
+  /**
+   * A socket is gone (closed, evicted, past its deadline): forget it once.
+   * Only an accepted socket closing is something others see.
+   */
+  function release(ws) {
+    const conn = conns.get(ws);
+    if (!conn) return;
+    conns.delete(ws);
+    timers.clear(conn.deadline);
+    const wasPending = pending.has(ws);
+    const me = sockets.get(ws) || pending.get(ws);
+    sockets.delete(ws);
+    pending.delete(ws);
+    if (me && waiting.get(me.id) === ws) {
+      waiting.delete(me.id);
+      host.dropCode?.(me.id);
+    }
+    // Offline only when the last socket of this id has closed (H2).
+    if (me?.id && !liveOf(me.id)) {
+      host.gone(me.id);
+      const actor =
+        me.kind === 'launcher' || wasPending
+          ? null
+          : host.actorOf(me.id, VIA.SYSTEM);
+      if (actor)
+        record('device.offline', {
+          actor,
+          data: { kind: me.kind, slot: host.slotOf(me.id) },
+        });
+    }
+    if (me && !wasPending) presence();
+  }
+  /**
+   * Room for one more socket (S-16, sec S6): 64 in all, 24 per IP, 16
+   * without a pairing. When those 16 are full, the oldest from another
+   * computer gives way, else the oldest that has said nothing, else the
+   * oldest waiting for a code (it reconnects and gets a new one), so a
+   * wall about to rejoin by its token always gets in.
+   */
+  function room(c) {
+    let total = 0;
+    let perIp = 0;
+    const unauth = [];
+    for (const [w, x] of conns) {
+      total += 1;
+      if (x.peer === c.peer) perIp += 1;
+      if (x.state !== 'paired') unauth.push([w, x]);
+    }
+    if (total >= limits.socketsTotal)
+      return { ok: false, limit: 'sockets-total' };
+    if (perIp >= limits.socketsPerIp) return { ok: false, limit: 'sockets-ip' };
+    if (unauth.length < limits.unauthSockets) return { ok: true };
+    const victim =
+      unauth.find(([, x]) => !x.isLocal) ||
+      unauth.find(([, x]) => x.state === 'new') ||
+      unauth[0];
+    return { ok: true, evict: victim };
+  }
 
   function onMessage(ws, raw) {
+    const conn = conns.get(ws);
+    if (!conn) return; // closed, evicted or past its deadline
+    // The socket's budget (S-16): over it, dropped and counted; over it
+    // for 10 s, closed.
+    const b = conn.budget.take(now());
+    if (b !== 'ok') {
+      counters.budgetDropped += 1;
+      if (b === 'close') {
+        const kind = (sockets.get(ws) || pending.get(ws))?.kind;
+        limitHit(
+          'socket-budget',
+          { kind },
+          { peer: peerOf(conn), secure: conn.secure },
+        );
+        release(ws);
+        ws.close(CLOSE.OVER_BUDGET, 'over budget');
+      }
+      return;
+    }
     let m;
     try {
       m = JSON.parse(String(raw));
@@ -265,24 +480,50 @@ export function createRelay({
       counters.msgDropped += 1;
       return;
     }
-    const me = sockets.get(ws);
+    const me = sockets.get(ws) || pending.get(ws);
     // Before an accepted hello, only hello and (from this computer) setup.
     if (!me && m.t !== 'hello' && m.t !== 'setup') {
       counters.msgDropped += 1;
+      counters.preHelloDropped += 1;
       return;
     }
-    const conn = conns.get(ws);
+    // A screen showing its code may only say hello again (refused); its
+    // heartbeats, thumbnails and the rest are dropped (SEC-7).
+    if (pending.has(ws) && m.t !== 'hello') {
+      counters.pendingDropped += 1;
+      return;
+    }
     ctx = {
-      peer: conn && { ip: conn.peer, local: conn.isLocal },
-      secure: Boolean(conn?.secure),
+      peer: peerOf(conn),
+      secure: Boolean(conn.secure),
       reqId: Number.isInteger(m.reqId) ? m.reqId : null,
     };
+    // One bad message never stops the relay (SEC-8): logged by type only.
     try {
       handle(ws, m, me, conn);
+    } catch {
+      counters.msgError += 1;
+      try {
+        record('msg.error', {
+          data: { type: MSG_TYPES.includes(m.t) ? m.t : 'other' },
+        });
+      } catch {
+        /* the log never stops the wall */
+      }
     } finally {
       ctx = null;
     }
   }
+
+  /** A refusal of a hello: only the code, its text and retryAfterMs. */
+  const denial = (r) => ({
+    t: 'welcome',
+    type: 'denied',
+    code: r.code,
+    error: r.error,
+    ...(r.retryAfterMs != null ? { retryAfterMs: r.retryAfterMs } : {}),
+    proto: PROTO,
+  });
 
   function handle(ws, m, me, conn) {
     switch (m.t) {
@@ -308,9 +549,25 @@ export function createRelay({
           ws.close(CLOSE.ALREADY_IDENTIFIED, 'already identified');
           break;
         }
+        // A few tries per socket (a copied id, a dropped link) and no more.
+        conn.hellos += 1;
+        if (conn.hellos > limits.hellosPerSocket) {
+          limitHit('hellos', { kind: m.kind });
+          send(ws, {
+            ...denial({
+              code: DENY.RATE_LIMITED,
+              error:
+                'Rejoining paused on this computer · too many tries · screens already on the wall are not affected',
+              retryAfterMs: limits.helloDeadlineMs,
+            }),
+          });
+          release(ws);
+          ws.close(CLOSE.TRY_LATER, 'too many hellos');
+          break;
+        }
         // A page older than PROTO_MIN reloads (S-15); nothing else reaches
-        // the host. Its socket stays open, as for every refusal today.
-        if (conn) conn.proto = m.proto;
+        // the host. Its socket is closed at the hello deadline (K7).
+        conn.proto = m.proto;
         if (!protoOk(m.proto)) {
           record('device.hello', {
             data: {
@@ -339,16 +596,24 @@ export function createRelay({
           setup: m.setup,
           slot: m.slot,
           live: prev && { kind: prev.meta.kind, slot: prev.meta.place },
-          local: Boolean(conn?.isLocal),
+          local: Boolean(conn.isLocal),
+          ip: conn.peer,
         });
         if (r.type === 'denied') {
-          send(ws, {
-            t: 'welcome',
-            type: 'denied',
-            code: r.code,
-            error: r.error,
-            proto: PROTO,
-          });
+          // A wrong or missing token is counted by (IP, device id) and
+          // never locks anyone out (B4, sec S5): a signal past 10 in 5 min.
+          if (r.code === DENY.ID_IN_USE || r.code === DENY.FORGOTTEN) {
+            counters.wrongToken += 1;
+            const w = limiter.wrongToken(conn.peer, id, now());
+            if (w.first)
+              limitHit('wrong-token', { kind: m.kind, count: w.count });
+          }
+          if (r.code === DENY.BUSY)
+            limitHit(r.limit || 'codes-total', {
+              kind: m.kind,
+              retryAfterMs: r.retryAfterMs,
+            });
+          send(ws, denial(r));
           break;
         }
         // Accepted with the same token for the same place: the newest
@@ -358,24 +623,46 @@ export function createRelay({
         const meta = {
           id,
           kind: m.kind,
-          secure: Boolean(conns.get(ws)?.secure),
+          secure: Boolean(conn.secure),
           place: r.slot ?? (hint ? Number(m.slot) : null),
         };
-        sockets.set(ws, meta);
-        if (r.type === 'pair-code') waiting.set(id, ws);
-        else waiting.delete(id);
+        // A screen with a code waits apart: it hears only its code, then
+        // `paired` (SEC-7). Nobody else is told: it is not on the wall.
+        if (r.type === 'pair-code') {
+          accept(ws, conn, 'pending', meta);
+          waiting.set(id, ws);
+          send(ws, {
+            t: 'welcome',
+            type: 'pair-code',
+            code: r.code,
+            ttlMs: r.ttlMs,
+            proto: PROTO,
+          });
+          break;
+        }
+        accept(ws, conn, 'paired', meta);
+        waiting.delete(id);
         tellUnpaired(r.unpaired);
         const { unpaired: _u, ...rest } = r;
         void _u;
-        send(ws, {
-          t: 'welcome',
-          ...rest,
-          proto: PROTO,
-          state: host.state,
-          presence: view(meta),
-        });
+        const hf = flags();
+        send(
+          ws,
+          r.type === 'launcher'
+            ? { t: 'welcome', ...rest, proto: PROTO, presence: view(meta, hf) }
+            : {
+                t: 'welcome',
+                ...rest,
+                proto: PROTO,
+                state: host.state,
+                presence: view(meta, hf),
+              },
+        );
         if (r.type === 'paired') broadcastState({ cause: CAUSE.JOIN });
-        else presence();
+        else {
+          persistIfIssued();
+          presence();
+        }
         break;
       }
       case 'setup': {
@@ -406,10 +693,10 @@ export function createRelay({
           siteKey: m.siteKey,
         });
         // The launcher may watch who joins (R17); it can never command.
-        sockets.set(ws, {
+        accept(ws, conn, 'paired', {
           id: `launcher-${String(m.id || 'local')}`,
           kind: 'launcher',
-          secure: Boolean(conns.get(ws)?.secure),
+          secure: Boolean(conn?.secure),
         });
         send(ws, { t: 'setup', ok: true, ...r });
         broadcastState({ cause: CAUSE.SETUP });
@@ -424,12 +711,14 @@ export function createRelay({
         send(ws, { t: 'pair-result', reqId: m.reqId, ...rest });
         if (r.ok) {
           tellUnpaired(unpaired);
-          // Only the socket that showed this code (SEC-9 rule 2, T14).
+          // Only the socket that showed this code (SEC-9 rule 2, T14). It
+          // joins the wall now: the state follows in the broadcast.
           const to = waiting.get(r.deviceId);
           waiting.delete(r.deviceId);
-          const meta = to && sockets.get(to);
+          const meta = to && (pending.get(to) || sockets.get(to));
           if (meta?.id === r.deviceId) {
             meta.place = r.slot;
+            accept(to, conns.get(to), 'paired', meta);
             send(to, { t: 'paired', slot: r.slot, token: r.token });
           }
           broadcastState({ cause: CAUSE.PAIR });
@@ -438,7 +727,43 @@ export function createRelay({
       }
       // `by` comes from this socket's device, never from the message: an
       // envelope `by`, `via` or `name` beside `cmd` is not read (S-18).
-      case 'cmd': {
+      case 'cmd':
+      case 'undo': {
+        // Per device (S-16): 10 a second, burst 20; then RATE_LIMITED.
+        const lim = limiter.command(me.id, now());
+        if (!lim.ok) {
+          limitHit('device-cmd', {
+            kind: me.kind,
+            retryAfterMs: lim.retryAfterMs,
+          });
+          record(m.t === 'cmd' ? 'cmd.refused' : 'undo.refused', {
+            actor: host.actorOf(me.id),
+            data: {
+              ...(m.t === 'cmd' ? { type: m.cmd?.type } : {}),
+              code: CODE.RATE_LIMITED,
+            },
+          });
+          send(ws, {
+            t: 'ack',
+            reqId: m.reqId,
+            ok: false,
+            code: CODE.RATE_LIMITED,
+            error: 'Too many changes at once · nothing changed · try again',
+            retryAfterMs: lim.retryAfterMs,
+          });
+          break;
+        }
+        if (m.t === 'undo') {
+          const r = host.undo({ by: me.id, undoId: m.undoId });
+          send(ws, { t: 'ack', reqId: m.reqId, ...r });
+          if (r.ok)
+            broadcastState({
+              cause: CAUSE.UNDO,
+              undone: { of: r.of },
+              by: host.actorOf(me.id, VIA.TOUCH),
+            });
+          break;
+        }
         const t0 = performance.now();
         const r = host.command({ by: me.id, cmd: m.cmd });
         const t1 = performance.now();
@@ -466,17 +791,6 @@ export function createRelay({
             by: 'screen',
             slot: r.slot,
             label: String(m.label || '').slice(0, 80),
-          });
-        break;
-      }
-      case 'undo': {
-        const r = host.undo({ by: me.id, undoId: m.undoId });
-        send(ws, { t: 'ack', reqId: m.reqId, ...r });
-        if (r.ok)
-          broadcastState({
-            cause: CAUSE.UNDO,
-            undone: { of: r.of },
-            by: host.actorOf(me.id, VIA.TOUCH),
           });
         break;
       }
@@ -515,22 +829,30 @@ export function createRelay({
         if (me.kind !== 'screen') break;
         const slot = host.slotOf(me.id);
         if (!slot) break;
-        if (m.t === 'thumb') counters.thumbs += 1;
-        else wallFlags(me, slot, m);
-        const msg =
-          m.t === 'thumb'
-            ? {
-                t: 'thumb',
-                slot,
-                data: String(m.data || '').slice(0, 400000),
-                at: Date.now(),
-              }
-            : {
-                t: 'local',
-                slot,
-                on: Boolean(m.on),
-                text: String(m.text || '').slice(0, 120),
-              };
+        let msg;
+        if (m.t === 'thumb') {
+          // A JPEG data URL only, one per screen per 2 s (SEC-8).
+          if (
+            !thumbOk(m.data, limits.thumbMaxChars) ||
+            !limiter.thumb(me.id, now())
+          ) {
+            counters.thumbDropped += 1;
+            break;
+          }
+          counters.thumbs += 1;
+          msg = { t: 'thumb', slot, data: m.data, at: now() };
+        } else {
+          wallFlags(me, slot, m);
+          msg = {
+            t: 'local',
+            slot,
+            on: Boolean(m.on),
+            // Control characters stripped, then cut (SEC-8).
+            text: String(m.text || '')
+              .replace(/[\u0000-\u001f\u007f]/g, '')
+              .slice(0, 120),
+          };
+        }
         each((s, meta) => meta.kind === 'remote' && send(s, msg));
         break;
       }
@@ -564,55 +886,141 @@ export function createRelay({
       });
   }
 
+  /**
+   * Codes (K7, SUP-5): expired ones go, and a screen still waiting is given
+   * a new one at once, which its pair card shows. Run on every presence
+   * tick (5 s), so no code is shown expired for long; also on every hello.
+   */
+  function sweep() {
+    host.purgeCodes?.();
+    for (const [id, ws] of [...waiting]) {
+      const conn = conns.get(ws);
+      if (!pending.has(ws) || !conn) {
+        waiting.delete(id);
+        continue;
+      }
+      if (host.hasCode?.(id)) continue;
+      const r = host.reissueCode(id, { ip: conn.peer, local: conn.isLocal });
+      if (r.type === 'denied') {
+        limitHit(
+          r.limit || 'codes-total',
+          { kind: 'screen', retryAfterMs: r.retryAfterMs },
+          { peer: peerOf(conn), secure: conn.secure },
+        );
+        send(ws, denial(r));
+        release(ws);
+        ws.close(CLOSE.TRY_LATER, 'busy');
+      } else
+        send(ws, {
+          t: 'welcome',
+          type: 'pair-code',
+          code: r.code,
+          ttlMs: r.ttlMs,
+          proto: PROTO,
+        });
+    }
+  }
+
   return {
     host,
+    limits,
+    /**
+     * Before an upgrade is accepted (K7): upgrades per IP (loopback its
+     * own budget, B4) and the socket caps. {ok} or {ok:false, status,
+     * limit, retryAfterMs}.
+     */
+    admit({ peer = null, isLocal = false, secure = false } = {}) {
+      const ip = peer ?? (isLocal ? '127.0.0.1' : null);
+      const up = limiter.upgrade(ip, isLocal, now());
+      const ev = { peer: { ip, local: Boolean(isLocal) }, secure };
+      if (!up.ok) {
+        limitHit('upgrade-rate', { retryAfterMs: up.retryAfterMs }, ev);
+        return {
+          ok: false,
+          status: 429,
+          limit: 'upgrade-rate',
+          retryAfterMs: up.retryAfterMs,
+        };
+      }
+      const r = room({ peer: ip, isLocal });
+      if (!r.ok) {
+        limitHit(r.limit, {}, ev);
+        return { ok: false, status: 503, limit: r.limit, retryAfterMs: 1000 };
+      }
+      return { ok: true };
+    },
     /**
      * `secure`: the upgrade came over TLS (SEC-14; recorded, not used yet).
-     * `peer`: its address, written only on refusals (C38).
+     * `peer`: its address, written only on refusals (C38). Returns false
+     * when there is no room (the socket is closed, 1013).
      */
     attach(ws, { isLocal = true, secure = false, peer = null } = {}) {
-      conns.set(ws, {
+      const c = {
         isLocal: Boolean(isLocal),
         secure: Boolean(secure),
         peer: peer ?? (isLocal ? '127.0.0.1' : null),
+        proto: undefined,
+        state: 'new',
+        hellos: 0,
+        budget: socketBudget(limits, now()),
+        deadline: null,
+      };
+      // A bad frame (too big, not UTF-8) is an 'error' on the socket: it
+      // must never reach the process (the Vite server, every wall).
+      ws.on('error', (e) => {
+        counters.wsError += 1;
+        if (e?.code === 'WS_ERR_UNSUPPORTED_MESSAGE_LENGTH')
+          limitHit('payload', {}, { peer: peerOf(c), secure: c.secure });
       });
+      const r = room(c);
+      if (!r.ok) {
+        limitHit(r.limit, {}, { peer: peerOf(c), secure: c.secure });
+        ws.close(CLOSE.TRY_LATER, 'busy');
+        return false;
+      }
+      if (r.evict) {
+        const [old, oc] = r.evict;
+        limitHit(
+          'unauth-evicted',
+          { kind: pending.get(old)?.kind },
+          { peer: peerOf(oc), secure: oc.secure },
+        );
+        release(old);
+        old.close(CLOSE.TRY_LATER, 'busy');
+      }
+      conns.set(ws, c);
+      armDeadline(ws, c);
       ws.on('message', (raw) => onMessage(ws, raw));
-      ws.on('close', () => {
-        const me = sockets.get(ws);
-        sockets.delete(ws);
-        conns.delete(ws);
-        if (me && waiting.get(me.id) === ws) waiting.delete(me.id);
-        // Offline only when the last socket of this id has closed (H2).
-        if (me?.id && !liveOf(me.id)) {
-          host.gone(me.id);
-          const actor =
-            me.kind === 'launcher' ? null : host.actorOf(me.id, VIA.SYSTEM);
-          if (actor)
-            record('device.offline', {
-              actor,
-              data: { kind: me.kind, slot: host.slotOf(me.id) },
-            });
-        }
-        presence();
-      });
+      ws.on('close', () => release(ws));
+      return true;
     },
     /** Relay events that are not a host operation (boot, stop, store). */
     record,
-    presenceTick: presence,
+    /** Presence every 5 s (links and leases age visibly), and the codes. */
+    presenceTick() {
+      presence();
+      sweep();
+    },
+    sweep,
     /** Health (BE-10): devices, counters, timings; no ids, no content. */
     health() {
       const p = host.presence();
       const screens = Object.values(p.screens || {});
+      let unauth = 0;
+      for (const c of conns.values()) if (c.state !== 'paired') unauth += 1;
       return {
         proto: PROTO,
         rev: host.state.rev,
         devices: {
           screensPaired: screens.length,
           screensOnline: screens.filter((x) => x.online).length,
+          screensWaiting: pending.size,
           remotesOnline: (p.remotes || []).filter((r) => r.online).length,
           controller: Boolean(p.controller),
         },
         sockets: conns.size,
+        socketsUnpaired: unauth,
+        codes: host.codesOut?.() ?? null,
         counters: JSON.parse(JSON.stringify(counters)),
         timings: {
           applyMsP95: p95(timings.applyMs),
@@ -626,7 +1034,8 @@ export function createRelay({
       [...conns].map(([ws, c]) => ({
         local: c.isLocal,
         secure: c.secure,
-        kind: sockets.get(ws)?.kind ?? null,
+        state: c.state,
+        kind: (sockets.get(ws) || pending.get(ws))?.kind ?? null,
       })),
   };
 }
@@ -642,7 +1051,7 @@ export function createRelay({
 export function createTwinUpgrade({
   relay,
   check,
-  wss = new WebSocketServer({ noServer: true }),
+  wss = new WebSocketServer({ noServer: true, maxPayload: LIMITS.maxPayload }),
 }) {
   return function twinUpgrade(req, socket, head) {
     if (!isSyncUpgrade(req.url)) return false;
@@ -685,8 +1094,21 @@ export function createTwinUpgrade({
       socket.destroy();
       return true;
     }
+    // Upgrades per IP and the socket caps (K7, S-16): refused with 429 or
+    // 503 before any handshake; nothing about the session is sent.
+    const isLocal = isLoopbackPeer(peer);
+    const room = relay.admit?.({ peer, isLocal, secure }) ?? { ok: true };
+    if (!room.ok) {
+      const text =
+        room.status === 429 ? 'Too Many Requests' : 'Service Unavailable';
+      socket.write(
+        `HTTP/1.1 ${room.status} ${text}\r\nRetry-After: ${Math.max(1, Math.ceil((room.retryAfterMs || 1000) / 1000))}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`,
+      );
+      socket.destroy();
+      return true;
+    }
     wss.handleUpgrade(req, socket, head, (ws) =>
-      relay.attach(ws, { isLocal: isLoopbackPeer(peer), secure, peer }),
+      relay.attach(ws, { isLocal, secure, peer }),
     );
     return true;
   };
@@ -777,8 +1199,16 @@ export function twinSyncRelay() {
       });
       const relay = createRelay({
         host: createSessionHost({ restore: store.restore }),
-        save: (snap) => store.queue(snap),
+        // A newly issued token is written at once (K7, ET-7 R6c).
+        save: (snap, o) => {
+          store.queue(snap);
+          if (o?.flush) store.flush();
+        },
         audit,
+        healthFlags: () => ({
+          audit: Boolean(audit.health().ok),
+          store: Boolean(store.status?.().ok),
+        }),
       });
       const host = server.config?.server?.host;
       relay.record('relay.boot', {
@@ -800,7 +1230,8 @@ export function twinSyncRelay() {
       process.once('exit', flushOnExit);
       // Same origin only (today's rule), plus the would-refuse record.
       server.httpServer?.on('upgrade', createTwinUpgrade({ relay, check }));
-      // Presence every 5 s so links and leases age visibly.
+      // Presence every 5 s so links and leases age visibly; the code sweep
+      // runs with it (K7).
       const tick = setInterval(() => relay.presenceTick(), 5000);
       server.httpServer?.on('close', () => {
         clearInterval(tick);

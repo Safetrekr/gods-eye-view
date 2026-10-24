@@ -12,6 +12,12 @@
 // Phase CF K5 (S-15): every hello says this build's protocol (`proto`). A
 // relay that needs a newer page answers RELOAD, which is not terminal:
 // the page decides (a wall reloads itself at most once per 2 minutes).
+// Phase CF K7 (S-16): BUSY and RATE_LIMITED say `retryAfterMs`; the next
+// connection waits at least that long (the relay closes a socket with no
+// accepted hello after 5 s). A wall waiting for a code hears only its code
+// (no state, no presence). The back-off is reset by an accepted welcome,
+// not by an open socket, so a page that is refused (and closed at the
+// relay's hello deadline) backs off instead of reconnecting every second.
 import {
   acquireIdentity,
   browserEnv,
@@ -85,6 +91,7 @@ export function connectSync({
   let lastMsgAt = 0;
   let reqSeq = 0;
   let asked = 0; // hellos on this socket after a refusal
+  let notBefore = 0; // no new connection before this (retryAfterMs)
   let sent = null; // the token the last hello carried
   const pending = new Map();
   const url = `${env.location.protocol === 'https:' ? 'wss' : 'ws'}://${env.location.host}/api/twin-sync`;
@@ -148,7 +155,6 @@ export function connectSync({
     asked = 0;
     ws.addEventListener('open', () => {
       if (closed) return ws.close();
-      retry = 0;
       status('online');
       hello();
       env.clearInterval(beat);
@@ -166,9 +172,19 @@ export function connectSync({
         pending.get(m.reqId)(m);
         pending.delete(m.reqId);
       }
+      if (
+        m.t === 'welcome' &&
+        m.type === 'denied' &&
+        Number.isFinite(m.retryAfterMs) &&
+        m.retryAfterMs > 0
+      )
+        notBefore = env.now() + Math.min(m.retryAfterMs, 10 * 60 * 1000);
       if (m.t === 'welcome' && m.type === 'denied' && refused(m)) return;
       if (m.t === 'welcome' && m.type !== 'denied') {
         asked = 0;
+        // Back-off starts again only once the relay took this device (K7):
+        // a page refused again and again backs off to 32 s.
+        retry = 0;
         // A paired device rejoins by its token; a launcher keeps its link.
         if (m.type === 'paired' || m.type === 'remote') ticket = null;
       }
@@ -191,7 +207,7 @@ export function connectSync({
   function schedule() {
     if (closed) return;
     retry = Math.min(retry + 1, 6);
-    env.setTimeout(open, 500 * 2 ** retry);
+    env.setTimeout(open, Math.max(500 * 2 ** retry, notBefore - env.now()));
   }
   function send(msg) {
     if (ws?.readyState === 1) {

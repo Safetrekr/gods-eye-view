@@ -1,4 +1,4 @@
-// Trip Twin multi-view wire names and codes (Phase CF K4, K5, K6;
+// Trip Twin multi-view wire names and codes (Phase CF K4, K5, K6, K7;
 // PHASE-CF-PLAN S-8, S-15, S-16, S-18, §4.4, C16). One list for the relay,
 // the session host, the walls and the remote: hello deny codes, command
 // codes, the protocol version, actor refs and kind names, the wall's drift
@@ -57,9 +57,30 @@ export const REPLACED = 'replaced';
 
 /** WebSocket close codes the relay uses. */
 export const CLOSE = Object.freeze({
+  // K7 (S-16): over the message budget for 10 s; no room (try again
+  // later); no accepted hello within 5 s. `ws` itself closes a frame over
+  // 1 MiB with 1009.
+  OVER_BUDGET: 1008,
+  TRY_LATER: 1013,
   ALREADY_IDENTIFIED: 4002,
   REPLACED: 4003,
+  NO_HELLO: 4004,
 });
+
+/** Page → relay message types (K7: `msg.error` logs the type only). */
+export const MSG_TYPES = Object.freeze([
+  'hello',
+  'setup',
+  'pair',
+  'cmd',
+  'undo',
+  'hb',
+  'request-control',
+  'handover',
+  'identify',
+  'local',
+  'thumb',
+]);
 
 // ---------------------------------------------------------------- K5
 // Protocol version (S-15, review U-B1, ET S1). Every slice that changes a
@@ -69,10 +90,16 @@ export const CLOSE = Object.freeze({
 // show. twinProtocol.test.mjs keeps one schema hash per PROTO: a shape
 // change without a bump fails it.
 
-/** The wire protocol this build speaks. */
-export const PROTO = 2;
+/**
+ * The wire protocol this build speaks. 3 (K7): a pending screen's welcome
+ * is `{type:'pair-code', code, ttlMs}` with no state or presence (and is
+ * sent again with a new code when the old one expires); launchers get
+ * presence only; presence carries `health {audit, store}`; BUSY and
+ * RATE_LIMITED carry `retryAfterMs`.
+ */
+export const PROTO = 3;
 /** The oldest page the relay still talks to. */
-export const PROTO_MIN = 2;
+export const PROTO_MIN = 3;
 
 /** True when a page says a protocol this relay still talks to. */
 export const protoOk = (proto) => Number.isInteger(proto) && proto >= PROTO_MIN;

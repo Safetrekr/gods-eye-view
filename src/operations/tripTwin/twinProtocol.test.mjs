@@ -16,7 +16,7 @@ import {
   memStorage,
   settle,
 } from './twinTestKit.mjs';
-import { createSessionHost } from './twinSessionHost.js';
+import { CODE_TTL_MS, createSessionHost } from './twinSessionHost.js';
 import {
   CODE,
   DENY,
@@ -49,6 +49,7 @@ const { createRelay } = await import('../../../server/tripTwin/syncRelay.js');
  */
 const WIRE_SCHEMA = Object.freeze({
   2: '21bbf078de4aa135d7f800c2685ed4ffd5a931b563c71a8b922d87609af5a199',
+  3: 'c89e2144cc6ab7cb9626508850956fa7bbca62ff626360657212d2936534cd51',
 });
 
 /** A host on a fake clock with a seeded random (deterministic tokens). */
@@ -62,7 +63,7 @@ function seededHost(start = 1_000_000) {
       return s;
     },
   });
-  return { host, tick: (ms) => (t += ms) };
+  return { host, tick: (ms) => (t += ms), now: () => t };
 }
 
 /**
@@ -71,8 +72,8 @@ function seededHost(start = 1_000_000) {
  * Returns every frame each socket received, in order.
  */
 function goldenTranscript() {
-  const { host, tick } = seededHost();
-  const relay = createRelay({ host });
+  const { host, tick, now } = seededHost();
+  const relay = createRelay({ host, now });
   const socks = [];
   const sock = (local = true) => {
     const ws = fakeSocket();
@@ -203,6 +204,19 @@ function goldenTranscript() {
   });
   const s9 = sock();
   s9.say({ t: 'hello', id: 'screen-gold-9', kind: 'screen', setup, slot: 2 });
+  // K7: a computer on the LAN past its 6 codes is told BUSY; a remote past
+  // its burst is told RATE_LIMITED (both with retryAfterMs); an expired
+  // code is sent again with a new one.
+  for (let i = 0; i < 7; i += 1) {
+    const ws = fakeSocket();
+    socks.push(ws);
+    relay.attach(ws, { isLocal: false, peer: '192.168.1.77' });
+    ws.say({ t: 'hello', id: `screen-gold-lan-${i}`, kind: 'screen' });
+  }
+  for (let i = 0; i < 24; i += 1)
+    r.say({ t: 'cmd', reqId: 100 + i, cmd: { type: 'returnLive' } });
+  tick(CODE_TTL_MS + 1);
+  relay.sweep();
   return socks.map((ws) => ws.out);
 }
 
@@ -285,7 +299,7 @@ test('K5 S-15: a launcher page from before K5 cannot start a setup (RELOAD); thi
 });
 
 test('K5 S-15: every welcome says PROTO; PROTO_MIN equals PROTO at this slice; protoOk takes integers from PROTO_MIN up', () => {
-  assert.equal(PROTO, 2);
+  assert.equal(PROTO, 3);
   assert.equal(PROTO_MIN, PROTO);
   for (const p of [PROTO, PROTO + 1]) assert.equal(protoOk(p), true);
   for (const p of [undefined, null, 0, 1, '2', 1.5, NaN])

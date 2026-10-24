@@ -546,8 +546,10 @@ test('K5: walls still see a truthy `by` after a command and after an undo; setup
     [CAUSE.CMD, true, false],
     [CAUSE.UNDO, true, true],
   ]);
-  // Only an accepted wall hears state; the launcher heard the setup one.
-  assert.equal(w.socks[0].all('state')[0].cause, CAUSE.SETUP);
+  // Only an accepted wall hears state; the launcher hears presence only
+  // (K7, SEC-7), from the setup on.
+  assert.equal(w.socks[0].all('state').length, 0);
+  assert.ok(w.socks[0].all('presence').length >= 1);
   assert.deepEqual(wall.last('state').undone, {
     of: wall.all('state').at(-2).state.rev,
   });
