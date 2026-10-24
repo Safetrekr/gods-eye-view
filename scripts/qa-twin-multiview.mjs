@@ -705,6 +705,29 @@ async function saturatedIn(file, box = null) {
     }
   return { n, worst, px: (x1 - x0) * (y1 - y0) };
 }
+/**
+ * The wall's status column (clock, data age, chip, tags): the chrome C65
+ * keeps steel. The header's other-trip chip is red on purpose (walls-live
+ * W1: an incident), so the band is sampled without it.
+ */
+async function chipBand(p) {
+  const r = await p.evaluate(() => {
+    const b = document.querySelector('.tt-wall-right')?.getBoundingClientRect();
+    const d = window.devicePixelRatio || 1;
+    return (
+      b && { x: b.left * d, y: b.top * d, w: b.width * d, h: b.height * d }
+    );
+  });
+  return r
+    ? {
+        x: Math.floor(r.x),
+        y: Math.floor(r.y),
+        w: Math.ceil(r.w),
+        h: Math.ceil(r.h),
+      }
+    : { x: 0, y: 0, w: 1280, h: 96 };
+}
+
 async function shotSteel(p, name, box = null) {
   await shot(p, name);
   STEEL_SHOTS.push({ file: path.join(OUT, 'shots', `${name}.png`), box, name });
@@ -1105,7 +1128,7 @@ async function smoke(server, browser) {
   // ---- K8: the chip names the device; the remote page (T1–T3, T5) -----
   await step(
     'K8-S2',
-    'E8.1: the S6 wall names the device within 2 s of its change ("S6 · Scale grid off · by … · HH:MM"), then "last change m:ss ago" after 3 s',
+    'E8.1: the S6 wall names the device within 2 s of its change ("S6 · Scale grid off · by …", no clock time: walls-live W5), then "last change m:ss ago" after 3 s',
     async () => {
       await sleep(3500); // past any earlier 3 s window
       const ack = remote.c.next(
@@ -1126,17 +1149,13 @@ async function smoke(server, browser) {
           const t = document.querySelector('[data-tt-chip]')?.textContent || '';
           return new RegExp(re).test(t) && t;
         },
-        `^S6 · Scale grid off · by Trip Twin computer · ${HHMM}$`,
+        // No clock time in a wall chip (walls-live W5).
+        '^S6 · Scale grid off · by Trip Twin computer$',
         2000,
         'the S6 chip to name the remote within 2 s',
       );
       const ms = Date.now() - t0;
-      await shotSteel(page, 'K8-S2-wall-chip-change', {
-        x: 0,
-        y: 0,
-        w: 1280,
-        h: 96,
-      });
+      await shotSteel(page, 'K8-S2-wall-chip-change', await chipBand(page));
       const idle = await pageUntil(
         page,
         () => {
@@ -1151,12 +1170,7 @@ async function smoke(server, browser) {
         8000,
         'the idle chip',
       );
-      await shotSteel(page, 'K8-S2-wall-chip-idle', {
-        x: 0,
-        y: 0,
-        w: 1280,
-        h: 96,
-      });
+      await shotSteel(page, 'K8-S2-wall-chip-idle', await chipBand(page));
       return { detail: `"${chip}" ${ms} ms after the command; then "${idle}"` };
     },
   );
@@ -1192,8 +1206,9 @@ async function smoke(server, browser) {
           const t = document.querySelector('[data-tt-chip]')?.textContent || '';
           return new RegExp(re).test(t) && t;
         },
-        // The keys pressed at S6 make it hands-on: the chip says so too.
-        `^S6 · Scale grid on · by S6 keyboard · ${HHMM}( · hands-on)?$`,
+        // A wall chip carries no clock time (walls-live W5); hands-on is a
+        // tag in the header, not in the chip (W4).
+        '^S6 · Scale grid on · by S6 keyboard$',
         3000,
         'the S6 chip to name its keyboard',
       ).catch(async (e) => {
@@ -1203,7 +1218,9 @@ async function smoke(server, browser) {
         throw new Error(`${e.message} (chip says "${now}")`);
       });
       await page.keyboard.press('Escape');
-      return { detail: `by ${st.by.ref} (${st.by.name}, via ${st.by.via}); chip "${chip}"` };
+      return {
+        detail: `by ${st.by.ref} (${st.by.name}, via ${st.by.via}); chip "${chip}"`,
+      };
     },
   );
 

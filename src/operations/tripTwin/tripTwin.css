@@ -3729,9 +3729,8 @@ body[data-view='screen'].tt-hands-on .tt-rcol {
 body[data-view='screen'].tt-hands-on .tt-card .tt-btn {
   display: inline-flex !important;
 }
-body[data-view='screen'].tt-hands-on .tt-wall-chip {
-  color: var(--tt-text);
-}
+/* Hands-on never recolours the chip (walls-live W4): its colour follows
+   control and link only. */
 
 /* ---------- Phase 10 review fixes (review/phase10/00-FIX-LIST.md) ---------- */
 /* R5: the incident banner is a full-width band above the footer; panels
@@ -3804,23 +3803,8 @@ body[data-view='screen'] .tt-chips {
   top: calc((96px + 12px) / var(--wall-scale));
   zoom: var(--wall-scale);
 }
-/* R9: a wall someone is working at says so. */
-body[data-view='screen'].tt-hands-on::after {
-  content: 'HANDS-ON';
-  position: fixed;
-  inset: 0;
-  z-index: 19;
-  pointer-events: none;
-  border: 4px solid var(--tt-text);
-  box-shadow: inset 0 0 0 1px rgba(4, 12, 18, 0.6);
-  font: 700 16px var(--tt-mono);
-  letter-spacing: 0.16em;
-  color: var(--tt-field);
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding-top: 100px;
-}
+/* R9: a wall someone is working at says so, with the HANDS-ON tag in its
+   header (walls-live W4: no frame round the wall). */
 /* R8: no dismiss or other settings on a wall, even hands-on. */
 body[data-view='screen'] .tt-dismiss,
 body[data-view='screen'] [data-act='dismiss'],

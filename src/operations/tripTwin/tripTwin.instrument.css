@@ -3051,3 +3051,63 @@ body[data-view='screen'][data-role='incident'] .tt-rail-scroll {
   -webkit-mask-image: none;
   mask-image: none;
 }
+
+/* ---------- walls-live W1, W4, W5, W11: one header on every wall ---------- */
+/* W1: another trip's report, red, in every header; it points to the Trips
+   wall and never switches this one. */
+.tt-wall-other {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 42vw;
+  font: 600 20px/26px var(--tt-mono);
+  letter-spacing: 0.06em;
+  color: var(--tt-hazard-text);
+  background: rgba(238, 119, 137, 0.12);
+  border: 1.5px solid var(--tt-hazard);
+  border-radius: var(--tt-radius);
+  padding: 6px 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* W11: the trip's clock, then the data age, in one place on every wall. */
+.tt-wall-clockrow {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+.tt-wall-data {
+  font: 500 20px var(--tt-mono);
+  letter-spacing: 0.06em;
+  color: var(--tt-text-2);
+}
+.tt-wall-data::before {
+  content: '·';
+  margin-right: 14px;
+  color: var(--tt-text-dim);
+}
+.tt-wall-data.late {
+  color: var(--tt-attention);
+}
+/* W4: the chip up a size for 3 m; tags in one row under it. */
+body[data-view='screen'] .tt-wall-chip {
+  font-size: 26px;
+}
+.tt-wall-tags {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.tt-wall-tag {
+  font: 700 18px var(--tt-mono);
+  letter-spacing: 0.12em;
+  color: var(--tt-field);
+  background: var(--tt-text);
+  padding: 2px 10px;
+  border-radius: 4px;
+}
+.tt-wall-other[hidden],
+.tt-wall-data[hidden],
+.tt-wall-tag[hidden] {
+  display: none;
+}

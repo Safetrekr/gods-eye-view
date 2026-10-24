@@ -118,6 +118,14 @@ export function agoText(ms) {
   const m = Math.floor(s / 60);
   return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min`;
 }
+/** "45 s", "12 min", "1 h 02 min": how long a state has lasted. */
+export function forText(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s} s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} min`;
+  return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min`;
+}
 
 // ------------------------------------------------------------------ parts
 
@@ -545,8 +553,11 @@ const cut = (s, n) =>
  * The wall chip (SUP-4), at most CHIP_MAX characters.
  * o: {slot, online, controller: name|null, lastController: name|null,
  *   remoteGoneAt, change: {summary, byName, at} (the first 3 s),
- *   last: {at, byName} (idle), now, suffix (' · hands-on' …),
- *   clock(ms) → "21:32"}
+ *   last: {at, byName} (idle), now, suffix (' · pinned' …),
+ *   clock(ms) → "21:32", ages: true on a wall}
+ * With `ages` (walls-live W5) the chip carries no clock time: a wall's
+ * header clock is the trip's, so "Remote offline · 12 min", and a change
+ * shows without its time (it is 3 s old).
  */
 export function chipText(o) {
   const s = `S${o.slot ?? '?'}`;
@@ -560,7 +571,11 @@ export function chipText(o) {
   if (!o.online) return `${s} · not connected${suffix}`.slice(0, CHIP_MAX);
   if (!o.controller) {
     const who = o.lastController ? ` (${o.lastController})` : '';
-    const since = o.remoteGoneAt ? ` · since ${clock(o.remoteGoneAt)}` : '';
+    const since = !o.remoteGoneAt
+      ? ''
+      : o.ages
+        ? ` · ${forText((o.now ?? Date.now()) - o.remoteGoneAt)}`
+        : ` · since ${clock(o.remoteGoneAt)}`;
     const full = `${s} · Remote offline${who}${since}${suffix}`;
     return full.length <= CHIP_MAX
       ? full
@@ -570,7 +585,7 @@ export function chipText(o) {
     const c = o.change;
     const pinned = c.summary === 'Pinned: kept as it is';
     const by = ` · ${pinned ? 'push ' : ''}by ${c.byName}`;
-    const time = ` · ${clock(c.at)}`;
+    const time = o.ages ? '' : ` · ${clock(c.at)}`;
     const head = `${s} · `;
     // The time goes first, then the summary is cut; the name never is.
     if ((head + c.summary + by + time + suffix).length <= CHIP_MAX)

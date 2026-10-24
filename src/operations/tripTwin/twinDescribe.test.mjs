@@ -20,6 +20,7 @@ import {
   STATUS,
   byText,
   chipText,
+  forText,
   controlText,
   describeChange,
   describeCommand,
@@ -387,6 +388,37 @@ test('K8 SUP-4 chip rows: idle, idle by another device, a change, a wall-wide ch
     chipText({ ...base, suffix: ' · pinned · hands-on' }),
     'S4 · Remote: iPad · pinned · hands-on',
   );
+});
+
+test('walls-live W5: a wall chip carries ages, never a clock time', () => {
+  const base = { slot: 4, online: true, controller: 'iPad', now: AT, clock };
+  const gone = {
+    ...base,
+    controller: null,
+    lastController: 'iPad',
+    ages: true,
+  };
+  assert.equal(
+    chipText({ ...gone, remoteGoneAt: AT - 45e3 }),
+    'S4 · Remote offline (iPad) · 45 s',
+  );
+  assert.equal(
+    chipText({ ...gone, remoteGoneAt: AT - 12 * 60e3 }),
+    'S4 · Remote offline (iPad) · 12 min',
+  );
+  assert.equal(
+    chipText({ ...gone, remoteGoneAt: AT - 62 * 60e3 }),
+    'S4 · Remote offline (iPad) · 1 h 02 min',
+  );
+  assert.equal(
+    chipText({
+      ...base,
+      ages: true,
+      change: { summary: 'Radar on', byName: 'iPad', at: AT },
+    }),
+    'S4 · Radar on · by iPad',
+  );
+  assert.equal(forText(0), '0 s');
 });
 
 test('K8 SUP-4: the chip fits 56 characters with the longest trip title, every host-given name, every role and layer; the time goes first, then the summary is cut; the name never is', () => {

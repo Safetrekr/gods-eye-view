@@ -1807,6 +1807,8 @@ async function main() {
         avoidAreas: pathStore.areas,
         hotelCard: twin.activePlace()?.hotel_card || null,
         siteNoun: city.kind === 'lodging' ? 'hotel' : 'venue',
+        // Walls name the trip a calm line is about (walls-live W1).
+        tripTitle: focusTrip.title,
         siteLine: lastSiteCounts ? siteCountsLine(lastSiteCounts, siteKey) : '',
         hotelApproximate: twin.site?.hotel.approximate,
         dismissed: info.dismissed,
@@ -5424,7 +5426,7 @@ async function main() {
       kindAt,
       sourceAt: (t) => {
         if (wx.at == null)
-          return `latest ${region === 'us' ? 'radar' : 'satellite estimate'} and the site forecast · MET Norway, updated ${hhmm(wx.summary?.updatedAt)}`;
+          return `latest ${region === 'us' ? 'radar' : 'satellite estimate'} and the site forecast · MET Norway, ${updatedText(wx.summary?.updatedAt)}`;
         const k = kindAt(t);
         if (k === 'none' && t <= now)
           return region === 'us'
@@ -5434,7 +5436,7 @@ async function main() {
         if (k === 'projected') return projectionLabel(t);
         if (k === 'model')
           return `${frames.label(t)} · site forecast MET Norway${t - now > 24 * H ? ' · further out, less certain' : ''}`;
-        return `site forecast · MET Norway, updated ${hhmm(wx.summary?.updatedAt)}${t - now > 24 * H ? ' · further out, less certain' : ''}`;
+        return `site forecast · MET Norway, ${updatedText(wx.summary?.updatedAt)}${t - now > 24 * H ? ' · further out, less certain' : ''}`;
       },
     };
   }
@@ -5455,13 +5457,23 @@ async function main() {
   const speedText = (kmh) =>
     imperial() ? `${Math.round(kmh / 1.609)} mph` : `${Math.round(kmh)} km/h`;
   const SIM_MAX_MS = 45 * 60e3; // the demo storm ends itself
-  /** A weather time with its age or its time to go: "20:21 CDT, 3 min ago". */
+  /**
+   * A weather time with its age or its time to go: "20:21 CDT, 3 min ago".
+   * A wall says the age only: its header clock is the trip's (walls-live W5).
+   */
   const ago = (ms) => {
     const m = Math.round((Date.now() - ms) / 60e3);
+    if (m >= 0 && document.body.dataset.view === 'screen')
+      return `${m} min ago`;
     return m >= 0
       ? `${wxTime(ms)}, ${m} min ago`
       : `${wxTime(ms)}, in ${relText(ms, Date.now()).replace(/^\+/, '')}`;
   };
+  /** "updated 20:17", or on a wall "updated 36 min ago" (W5). */
+  const updatedText = (iso) =>
+    document.body.dataset.view === 'screen' && Number.isFinite(Date.parse(iso))
+      ? `updated ${ago(Date.parse(iso))}`
+      : `updated ${hhmm(iso)}`;
   let ncSeq = 0;
   /** Real radar, every 3 min. The demo storm never replaces it. */
   async function loadNowcast() {
@@ -7044,6 +7056,18 @@ async function main() {
       lastCtx?.mode?.mode === 'incident_elsewhere'
         ? lastCtx.mode.elsewhere?.where || 'another site'
         : null,
+    /**
+     * Another trip on watch with a report (walls-live W1, D1): its title,
+     * for the red chip in every wall header. Never switches the wall.
+     */
+    otherTripReport() {
+      const o = otherTripIncidents()[0];
+      return o
+        ? { title: o.trip.title, count: otherTripIncidents().length }
+        : null;
+    },
+    /** Seconds since this wall's traveler data last arrived (W11). */
+    dataAgeS: () => (Date.now() - lastFeed) / 1000,
     /** A report open on any trip on watch (drift stops for all of them). */
     anyIncidentOpen() {
       const now = Date.now();
@@ -7133,7 +7157,9 @@ async function main() {
       if (!recent.length)
         add(
           'tt-wall-line',
-          `Nothing changed in the last 10 min · data every 5 s · ${lastCtx?.snapshot ? sampleClock(lastCtx.snapshot) : ''}`,
+          document.body.dataset.view === 'screen'
+            ? 'Nothing changed in the last 10 min'
+            : `Nothing changed in the last 10 min · data every 5 s · ${lastCtx?.snapshot ? sampleClock(lastCtx.snapshot) : ''}`,
         );
       for (const e of recent.slice(0, 8))
         add(

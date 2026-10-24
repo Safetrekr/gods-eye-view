@@ -30,6 +30,7 @@ import {
   byText,
   chipText,
   describeChange,
+  forText,
   lastChangeOf,
   render,
   wallCard,
@@ -41,12 +42,6 @@ const el = (tag, cls, text) => {
   if (text != null) n.textContent = text;
   return n;
 };
-const clock = (ms) =>
-  new Date(ms).toLocaleTimeString('en-GB', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
 const mmss = (s) =>
   `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
@@ -66,20 +61,34 @@ export function createScreenMode({ api, slot = null, setup = null }) {
   const where = el('div', 'tt-wall-where');
   left.append(kicker, where);
   const badge = el('div', 'tt-wall-badge');
+  // Another trip's report, on every wall (walls-live W1, D1): red, points
+  // to the Trips wall, never switches this one.
+  const other = el('div', 'tt-wall-other');
+  other.hidden = true;
+  other.setAttribute('role', 'status');
   const right = el('div', 'tt-wall-right');
-  const time = el('div', 'tt-wall-time');
+  // Row 1: the trip's clock and the data age, one place on every wall (W11).
+  const clockRow = el('div', 'tt-wall-clockrow');
+  const time = el('span', 'tt-wall-time');
+  const data = el('span', 'tt-wall-data');
+  clockRow.append(time, data);
   const chip = el('div', 'tt-wall-chip');
   chip.setAttribute('role', 'status');
-  const sample = el('div', 'tt-wall-sample', 'SAMPLE TRIP · FICTIONAL PEOPLE');
+  // Row 3: tags. Hands-on is a tag, not a frame round the wall (W4).
+  const tags = el('div', 'tt-wall-tags');
+  const handsTag = el('span', 'tt-wall-tag tt-wall-hands', 'HANDS-ON');
+  handsTag.hidden = true;
   // Visitor mode is visible on every wall (review/phase10 R6).
   const visitorMark = el(
-    'div',
+    'span',
     'tt-wall-visitor',
     'VISITOR MODE · INITIALS ONLY',
   );
   visitorMark.hidden = true;
-  right.append(time, chip, visitorMark, sample);
-  head.append(left, badge, right);
+  const sample = el('span', 'tt-wall-sample', 'SAMPLE TRIP · FICTIONAL PEOPLE');
+  tags.append(handsTag, visitorMark, sample);
+  right.append(clockRow, chip, tags);
+  head.append(left, other, badge, right);
   // Phase 12: the approach line and the lens line, under the header.
   const wxStrip = el('div', 'tt-wall-wx');
   wxStrip.hidden = true;
@@ -501,10 +510,35 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     badge.classList.toggle('adv', advance || dayPlan);
     document.body.classList.toggle('tt-dayplan-live', dayPlan && !advance);
     time.textContent = api.clockText();
+    // Data age as an age, never a clock time (W5, W11). Amber past 2 min,
+    // the threshold the trip tiles use.
+    const ageS = api.dataAgeS?.();
+    data.hidden = !Number.isFinite(ageS);
+    if (!data.hidden) {
+      const late = ageS > 120;
+      data.textContent = late
+        ? `DATA DELAYED · ${mmss(ageS)}`
+        : `DATA ${Math.max(0, Math.round(ageS))} s`;
+      data.classList.toggle('late', late);
+    }
     visitorMark.hidden = !ss.visitor;
+    handsTag.hidden = !handsOn();
+    // Another trip's report (W1): "› S6" names the Trips wall when there is
+    // one and it is not this wall.
+    const rep = api.otherTripReport?.();
+    other.hidden = !rep;
+    if (rep) {
+      const tripsSlot = Object.entries(state?.screens || {}).find(
+        ([, x]) => x?.role === 'trips',
+      )?.[0];
+      const to =
+        tripsSlot && Number(tripsSlot) !== mySlot ? ` › S${tripsSlot}` : '';
+      const more = rep.count > 1 ? ` +${rep.count - 1}` : '';
+      other.textContent = `OTHER TRIP · ${rep.title.toUpperCase()} · REPORTED${more}${to}`;
+    }
     const ctl = presence?.remotes?.find((r) => r.controller);
     if (ctl?.name) lastCtl = ctl.name;
-    const hands = handsOn() ? ' · hands-on' : drifting ? ' · drifting' : '';
+    const hands = drifting && !handsOn() ? ' · drifting' : '';
     const now = Date.now();
     const online = Boolean(sync?.online);
     if (online && !ctl && !remoteGoneAt) remoteGoneAt = now;
@@ -527,6 +561,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       last,
       now,
       suffix: `${s?.pinned ? ' · pinned' : ''}${hands}`,
+      ages: true,
     });
     // Steel only (C65): the words carry the state, not a colour.
     chip.className = `tt-wall-chip${!online || !ctl ? ' warn' : ''}${recent ? ' changed' : ''}`;
@@ -537,10 +572,11 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     stale.hidden = !lost || !state;
     if (lost && state) {
       if (link == null && restoredAt)
-        stale.textContent = `STALE · showing the state saved at ${clock(restoredAt)} · not connected to the Trip Twin computer`;
+        stale.textContent = `STALE · showing the state saved ${forText(Date.now() - restoredAt)} ago · not connected to the Trip Twin computer`;
       else {
+        // An age, not a clock time: the header clock is the trip's (W5).
         const since = link ?? 0;
-        stale.textContent = `STALE · last update ${clock(Date.now() - since * 1000)} · ${mmss(since)} ago · showing the last state`;
+        stale.textContent = `STALE · last update ${mmss(since)} ago · showing the last state`;
         stale.classList.toggle('heavy', since > 120);
       }
     }

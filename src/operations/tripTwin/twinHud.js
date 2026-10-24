@@ -369,8 +369,14 @@ export function createHud({
   function renderSummary(m, ctx) {
     // The top line reads in two lines: the state, then who / what first.
     // "First: Name" is a button, like the A key (review/phase5 J12).
-    const [status, ...rest] = m.topLine.split(' — ');
+    const [said, ...rest] = m.topLine.split(' — ');
     const detail = rest.join(' — ');
+    // A wall names the trip a calm line is about: another trip may have
+    // a report the room can see (walls-live W1).
+    const status =
+      wall() && ctx.tripTitle && said.startsWith('No incident reported')
+        ? `${ctx.tripTitle}: no incident reported${said.slice('No incident reported'.length)}`
+        : said;
     // All-in-one: a big thin count leads the calm and watch states (shell
     // review 02-ui §5). Incident, delayed data and walls keep the sentence.
     const hero = !wall() && m.mode !== 'incident' && !m.degraded && m.total > 0;
@@ -454,7 +460,8 @@ export function createHud({
     const top = scroll.scrollTop;
 
     // ---- People ----
-    peopleHead.textContent = `${a.rows.length} loaded${ctx.asOf ? ` · as of ${ctx.asOf}` : ''}`;
+    // A wall's data age is in its header, once (walls-live W11).
+    peopleHead.textContent = `${a.rows.length} loaded${ctx.asOf && !wall() ? ` · as of ${ctx.asOf}` : ''}`;
     peopleCard.cnt.textContent = String(a.rows.length);
     roster.replaceChildren();
     roster.setAttribute('aria-label', a.rosterText);
