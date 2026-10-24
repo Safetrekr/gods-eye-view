@@ -375,7 +375,8 @@ export const AUDIT_EVENTS = Object.freeze({
     data: {
       proto: int,
       rev: int,
-      store: oneOf(['store', 'migrated', 'fresh', 'memory']),
+      // L5: 'hashed' is a v1 store migrated in place to v2.
+      store: oneOf(['store', 'hashed', 'migrated', 'fresh', 'memory']),
       hostCheck: oneOf(['report', 'enforce']),
       lanListening: bool,
       retentionDays: int,

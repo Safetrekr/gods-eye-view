@@ -6,29 +6,53 @@
 //     ~/Library/Application Support/SafeTrekr/trip-twin/ (mode 0700). A
 //     path inside the repo or Vite's root is refused (Vite could serve it):
 //     the wall then runs unsaved, and never falls back to another folder.
-//   - Files (0600): session.json (v:1), session.prev.json (one rolling
-//     backup: the store as it was at the last good start; restored by hand
-//     only), migrated.json (the one-time migration marker), quarantine/
-//     (a bad store moved aside; never read again by code).
+//   - Files (0600): session.json (v:2 from L5), session.prev.json (one
+//     rolling backup: the store as it was at the last good start; restored
+//     by hand only), migrated.json (the one-time migration marker),
+//     quarantine/ (a bad store moved aside; never read again by code),
+//     session.v1.json (L5: the plain pre-migration copy, until dropped).
 //   - Every write is atomic: temp file, fsync, rename. A crash part-way
 //     leaves the old file whole; the leftover temp is deleted unread.
 //   - Migration (S-14): the first start with no store and no marker reads
 //     the old os.tmpdir() store once, writes session.json with migratedAt,
 //     and writes the marker. After that nothing reads the tmp file again,
 //     even if session.json is deleted (no fallback read).
-//   - Dual write until K11: every save also goes to the old tmp path (with
-//     migratedAt, so it is never migrated twice), so a revert to older code
-//     still finds the wall. K11 (Forget) deletes that file and stops this.
+//   - Hashed tokens (Phase CF L5, SEC-6, S-14): device records hold
+//     `tokenHash` (sha256, twinTokens.js), never the token. A v1 store
+//     (session.json from K2–K7, or the tmp store) is migrated once on load:
+//     first a plain copy, session.v1.json, then session.json rewritten in
+//     place as v:2, then the marker (`hashedAt`). Walls and remotes keep
+//     the tokens they hold: nobody re-pairs. The backup and quarantine/
+//     are hashed in place at every start. The plain copy is kept only
+//     until the deploy's revert drill passes, then deleted by hand
+//     (`node scripts/trip-twin-store.mjs drop-plain-copy`), never on a
+//     timer; after that a revert below L5 means a re-pair (re-pair.md).
+//   - The tmp-path dual write (K2, "until K11") stops at L5: it would put
+//     plain tokens back in os.tmpdir(), and a revert below L5 is a re-pair
+//     now anyway. Once the marker is written the tmp file (and its temp)
+//     is deleted at every start, so a reverted build that wrote it again
+//     leaves nothing behind. K11 inherits no tmp file to retire.
 // Logs carry counts, paths and reasons only, never a token.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {
+  hashDevices,
+  holdsPlainToken,
+  isTokenHash,
+  plainTokenFiles,
+  scrubText,
+} from './twinTokens.js';
 
-export const STORE_VERSION = 1;
+/** v:2 from L5 (hashed tokens); v:1 is K2–K7 (plain tokens). */
+export const STORE_VERSION = 2;
+export const PLAIN_VERSION = 1;
 export const STORE_FILE = 'session.json';
 export const BACKUP_FILE = 'session.prev.json';
 export const MARKER_FILE = 'migrated.json';
 export const QUARANTINE_DIR = 'quarantine';
+/** L5: the plain v1 store as it was before hashing (until dropped). */
+export const PLAIN_COPY_FILE = 'session.v1.json';
 /** The pre-K2 store, in os.tmpdir() (syncRelay.js at 3431392, line 18). */
 export const LEGACY_FILE = 'trip-twin-soc-session.json';
 export const DIR_MODE = 0o700;
@@ -120,16 +144,23 @@ export function resolveDataDir({
 
 /**
  * Shape check on load. A store that fails is never half-loaded.
- * `legacy` allows the pre-K2 file (no `v`).
+ * `legacy` allows the pre-K2 file (no `v`); `plain` allows v:1 (K2–K7),
+ * which is migrated, never loaded as it is. A v:2 store holds hashes only:
+ * a plain token in one fails the check.
  */
-export function checkSnapshot(doc, { legacy = false } = {}) {
+export function checkSnapshot(doc, { legacy = false, plain = false } = {}) {
   const bad = (reason) => ({ ok: false, reason });
   if (!doc || typeof doc !== 'object' || Array.isArray(doc))
     return bad('not an object');
-  if ('v' in doc ? doc.v !== STORE_VERSION : !legacy)
+  const okV =
+    'v' in doc
+      ? doc.v === STORE_VERSION || (plain && doc.v === PLAIN_VERSION)
+      : legacy;
+  if (!okV)
     return bad(
       `version ${JSON.stringify(doc.v ?? null)}, expected ${STORE_VERSION}`,
     );
+  const hashed = doc.v === STORE_VERSION;
   const s = doc.session;
   if (!s || typeof s !== 'object') return bad('no session');
   if (!Number.isFinite(s.rev)) return bad('session.rev not a number');
@@ -149,6 +180,10 @@ export function checkSnapshot(doc, { legacy = false } = {}) {
       return bad(`device ${i}: kind ${JSON.stringify(d.kind)}`);
     if (d.token != null && typeof d.token !== 'string')
       return bad(`device ${i}: token not a string`);
+    if (hashed && d.token != null)
+      return bad(`device ${i}: a plain token in a v${STORE_VERSION} store`);
+    if (d.tokenHash != null && !isTokenHash(d.tokenHash))
+      return bad(`device ${i}: tokenHash not a sha256`);
     if (
       d.slot != null &&
       !(Number.isInteger(d.slot) && d.slot >= 1 && d.slot <= 6)
@@ -252,7 +287,6 @@ const stampOf = (t) =>
 export function openSessionStore({
   dir,
   legacyFile = legacyStorePath(),
-  dualWrite = true,
   now = () => Date.now(),
   log = () => {},
   fs: fsi = fs,
@@ -265,6 +299,7 @@ export function openSessionStore({
         backup: path.join(dir, BACKUP_FILE),
         marker: path.join(dir, MARKER_FILE),
         quarantine: path.join(dir, QUARANTINE_DIR),
+        plainCopy: path.join(dir, PLAIN_COPY_FILE),
         legacy: legacyFile,
       }
     : { dir: null, legacy: legacyFile };
@@ -274,6 +309,11 @@ export function openSessionStore({
     quarantined: [],
     legacyRead: false,
     migratedAt: null,
+    hashedAt: null,
+    /** L5: tokens hashed at this start (a v1 store migrated in place). */
+    hashed: 0,
+    /** L5: files at rest hashed in place (backup, quarantine/). */
+    scrubbed: [],
   };
   const health = { ok: Boolean(dir), lastError: null, lastSavedAt: null };
   let restore = null;
@@ -302,19 +342,22 @@ export function openSessionStore({
     log('store.quarantined', { reason, to });
   }
 
+  // Hashes only, whatever the caller passes (L5): a plain token is never
+  // written by this code.
   const docOf = (snap) => ({
     v: STORE_VERSION,
     savedAt: now(),
     migratedAt: info.migratedAt,
+    hashedAt: info.hashedAt,
     session: snap.session,
-    devices: snap.devices,
+    devices: hashDevices(snap.devices).devices,
     lease: snap.lease,
     // K5 (§4.4): every ref ever issued, kept through a Forget (F-0003).
     ...(snap.refs ? { refs: snap.refs } : {}),
     ...(Number.isInteger(snap.nextRef) ? { nextRef: snap.nextRef } : {}),
   });
 
-  /** Write the store now (and the tmp-path copy until K11). */
+  /** Write the store now (L5: no tmp-path copy any more). */
   function save(snap) {
     if (!dir || !snap) return false;
     const text = JSON.stringify(docOf(snap));
@@ -327,13 +370,77 @@ export function openSessionStore({
       fail('store.saved_error', e);
       return false;
     }
-    if (dualWrite)
-      try {
-        writeFileAtomic(paths.legacy, text, { fs: fsi });
-      } catch (e) {
-        log('store.dual_write_error', { error: String(e?.code || e) });
-      }
     return true;
+  }
+  /** Merge fields into the marker (no tokens in it, ever). */
+  function mark(fields) {
+    const m = readJson(paths.marker, fsi).doc;
+    writeFileAtomic(
+      paths.marker,
+      JSON.stringify({
+        ...(m && typeof m === 'object' ? m : {}),
+        v: STORE_VERSION,
+        ...fields,
+      }),
+      { fs: fsi },
+    );
+  }
+  /**
+   * L5: a v1 store (plain tokens) to v2. The plain copy first, so a
+   * revert has it even if the next write fails; the caller saves.
+   */
+  function hashPlain(doc, from) {
+    const t = now();
+    const { devices, hashed } = hashDevices(doc.devices);
+    // A v1 store with no token in it (a fresh wall) needs no copy; an
+    // earlier copy is then left as it is.
+    if (hashed)
+      writeFileAtomic(
+        paths.plainCopy,
+        JSON.stringify({
+          ...doc,
+          v: PLAIN_VERSION,
+          migratedAt: doc.migratedAt ?? info.migratedAt ?? t,
+        }),
+        { fs: fsi },
+      );
+    info.hashed = hashed;
+    info.hashedAt = t;
+    log('store.hashed', {
+      from,
+      devices: hashed,
+      plainCopy: hashed ? paths.plainCopy : null,
+    });
+    return { ...doc, v: STORE_VERSION, devices };
+  }
+  /** The marker's L5 fields after a migration at this start. */
+  const hashedMark = () => ({
+    hashedAt: info.hashedAt,
+    ...(info.hashed ? { plainCopy: paths.plainCopy } : {}),
+  });
+  /** L5: hash in place any plain token at rest in the backup and quarantine/. */
+  function scrubAtRest() {
+    const files = [
+      paths.backup,
+      ...(fsi.existsSync(paths.quarantine)
+        ? fsi
+            .readdirSync(paths.quarantine)
+            .map((n) => path.join(paths.quarantine, n))
+        : []),
+    ];
+    for (const f of files) {
+      let text;
+      try {
+        text = fsi.readFileSync(f, 'utf8');
+      } catch {
+        continue;
+      }
+      if (!holdsPlainToken(text)) continue;
+      const r = scrubText(text);
+      writeFileAtomic(f, r.text, { fs: fsi });
+      info.scrubbed.push(f);
+      log('store.scrubbed', { file: f, tokens: r.hashed, cut: r.cut });
+    }
   }
 
   if (dir) {
@@ -341,24 +448,44 @@ export function openSessionStore({
       ensureDir(dir, fsi);
       // A temp left by a crash is never read: the file it was replacing is
       // whole. Deleting it also drops a stray copy of the tokens.
-      for (const f of [paths.store, paths.backup, paths.marker, paths.legacy])
+      for (const f of [
+        paths.store,
+        paths.backup,
+        paths.marker,
+        paths.plainCopy,
+      ])
         if (fsi.existsSync(`${f}${TEMP_SUFFIX}`)) {
           fsi.rmSync(`${f}${TEMP_SUFFIX}`, { force: true });
           log('store.temp_removed', { file: `${f}${TEMP_SUFFIX}` });
         }
       const marker = readJson(paths.marker, fsi);
       if (marker.doc?.migratedAt) info.migratedAt = marker.doc.migratedAt;
+      if (marker.doc?.hashedAt) info.hashedAt = marker.doc.hashedAt;
       const cur = readJson(paths.store, fsi);
       if (!cur.missing) {
         const check = cur.doc
-          ? checkSnapshot(cur.doc)
+          ? checkSnapshot(cur.doc, { plain: true })
           : { ok: false, reason: cur.error };
         if (check.ok) {
-          restore = cur.doc;
-          info.loaded = 'store';
           if (!info.migratedAt && cur.doc.migratedAt)
             info.migratedAt = cur.doc.migratedAt;
-          log('store.loaded', describe(cur.doc));
+          if (!info.migratedAt) info.migratedAt = now();
+          if (cur.doc.v === PLAIN_VERSION) {
+            // L5: hashed in place, once; a revert drill's hand restore of
+            // the plain copy comes through here again.
+            restore = hashPlain(cur.doc, paths.store);
+            info.loaded = 'hashed';
+            if (save(restore))
+              mark({ migratedAt: info.migratedAt, ...hashedMark() });
+          } else {
+            restore = cur.doc;
+            info.loaded = 'store';
+            if (!info.hashedAt && cur.doc.hashedAt)
+              info.hashedAt = cur.doc.hashedAt;
+            if (marker.missing)
+              mark({ migratedAt: info.migratedAt, from: null });
+          }
+          log('store.loaded', describe(restore));
         } else {
           // Never half-loaded, never replaced by the backup or the tmp file
           // (S-14): the wall starts fresh; the operator restores by hand.
@@ -381,13 +508,15 @@ export function openSessionStore({
         // First start of this code here: migrate the tmp store once.
         info.legacyRead = true;
         const old = readJson(paths.legacy, fsi);
-        const check = old.doc ? checkSnapshot(old.doc, { legacy: true }) : null;
+        const check = old.doc
+          ? checkSnapshot(old.doc, { legacy: true, plain: true })
+          : null;
         const t = now();
         if (old.doc && check.ok && !old.doc.migratedAt) {
-          restore = old.doc;
           info.loaded = 'migrated';
           info.migratedAt = t;
           log('store.migrated', { from: paths.legacy, ...describe(old.doc) });
+          restore = hashPlain(old.doc, paths.legacy);
         } else {
           info.loaded = 'fresh';
           log('store.fresh', {
@@ -395,27 +524,39 @@ export function openSessionStore({
               ? 'nothing to migrate'
               : old.doc?.migratedAt
                 ? 'tmp file is a copy written after a migration; not read as a store'
-                : `tmp file not usable (${check?.reason || old.error}); left in place`,
+                : `tmp file not usable (${check?.reason || old.error}); deleted below (L5: no plain token at rest)`,
           });
         }
         if (!info.migratedAt) info.migratedAt = t;
         // The store first, the marker second: if the store cannot be
         // written, the next start migrates again instead of losing the wall.
         if (!restore || save(restore))
-          writeFileAtomic(
-            paths.marker,
-            JSON.stringify({
-              v: STORE_VERSION,
-              migratedAt: info.migratedAt,
-              from: info.loaded === 'migrated' ? paths.legacy : null,
-            }),
-            { fs: fsi },
-          );
+          mark({
+            migratedAt: info.migratedAt,
+            from: info.loaded === 'migrated' ? paths.legacy : null,
+            ...(info.hashedAt ? hashedMark() : {}),
+          });
       }
       // One rolling backup: the store as it was at this good start.
       if (restore)
         writeFileAtomic(paths.backup, JSON.stringify(docOf(restore)), {
           fs: fsi,
+        });
+      // L5: no plain token at rest. The backup (from a fresh start) and
+      // quarantine/ are hashed in place; once migration is settled (the
+      // marker), the tmp-path file and its temp are deleted unread, even
+      // when a reverted build wrote them again.
+      scrubAtRest();
+      if (fsi.existsSync(paths.marker))
+        for (const f of [paths.legacy, `${paths.legacy}${TEMP_SUFFIX}`])
+          if (fsi.existsSync(f)) {
+            fsi.rmSync(f, { force: true });
+            log('store.tmp_removed', { file: f });
+          }
+      if (fsi.existsSync(paths.plainCopy))
+        log('store.plain_copy_kept', {
+          file: paths.plainCopy,
+          hint: 'delete it after the revert drill: node scripts/trip-twin-store.mjs drop-plain-copy',
         });
     } catch (e) {
       fail('store.open_error', e);
@@ -462,21 +603,99 @@ export function openSessionStore({
     forget(snap, ids = []) {
       const gone = new Set(ids);
       const wrote = save(snap);
-      let backup = 'absent';
-      const b = dir ? readJson(paths.backup, fsi) : { missing: true };
-      if (b.doc && checkSnapshot(b.doc).ok) {
-        b.doc.devices = b.doc.devices.filter(([id]) => !gone.has(id));
-        if (gone.has(b.doc.lease?.holder))
-          b.doc.lease = { holder: null, at: 0 };
-        writeFileAtomic(paths.backup, JSON.stringify(b.doc), { fs: fsi });
-        backup = 'rewritten';
-      } else if (!b.missing) {
-        fsi.rmSync(paths.backup, { force: true });
-        backup = 'deleted';
-      }
-      log('store.forget', { devices: gone.size, backup });
-      return { store: wrote, backup };
+      /** Drop those devices from a file at rest; delete it if unreadable. */
+      const without = (file, opts) => {
+        const b = dir ? readJson(file, fsi) : { missing: true };
+        if (b.doc && checkSnapshot(b.doc, opts).ok) {
+          b.doc.devices = b.doc.devices.filter(([id]) => !gone.has(id));
+          if (gone.has(b.doc.lease?.holder))
+            b.doc.lease = { holder: null, at: 0 };
+          writeFileAtomic(file, JSON.stringify(b.doc), { fs: fsi });
+          return 'rewritten';
+        }
+        if (b.missing) return 'absent';
+        fsi.rmSync(file, { force: true });
+        return 'deleted';
+      };
+      // A backup from before L5 is v:1 (hashed in place at start): kept.
+      const backup = without(paths.backup, { plain: true });
+      // L5: the plain copy too, while it is kept (it holds v1 tokens).
+      const plainCopy = without(paths.plainCopy, { plain: true });
+      log('store.forget', { devices: gone.size, backup, plainCopy });
+      return { store: wrote, backup, plainCopy };
     },
-    status: () => ({ ...health, dir: dir || null, loaded: info.loaded }),
+    status: () => ({
+      ...health,
+      dir: dir || null,
+      loaded: info.loaded,
+      // L5: the plain pre-migration copy is still there (drop it after the
+      // revert drill).
+      plainCopy: Boolean(dir && fsi.existsSync(paths.plainCopy)),
+    }),
+  };
+}
+
+/**
+ * The files the S-14 token scan reads: everything under the data folder
+ * (store, backup, marker, quarantine/, any copy left there) and the
+ * relay's os.tmpdir() files (the pre-L5 store and its temp).
+ */
+export function scanPaths({ dir, legacyFile = legacyStorePath() } = {}) {
+  return {
+    dirs: dir ? [dir] : [],
+    files: [legacyFile, `${legacyFile}${TEMP_SUFFIX}`],
+  };
+}
+
+/**
+ * The whole-folder scan (S-14): [{file, why}] for every file at rest that
+ * holds a plain token. `tokens` (tests, the harness) are searched for
+ * verbatim as well. `keepPlainCopy` leaves session.v1.json out (before its
+ * revert drill).
+ */
+export function scanForPlainTokens({
+  dir,
+  legacyFile = legacyStorePath(),
+  tokens = [],
+  keepPlainCopy = false,
+  fs: fsi = fs,
+} = {}) {
+  return plainTokenFiles({
+    ...scanPaths({ dir, legacyFile }),
+    tokens,
+    skip: keepPlainCopy && dir ? [path.join(dir, PLAIN_COPY_FILE)] : [],
+    fs: fsi,
+  });
+}
+
+/**
+ * L5, by hand after the deploy's revert drill passes (S-14): delete the
+ * plain pre-migration copy and record it in the marker. Never run by the
+ * server or on a timer. After this a revert below L5 means a re-pair.
+ * Returns {removed, findings} (the scan afterwards; [] means no plain
+ * token at rest).
+ */
+export function dropPlainCopy({
+  dir,
+  legacyFile = legacyStorePath(),
+  now = () => Date.now(),
+  fs: fsi = fs,
+} = {}) {
+  if (!dir) return { removed: false, findings: [], error: 'no data folder' };
+  const copy = path.join(dir, PLAIN_COPY_FILE);
+  const removed = fsi.existsSync(copy);
+  fsi.rmSync(copy, { force: true });
+  fsi.rmSync(`${copy}${TEMP_SUFFIX}`, { force: true });
+  const marker = path.join(dir, MARKER_FILE);
+  const m = readJson(marker, fsi).doc;
+  if (m && typeof m === 'object')
+    writeFileAtomic(
+      marker,
+      JSON.stringify({ ...m, plainCopy: null, plainCopyDroppedAt: now() }),
+      { fs: fsi },
+    );
+  return {
+    removed,
+    findings: scanForPlainTokens({ dir, legacyFile, fs: fsi }),
   };
 }

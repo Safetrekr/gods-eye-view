@@ -885,7 +885,11 @@ test('K7 R6c: a newly issued token is in the store at once (no 300 ms wait), thr
     const w = serverFrames(u.socket.written).find((m) => m.t === 'welcome');
     assert.equal(w.type, 'paired');
     const text = fs.readFileSync(path.join(data, 'session.json'), 'utf8');
-    assert.ok(text.includes(w.token), 'the token is saved at once');
+    // L5: what is saved at once is the token's hash, never the token.
+    const { tokenHash } =
+      await import('../../../server/tripTwin/twinTokens.js');
+    assert.ok(text.includes(tokenHash(w.token)), 'the token is saved at once');
+    assert.equal(text.includes(w.token), false, 'as its hash only');
     assert.deepEqual(w.presence.health, { audit: true, store: true });
     const r = u.socket.written.length;
     assert.ok(r > 0);

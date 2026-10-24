@@ -1,0 +1,267 @@
+{
+  "v": 1,
+  "savedAt": 1792595000000,
+  "migratedAt": 1792595000000,
+  "session": {
+    "rev": 5,
+    "count": 6,
+    "session": {
+      "tripId": "demo-austin",
+      "siteKey": "austin",
+      "wxAt": null,
+      "report": null,
+      "incidentAck": null,
+      "spotlight": null,
+      "visitor": false,
+      "simStorm": null,
+      "epochMs": 1792594920000
+    },
+    "screens": {
+      "1": {
+        "role": "site",
+        "mode": "live",
+        "day": null,
+        "scale": "neighborhood",
+        "textScale": 1.5,
+        "pinned": false,
+        "layers": {},
+        "frame": null,
+        "motion": {
+          "live": true,
+          "event": true,
+          "cine": true
+        },
+        "meta": {},
+        "merged": []
+      },
+      "2": {
+        "role": "day",
+        "mode": "live",
+        "day": null,
+        "scale": "city",
+        "textScale": 1.75,
+        "pinned": false,
+        "layers": {},
+        "frame": null,
+        "motion": {
+          "live": true,
+          "event": true,
+          "cine": true
+        },
+        "meta": {
+          "role": {
+            "source": "override",
+            "rev": 3,
+            "by": "D6",
+            "at": 1792594932000
+          }
+        },
+        "merged": []
+      },
+      "3": {
+        "role": "incident",
+        "mode": "live",
+        "day": null,
+        "scale": null,
+        "textScale": 2,
+        "pinned": false,
+        "layers": {},
+        "frame": null,
+        "motion": {
+          "live": true,
+          "event": true,
+          "cine": true
+        },
+        "meta": {},
+        "merged": []
+      },
+      "4": {
+        "role": "weather",
+        "mode": "live",
+        "day": null,
+        "scale": "city",
+        "textScale": 1.75,
+        "pinned": true,
+        "layers": {},
+        "frame": null,
+        "motion": {
+          "live": true,
+          "event": true,
+          "cine": true
+        },
+        "meta": {
+          "pinned": {
+            "source": "override",
+            "rev": 5,
+            "by": "D6",
+            "at": 1792594936000
+          }
+        },
+        "merged": []
+      },
+      "5": {
+        "role": "day",
+        "mode": "live",
+        "day": null,
+        "scale": "city",
+        "textScale": 1.75,
+        "pinned": false,
+        "layers": {},
+        "frame": null,
+        "motion": {
+          "live": true,
+          "event": true,
+          "cine": true
+        },
+        "meta": {},
+        "merged": []
+      },
+      "6": {
+        "role": "trips",
+        "mode": "live",
+        "day": null,
+        "scale": null,
+        "textScale": 2,
+        "pinned": false,
+        "layers": {},
+        "frame": null,
+        "motion": {
+          "live": true,
+          "event": true,
+          "cine": true
+        },
+        "meta": {},
+        "merged": []
+      }
+    }
+  },
+  "devices": [
+    [
+      "screen-3fj8w1zq",
+      {
+        "kind": "screen",
+        "slot": 1,
+        "token": "rdct0001k2fixture00x0000",
+        "lastSeen": 1792594920400,
+        "online": false,
+        "ref": "D1"
+      }
+    ],
+    [
+      "screen-a91kd0xe",
+      {
+        "kind": "screen",
+        "slot": 2,
+        "token": "rdct0002k2fixture00x0000",
+        "lastSeen": 1792594920800,
+        "online": false,
+        "ref": "D2"
+      }
+    ],
+    [
+      "screen-p0q7m2va",
+      {
+        "kind": "screen",
+        "slot": 3,
+        "token": "rdct0003k2fixture00x0000",
+        "lastSeen": 1792594921200,
+        "online": false,
+        "ref": "D3"
+      }
+    ],
+    [
+      "screen-x8c4n6rt",
+      {
+        "kind": "screen",
+        "slot": 4,
+        "token": "rdct0004k2fixture00x0000",
+        "lastSeen": 1792594921600,
+        "online": false,
+        "ref": "D4"
+      }
+    ],
+    [
+      "screen-m2k9v7ub",
+      {
+        "kind": "screen",
+        "slot": 5,
+        "token": "rdct0005k2fixture00x0000",
+        "lastSeen": 1792594922000,
+        "online": false,
+        "ref": "D5"
+      }
+    ],
+    [
+      "remote-ipad7h2q",
+      {
+        "kind": "remote",
+        "name": "Laptop",
+        "token": "rdct0006k2fixture00x0000",
+        "lastSeen": 1792594925000,
+        "online": false,
+        "ref": "D6"
+      }
+    ],
+    [
+      "screen-tv5h3k1w",
+      {
+        "kind": "screen",
+        "lastSeen": 1792594930000,
+        "online": false,
+        "slot": 6,
+        "token": "rdct0007k2fixture00x0000",
+        "ref": "D7"
+      }
+    ],
+    [
+      "screen-zz0stray",
+      {
+        "kind": "screen",
+        "lastSeen": 1792594930000,
+        "online": false
+      }
+    ]
+  ],
+  "lease": {
+    "holder": "remote-ipad7h2q",
+    "at": 1792594936000
+  },
+  "refs": {
+    "D1": {
+      "kind": "screen",
+      "name": "S1",
+      "slot": 1
+    },
+    "D2": {
+      "kind": "screen",
+      "name": "S2",
+      "slot": 2
+    },
+    "D3": {
+      "kind": "screen",
+      "name": "S3",
+      "slot": 3
+    },
+    "D4": {
+      "kind": "screen",
+      "name": "S4",
+      "slot": 4
+    },
+    "D5": {
+      "kind": "screen",
+      "name": "S5",
+      "slot": 5
+    },
+    "D6": {
+      "kind": "remote",
+      "name": "Laptop",
+      "slot": null
+    },
+    "D7": {
+      "kind": "screen",
+      "name": "S6",
+      "slot": 6
+    }
+  },
+  "nextRef": 8
+}

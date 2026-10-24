@@ -1,7 +1,8 @@
 // Trip Twin session store (Phase CF K2; PHASE-CF-PLAN S-1, S-14 and the K2
 // gate): atomic writes and modes, quarantine, the one-time migration from
-// the old os.tmpdir() store, no fallback read, the dual write that keeps a
-// revert working, the data-folder fence, flush on close and Forget. Every
+// the old os.tmpdir() store, no fallback read, the data-folder fence, flush
+// on close and Forget. L5 retired K2's tmp-path dual write and made the
+// store v:2 (token hashes): the L5 cases are in twinTokens.test.mjs. Every
 // test runs in its own temporary folders; the live wall's files are never
 // read or written. Assertion messages carry slots and counts, never tokens.
 import test from 'node:test';
@@ -10,7 +11,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fakeSocket, fakeViteRelay } from './twinTestKit.mjs';
+import { fakeViteRelay } from './twinTestKit.mjs';
 import { createSessionHost } from './twinSessionHost.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -49,6 +50,7 @@ function place() {
 }
 const { openSessionStore, resolveDataDir, writeFileAtomic, defaultDataDir } =
   await import('../../../server/tripTwin/sessionStore.js');
+const { tokenHash } = await import('../../../server/tripTwin/twinTokens.js');
 const { twinSyncRelay, openRelayStore } =
   await import('../../../server/tripTwin/syncRelay.js');
 const boot = () => fakeViteRelay(twinSyncRelay());
@@ -56,13 +58,28 @@ const mode = (f) => fs.statSync(f).mode & 0o777;
 const readJson = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
 const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
 
-/** A wall in a fresh host: launcher setup, n screens, one remote. */
+/**
+ * A wall in a fresh host: launcher setup, n screens, one remote. The
+ * tokens the devices were given are on `host.tokens` (L5: the host and
+ * its snapshot hold hashes only).
+ */
 function wall(nScreens = 2) {
   const host = createSessionHost();
   const setup = host.setup({ count: nScreens }).setup;
+  host.tokens = {};
   for (let s = 1; s <= nScreens; s += 1)
-    host.hello({ id: `screen-${s}`, kind: 'screen', setup, slot: s });
-  host.hello({ id: 'remote-1', kind: 'remote', setup, name: 'iPad' });
+    host.tokens[`screen-${s}`] = host.hello({
+      id: `screen-${s}`,
+      kind: 'screen',
+      setup,
+      slot: s,
+    }).token;
+  host.tokens['remote-1'] = host.hello({
+    id: 'remote-1',
+    kind: 'remote',
+    setup,
+    name: 'iPad',
+  }).token;
   return host;
 }
 const tokensOf = (snap) => snap.devices.map(([, d]) => d.token).filter(Boolean);
@@ -76,7 +93,7 @@ const textUnder = (dir) =>
         .join('\n')
     : '';
 
-test('store: saves atomically into a 0700 folder as 0600 files with v:1; no temp file left', () => {
+test('store: saves atomically into a 0700 folder as 0600 files with v:2 (L5); no temp file left; nothing written to the tmp path', () => {
   const p = place();
   fs.mkdirSync(p.data, { recursive: true, mode: 0o755 });
   fs.chmodSync(p.data, 0o755);
@@ -85,11 +102,12 @@ test('store: saves atomically into a 0700 folder as 0600 files with v:1; no temp
   const snap = wall(2).snapshot();
   assert.equal(store.save(snap), true);
   const doc = readJson(p.store);
-  assert.equal(doc.v, 1);
+  assert.equal(doc.v, 2);
   assert.equal(typeof doc.migratedAt, 'number');
   assert.deepEqual(doc.devices, JSON.parse(JSON.stringify(snap.devices)));
-  for (const f of [p.store, p.marker, p.legacy])
+  for (const f of [p.store, p.marker])
     assert.equal(mode(f), 0o600, `${path.basename(f)} is 0600`);
+  assert.equal(fs.existsSync(p.legacy), false, 'no tmp-path copy (L5)');
   const left = fs.readdirSync(p.data).filter((f) => f.endsWith('.tmp'));
   assert.deepEqual(left, [], 'no temp file left behind');
   assert.equal(store.status().ok, true);
@@ -199,14 +217,14 @@ test('store: a store of an unknown version is quarantined, not half-loaded', () 
     wall(2).snapshot(),
   );
   const doc = readJson(p.store);
-  fs.writeFileSync(p.store, JSON.stringify({ ...doc, v: 2 }));
+  fs.writeFileSync(p.store, JSON.stringify({ ...doc, v: 3 }));
   const store = openSessionStore({ dir: p.data, legacyFile: p.legacy });
   assert.equal(store.restore, null);
   assert.equal(store.info.loaded, 'fresh');
   assert.equal(store.info.quarantined.length, 1);
   assert.equal(
     readJson(store.info.quarantined[0]).v,
-    2,
+    3,
     'kept whole for a hand restore',
   );
 });
@@ -254,13 +272,19 @@ test('store: a redacted copy of a real pre-K2 store migrates once and its walls 
   for (const r of rows.filter((x) => x.kind === 'remote'))
     assert.equal(r.type, 'remote', 'the remote rejoined with its token');
   const doc = readJson(p.store);
-  assert.equal(doc.v, 1);
+  assert.equal(doc.v, 2, 'L5: migrated straight to hashed tokens');
   assert.equal(typeof doc.migratedAt, 'number');
   assert.equal(readJson(p.marker).migratedAt, doc.migratedAt);
   assert.equal(readJson(p.marker).from, p.legacy);
-  assert.equal(readJson(p.backup).v, 1, 'backup of the migrated wall');
-  // The tmp copy is now a dual write (marked), not a store to migrate.
-  assert.equal(readJson(p.legacy).migratedAt, doc.migratedAt);
+  assert.equal(readJson(p.backup).v, 2, 'backup of the migrated wall');
+  // L5: the tmp store is read once, then deleted (no dual write).
+  assert.equal(fs.existsSync(p.legacy), false, 'tmp store deleted');
+  for (const f of [p.store, p.backup, p.marker])
+    assert.equal(
+      tokens.some((t) => fs.readFileSync(f, 'utf8').includes(t)),
+      false,
+      `${path.basename(f)} holds no plain token`,
+    );
   // Migrates once: the second start loads the new store.
   const v2 = boot();
   try {
@@ -288,6 +312,9 @@ test('store: after migration, deleting the new store and restarting does not rea
   boot().close(); // migrates
   assert.ok(fs.existsSync(p.store));
   fs.rmSync(p.store);
+  // A reverted build (K2–K7) may write the tmp store again; put the old
+  // wall back there.
+  fs.copyFileSync(FIXTURE, p.legacy);
   // Spy on reads: the tmp file must not even be opened.
   const reads = [];
   const spy = {
@@ -297,10 +324,11 @@ test('store: after migration, deleting the new store and restarting does not rea
       return fs.readFileSync(f, ...a);
     },
   };
-  const s = openRelayStore({ fs: spy, dualWrite: false });
+  const s = openRelayStore({ fs: spy });
   assert.equal(s.info.loaded, 'fresh');
   assert.equal(s.info.legacyRead, false);
   assert.equal(reads.includes(p.legacy), false, 'tmp file not read');
+  assert.equal(fs.existsSync(p.legacy), false, 'and deleted unread (L5)');
   // Through the real plugin: the old walls are not brought back.
   const v = boot();
   try {
@@ -322,60 +350,17 @@ test('store: after migration, deleting the new store and restarting does not rea
   } finally {
     v.close();
   }
-  // Even with the whole data folder gone, the tmp copy is marked as written
-  // after a migration and is not taken as a store.
+  // Even with the whole data folder gone, a tmp copy a K2–K7 build wrote
+  // (marked as written after a migration) is not taken as a store.
+  fs.writeFileSync(
+    p.legacy,
+    JSON.stringify({ ...old, v: 1, migratedAt: 1792595000000 }),
+  );
   fs.rmSync(p.data, { recursive: true });
   const bare = openRelayStore({});
   assert.equal(bare.info.loaded, 'fresh');
   assert.equal(bare.restore, null);
-});
-
-test('store: revert-and-restart: the pre-K2 loader still finds the wall in the tmp file (dual write)', async () => {
-  const p = place();
-  const v = boot();
-  const setup = (await v.hello({ t: 'setup', count: 3 })).setup;
-  const ids = ['screen-r1', 'screen-r2', 'screen-r3'];
-  const tokens = {};
-  for (const [i, id] of ids.entries())
-    tokens[id] = (
-      await v.hello({ t: 'hello', id, kind: 'screen', setup, slot: i + 1 })
-    ).token;
-  v.close(); // flushes
-  // Exactly what the relay at ff8a953 (K1) did on start:
-  //   loadStore() { return JSON.parse(fs.readFileSync(STORE, 'utf8')) }
-  //   createSessionHost({ restore: loadStore() })
-  // with STORE = os.tmpdir()/trip-twin-soc-session.json.
-  const restore = JSON.parse(
-    fs.readFileSync(
-      path.join(os.tmpdir(), 'trip-twin-soc-session.json'),
-      'utf8',
-    ),
-  );
-  const host = createSessionHost({ restore });
-  for (const [i, id] of ids.entries()) {
-    const w = host.hello({ id, kind: 'screen', token: tokens[id] });
-    assert.ok(
-      w.type === 'paired' && w.slot === i + 1,
-      `S${i + 1} rejoins on the old code (${w.type})`,
-    );
-  }
-  assert.equal(
-    restore.session.rev,
-    readJson(p.store).session.rev,
-    'tmp copy is current',
-  );
-  // And the old code's own relay runs on it.
-  const { createRelay } = await import('../../../server/tripTwin/syncRelay.js');
-  const relay = createRelay({ host });
-  const ws = fakeSocket();
-  relay.attach(ws);
-  ws.say({
-    t: 'hello',
-    id: 'screen-r2',
-    kind: 'screen',
-    token: tokens['screen-r2'],
-  });
-  assert.equal(ws.last('welcome').slot, 2);
+  assert.equal(fs.existsSync(p.legacy), false, 'deleted (L5)');
 });
 
 test("store: TRIP_TWIN_DATA_DIR inside the repo or Vite's root is refused and the wall runs unsaved", async () => {
@@ -451,7 +436,7 @@ test('store: the last change is flushed when the server closes', async () => {
   v.close(); // well inside the 300 ms debounce
   const rev = readJson(p.store).session.rev;
   assert.equal(readJson(p.store).session.count, 2, 'saved at close');
-  assert.equal(readJson(p.legacy).session.rev, rev, 'tmp copy too');
+  assert.equal(fs.existsSync(p.legacy), false, 'no tmp-path copy (L5)');
   await tick(400); // the debounce timer must not write again after close
   assert.equal(readJson(p.store).session.rev, rev);
 });
@@ -463,18 +448,23 @@ test('store: Forget rewrites the store and the backup without that device', () =
   openSessionStore({ dir: p.data, legacyFile: p.legacy }).save(snap);
   const store = openSessionStore({ dir: p.data, legacyFile: p.legacy }); // backup written
   const gone = 'screen-2';
-  const goneToken = snap.devices.find(([id]) => id === gone)[1].token;
-  assert.ok(fs.readFileSync(p.backup, 'utf8').includes(goneToken));
+  const goneToken = host.tokens[gone];
+  const goneHash = tokenHash(goneToken);
+  assert.ok(fs.readFileSync(p.backup, 'utf8').includes(goneHash));
   const after = {
     ...snap,
     devices: snap.devices.filter(([id]) => id !== gone),
   };
   const r = store.forget(after, [gone]);
-  assert.deepEqual(r, { store: true, backup: 'rewritten' });
-  for (const f of [p.store, p.backup, p.legacy]) {
+  assert.deepEqual(r, {
+    store: true,
+    backup: 'rewritten',
+    plainCopy: 'absent',
+  });
+  for (const f of [p.store, p.backup]) {
     const text = fs.readFileSync(f, 'utf8');
     assert.equal(
-      text.includes(goneToken),
+      text.includes(goneToken) || text.includes(goneHash),
       false,
       `${path.basename(f)} holds no forgotten token`,
     );

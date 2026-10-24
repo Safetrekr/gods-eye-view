@@ -7,7 +7,8 @@ When a wall shows a pair code it should not, or the iPad says "Pair this remote"
 - The store was set aside at start (`[trip-twin] store.quarantined` and `store.reset` in `~/Library/Logs/trip-twin-dev.log`). The wall starts fresh by design: a bad file is never half-loaded, and the backup is never restored by code (S-14). Restore it by hand (below) or re-pair.
 - A device was paired while the Mac Studio ran older code (a revert below K2), and the newer code is back: it loads its own store, not the tmp file, so that device re-pairs.
 - **An iPad unused for a week may lose its token to Safari's storage limits** and need a new code. That is Safari, not a bug.
-- From L5 (hashed tokens): a revert to code below L5 means every device re-pairs.
+- **From L5 (hashed tokens): a revert to code below L5 means every device re-pairs** once the plain pre-migration copy has been dropped (`node scripts/trip-twin-store.mjs drop-plain-copy`, after the L5 deploy's revert drill). The older code finds a `v:2` store it cannot read and sets it aside (`store.quarantined`, `store.reset`): walls show a pair code, the iPad says "The Trip Twin computer no longer knows this remote". Nothing crashes. While `session.v1.json` is still in the data folder, the revert needs no re-pair: [deploy-mac-studio.md](deploy-mac-studio.md), "If it fails", step 2.
+- Rolling forward to L5 again after such a revert: devices paired on the older code rejoin (their `v:1` store is hashed in place, `store.hashed`); devices that were re-paired nowhere re-pair again. To bring back the L5 wall instead, restore `session.prev.json` by hand (below) **before** the first L5 start: the older code never rewrites the backup on a fresh start, so it still holds the L5 wall.
 - The device was Forgotten (from K11), or its pairing expired (from L6).
 
 ## Restore the backup by hand (store set aside at start)

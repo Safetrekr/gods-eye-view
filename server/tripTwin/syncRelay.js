@@ -42,6 +42,10 @@
 // by (IP, device id) and never lock anyone out. One bad message never stops
 // the relay (try/catch around dispatch). A newly issued token writes the
 // store at once. Presence carries `health {audit, store}` (K8 reads it).
+// Hashed tokens (Phase CF L5, SEC-6, S-14): the host is given TOKENS
+// (twinTokens.js: sha256, timingSafeEqual), so the wall in memory and on
+// disk holds token hashes only; the store migrates a v1 file once and no
+// longer writes the old tmp-path copy.
 // Prototype only: plain ws, LAN, no login — production needs TLS, device
 // enrolment, SSO, signed commands and an append-only audit store off the
 // host (07-production-delta).
@@ -68,6 +72,7 @@ import {
 import { auditLogFor } from './auditLog.js';
 import { openSessionStore, resolveDataDir } from './sessionStore.js';
 import { LIMITS, createLimiter, socketBudget, thumbOk } from './twinLimits.js';
+import { TOKENS } from './twinTokens.js';
 import { hostCheckFor, twinLogger } from './twinHostCheck.js';
 import {
   SYNC_PATH,
@@ -182,7 +187,7 @@ const REAL_TIMERS = Object.freeze({
  * `flush` asks for the store to be written at once (a token was issued).
  */
 export function createRelay({
-  host = createSessionHost(),
+  host = createSessionHost({ tokens: TOKENS }),
   save = () => {},
   audit = null,
   now = Date.now,
@@ -1181,7 +1186,8 @@ export function twinSyncRelay() {
     name: 'trip-twin-sync-relay',
     configureServer(server) {
       const startedAt = Date.now();
-      // A restart keeps the wall: session, devices and tokens (R18).
+      // A restart keeps the wall: session, devices and token hashes (R18,
+      // L5).
       const log = twinLogger(server);
       const check = hostCheckFor(server);
       // The audit log first, so a store problem at start is in it (K6).
@@ -1198,7 +1204,7 @@ export function twinSyncRelay() {
         log: storeLog,
       });
       const relay = createRelay({
-        host: createSessionHost({ restore: store.restore }),
+        host: createSessionHost({ restore: store.restore, tokens: TOKENS }),
         // A newly issued token is written at once (K7, ET-7 R6c).
         save: (snap, o) => {
           store.queue(snap);

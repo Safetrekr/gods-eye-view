@@ -30,7 +30,7 @@ On the Mac Studio launcher: Forget all. Every device, code and setup token goes;
 
 ## 4. Last resort: delete every store file, restart, re-pair
 
-Use this if Forget all is not available or not enough (an unknown device paired, a token may be captured: also follow [unknown-device.md](unknown-device.md)). Deleting only `session.json` is **not enough**: the backup and the old tmp copy hold the same tokens.
+Use this if Forget all is not available or not enough (an unknown device paired, a token may be captured: also follow [unknown-device.md](unknown-device.md)). Deleting only `session.json` is **not enough**: the backup (and, before L5, the old tmp copy; after an L5 deploy, the plain copy `session.v1.json` until it is dropped) hold the same pairings.
 
 1. Stop the server: `lsof -ti tcp:4173 -sTCP:LISTEN | xargs kill`.
 2. Delete **all** store files and the backup, by path. `D` is `~/Library/Application Support/SafeTrekr/trip-twin` unless `TRIP_TWIN_DATA_DIR` is set (then that folder):
@@ -39,6 +39,7 @@ Use this if Forget all is not available or not enough (an unknown device paired,
    T="$(node -p 'require("os").tmpdir()')"   # in the shell that starts Vite
    rm -f  "$D/session.json" "$D/session.json.tmp"
    rm -f  "$D/session.prev.json" "$D/session.prev.json.tmp"
+   rm -f  "$D/session.v1.json" "$D/session.v1.json.tmp"   # L5's plain copy, if still there
    rm -f  "$D/deploy-copy.json"
    rm -rf "$D/quarantine"
    rm -f  "$T/trip-twin-soc-session.json" "$T/trip-twin-soc-session.json.tmp"
@@ -49,6 +50,6 @@ Use this if Forget all is not available or not enough (an unknown device paired,
    ```sh
    grep -rl '"token"' "$D" "$T/trip-twin-soc-session.json" /tmp/trip-twin-soc-session.json 2>/dev/null
    ```
-   Expect no output.
+   Expect no output. From L5 the same check is a command (from the checkout, in the shell that starts Vite): `node scripts/trip-twin-store.mjs scan` must end `clean: no plain token at rest`. (From L5 the store holds `tokenHash`, never `token`; the hashes still let the old tokens in, which is why the files go.)
 4. Restart ([deploy-mac-studio.md](deploy-mac-studio.md) step 6). From K11 a restart also makes a new boot secret, so every old token is dead. The log says `store.fresh`.
 5. Re-pair the walls and the iPad from the launcher ([re-pair.md](re-pair.md)). Clear the iPad's site data for the Mac Studio address if it still offers an old pairing.
