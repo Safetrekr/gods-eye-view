@@ -163,11 +163,6 @@ textarea {
 /* ---------- walls ---------- */
 body[data-view='screen'] {
   background-color: var(--tt-field);
-  background-image: radial-gradient(
-    rgba(184, 195, 199, 0.2) 1.3px,
-    transparent 1.6px
-  );
-  background-size: 44px 44px;
 }
 .tt-wall-head {
   background: linear-gradient(rgba(4, 12, 18, 0.9), rgba(4, 12, 18, 0.2));
@@ -641,18 +636,7 @@ body[data-view='screen'] .tt-topline.incident {
 .tt-card-name {
   font: 300 18px/22px var(--tt-display);
 }
-/* F12: the dot grid above the 3D view and below every panel. */
-.tt-wall-grid {
-  position: fixed;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-  background-image: radial-gradient(
-    rgba(184, 195, 199, 0.22) 1.3px,
-    transparent 1.6px
-  );
-  background-size: 44px 44px;
-}
+/* No dot grid on the walls (Jesse, 23 Oct 2026). */
 body[data-view='screen'] {
   background-image: none;
 }

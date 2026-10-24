@@ -70,10 +70,8 @@ export function createScreenMode({ api, slot = null, setup = null }) {
   const banner = el('div', 'tt-wall-banner');
   banner.hidden = true;
   banner.setAttribute('role', 'alert');
-  // The dot grid sits above the 3D view and below every panel (brand F12).
-  const grid = el('div', 'tt-wall-grid');
-  grid.setAttribute('aria-hidden', 'true');
-  document.body.append(grid, head, wxStrip, stale, panel, banner, pair, ident);
+  // No dot grid over the 3D view (Jesse, 23 Oct 2026).
+  document.body.append(head, wxStrip, stale, panel, banner, pair, ident);
 
   let state = null;
   let presence = null;
