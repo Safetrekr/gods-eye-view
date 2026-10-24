@@ -6828,6 +6828,18 @@ async function main() {
   const screenApi = {
     cityKey,
     tripTitle: () => focusTrip.title,
+    // People and places a change names, from this wall's own snapshot (K8).
+    names: {
+      person: (id) =>
+        (lastCtx?.snapshot?.participants || []).find((p) => p.id === id)
+          ?.name || null,
+      place: (id) => {
+        const p = (lastCtx?.snapshot?.safety_points || []).find(
+          (x) => x.id === id,
+        );
+        return p ? p.label || p.name || null : null;
+      },
+    },
     tripCity: (id) => tripById(id).city,
     tripScenario: (id) => tripById(id).scenario,
     setEpoch(ms) {
@@ -6970,13 +6982,18 @@ async function main() {
     // opening (its entry animation needs the render loop).
     pauseRender(off) {
       renderOff = off;
+      // For the harness (K8): is the 3D scene paused on this wall?
+      document.body.dataset.ttRender = off ? 'paused' : 'on';
       if (twin.state !== 'ready' && twin.state !== 'degraded') return;
+      // No viewer (no WebGL on this window): nothing to pause (K8 pauses
+      // every unpaired window, so this is reached far more often now).
+      if (!viewer) return;
       viewer.useDefaultRenderLoop = !off;
       if (!off) viewer.scene.requestRender();
     },
     captureCanvas() {
       return new Promise((resolve) => {
-        if (!viewer.useDefaultRenderLoop) return resolve(null);
+        if (!viewer?.useDefaultRenderLoop) return resolve(null);
         let done = false;
         const off = viewer.scene.postRender.addEventListener(() => {
           if (done) return;

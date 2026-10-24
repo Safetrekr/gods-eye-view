@@ -117,6 +117,44 @@ export function reloadText(kind) {
   return 'This page is out of date · Reload';
 }
 
+/** "21:33:10": 24 h, this computer's clock (the Trip Twin computer's). */
+const clockHMS = (ms) =>
+  new Date(ms).toLocaleTimeString('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+
+/**
+ * Pairing refusals (K8, cf/05-supervision.md SUP-5): the host says them
+ * and the remote shows them as they are, in Screens & devices.
+ */
+export function pairWrongText(triesLeft) {
+  return `Code not recognised or expired · ${triesLeft} ${triesLeft === 1 ? 'try' : 'tries'} left before a 1-minute pause`;
+}
+export function pairLockedText(untilMs) {
+  return `Pairing paused until ${clockHMS(untilMs)} after 5 wrong codes · screens already paired are not affected`;
+}
+/**
+ * When a pairing pause ends, read from its words on this page's clock
+ * (the remote's Pair button counts down to it). Null if the text is not
+ * a pause.
+ */
+export function pairPausedUntil(text, now = Date.now()) {
+  const m = /^Pairing paused until (\d{2}):(\d{2}):(\d{2})\b/.exec(
+    String(text || ''),
+  );
+  if (!m) return null;
+  const d = new Date(now);
+  d.setHours(Number(m[1]), Number(m[2]), Number(m[3]), 0);
+  let t = d.getTime();
+  // Just past midnight: the pause began yesterday evening, or ends tomorrow.
+  if (t < now - 12 * 3600e3) t += 24 * 3600e3;
+  if (t > now + 12 * 3600e3) t -= 24 * 3600e3;
+  return t;
+}
+
 /**
  * Command refusal codes (02 §3.3, S-8, S-18). Every refusal carries one.
  * 02's IDEMPOTENCY_CONFLICT is CMDID_REUSED here (S-18). Codes not yet

@@ -42,9 +42,10 @@ const rel = (p) => path.relative(ROOT, p).split(path.sep).join('/');
  * (twinAudit.test.mjs); K7 adds twenty-three limits, pending-socket and
  * crypto-id tests (twinLimits.test.mjs); L5 adds seven hashed-store tests
  * (twinTokens.test.mjs) and retires K2's dual-write revert test. Raise per
- * slice.
+ * slice. K8 adds fifteen describer, chip, card-copy and status-strip tests
+ * (twinDescribe.test.mjs).
  */
-export const BASELINE = 280;
+export const BASELINE = 295;
 /**
  * From K6 every gate re-runs the audit canary (PHASE-CF-PLAN §6.2 rule 8);
  * from L5 the token scan and the v1 migration (§6.6 L5 gate, S-14): these

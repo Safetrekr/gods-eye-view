@@ -7,6 +7,8 @@
 //   node scripts/qa-twin-multiview.mjs repro-pairing [--dir …]
 //     [--wait-expiry] [--strict]
 //   node scripts/qa-twin-multiview.mjs full        (after shell step C)
+// K8: the smoke drives the remote page, the walls' cards and the
+// All-in-one rail through the data-tt-* hooks (K1's T1–T6 are real).
 // Runs against the isolated QA server (scripts/qa-twin-server.mjs): a git
 // archive of HEAD on :4181, HMR off, its own cacheDir, data folder and
 // TMPDIR. --ref worktree serves the working tree (a slice gate before its
@@ -544,6 +546,170 @@ async function importBase(server, rel) {
 }
 
 // =================================================================== smoke
+// ===================================================================== K8
+// Phase CF K8 (operator states, part 1): the wall cards and chip, the
+// remote's status strip, active-station card and Screens & devices, the
+// launcher's strip and the All-in-one rail, through the data-tt-* hooks.
+// K1's six DOM stubs (T1–T6) are real steps here.
+
+/** Wait in a page until fn(arg) is truthy there; returns its value. */
+async function pageUntil(p, fn, arg = null, ms = 15000, what = 'a page state') {
+  const t0 = Date.now();
+  let last = null;
+  while (Date.now() - t0 < ms) {
+    try {
+      last = await p.evaluate(fn, arg);
+      if (last) return last;
+    } catch {
+      /* navigating */
+    }
+    await sleep(120);
+  }
+  throw new Error(`timed out waiting for ${what}`);
+}
+const textIn = (p, sel) =>
+  p.evaluate((s) => document.querySelector(s)?.textContent ?? null, sel);
+/** Press a button by its hook (it must be there and enabled). */
+async function press(p, sel) {
+  const ok = await p.evaluate((s) => {
+    const b = document.querySelector(s);
+    if (!b || b.disabled) return false;
+    b.click();
+    return true;
+  }, sel);
+  must(ok, `nothing to press at ${sel}`);
+  await sleep(150);
+}
+/** Type into the remote's pairing fields (as a person would). */
+const fillPair = (p, code, slot) =>
+  p.evaluate(
+    (code, slot) => {
+      const i = document.querySelector('[aria-label="Pairing code"]');
+      const s = document.querySelector('[aria-label="Screen number"]');
+      i.value = code;
+      i.dispatchEvent(new Event('input', { bubbles: true }));
+      s.value = String(slot);
+      s.dispatchEvent(new Event('change', { bubbles: true }));
+    },
+    code,
+    slot,
+  );
+/**
+ * A page whose hello is changed before it leaves: `proto` sent instead of
+ * this build's (a real relay then says RELOAD), or the first `fakes`
+ * answered by a scripted relay message (the K7 relay tests prove the relay
+ * sends them; this checks only what the page shows).
+ */
+async function scriptHello(p, { proto = null, fakes = [] } = {}) {
+  await p.evaluateOnNewDocument(
+    (proto, fakes) => {
+      const send = WebSocket.prototype.send;
+      let n = 0;
+      WebSocket.prototype.send = function (data) {
+        try {
+          const m = JSON.parse(data);
+          if (m.t === 'hello') {
+            const fake = fakes[n++];
+            if (fake) {
+              setTimeout(
+                () =>
+                  this.dispatchEvent(
+                    new MessageEvent('message', { data: JSON.stringify(fake) }),
+                  ),
+                30,
+              );
+              return undefined;
+            }
+            if (proto != null)
+              return send.call(this, JSON.stringify({ ...m, proto }));
+          }
+        } catch {
+          /* not JSON */
+        }
+        return send.call(this, data);
+      };
+    },
+    proto,
+    fakes,
+  );
+}
+/** What a wall window shows: its card, and what else is visible. */
+const cardIn = (p) =>
+  p.evaluate(() => {
+    const b = document.body;
+    const node = [
+      ...document.querySelectorAll('.tt-wall-pair, .tt-wall-card'),
+    ].find((n) => !n.hidden);
+    const q = (s) => node?.querySelector(s)?.textContent ?? null;
+    return {
+      card: b.dataset.ttCard || null,
+      unpaired: b.classList.contains('tt-unpaired'),
+      render: b.dataset.ttRender || null,
+      // The dot grid is the unpaired field's own (never over live 3D).
+      grid: /radial-gradient/.test(getComputedStyle(b).backgroundImage),
+      gridNode: Boolean(document.querySelector('.tt-wall-grid')),
+      kicker: q('.k'),
+      lines: [...(node?.querySelectorAll('.lead') || [])].map(
+        (x) => x.textContent,
+      ),
+      code: q('.code'),
+      how: q('.how'),
+      valid: q('.valid'),
+      foot: q('.foot'),
+      button: q('button'),
+      host: location.host,
+      visible: [...b.children]
+        .filter((c) => {
+          if (c.hidden) return false;
+          const st = getComputedStyle(c);
+          return st.visibility !== 'hidden' && st.display !== 'none';
+        })
+        .map((c) => String(c.className || c.id || c.tagName).split(' ')[0]),
+    };
+  });
+const ONLY_CARD = (x) =>
+  x.unpaired &&
+  x.render === 'paused' &&
+  x.grid &&
+  !x.gridNode &&
+  x.visible.every((v) => ['tt-wall-pair', 'tt-wall-card'].includes(v));
+const HHMM = '\\d\\d:\\d\\d';
+const STEEL_SHOTS = []; // [{file, box?}] checked for saturated colour (K8-S9)
+/**
+ * Pixels that are clearly coloured (HSV saturation > 0.35 and value >
+ * 0.35) in a PNG, inside an optional box {x, y, w, h} (CSS px × dpr).
+ */
+async function saturatedIn(file, box = null) {
+  const { PNG } = await import('pngjs');
+  const png = PNG.sync.read(fs.readFileSync(file));
+  const x0 = box?.x ?? 0;
+  const y0 = box?.y ?? 0;
+  const x1 = Math.min(png.width, x0 + (box?.w ?? png.width));
+  const y1 = Math.min(png.height, y0 + (box?.h ?? png.height));
+  let n = 0;
+  let worst = null;
+  for (let y = y0; y < y1; y += 1)
+    for (let x = x0; x < x1; x += 1) {
+      const i = (y * png.width + x) * 4;
+      const r = png.data[i];
+      const g = png.data[i + 1];
+      const b = png.data[i + 2];
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const v = max / 255;
+      const s = max ? (max - min) / max : 0;
+      if (s > 0.35 && v > 0.35) {
+        n += 1;
+        if (!worst) worst = { x, y, rgb: [r, g, b] };
+      }
+    }
+  return { n, worst, px: (x1 - x0) * (y1 - y0) };
+}
+async function shotSteel(p, name, box = null) {
+  await shot(p, name);
+  STEEL_SHOTS.push({ file: path.join(OUT, 'shots', `${name}.png`), box, name });
+}
+
 async function smoke(server, browser) {
   const base = server.url;
   const { needsConfirm } = await importBase(
@@ -640,6 +806,47 @@ async function smoke(server, browser) {
       await shot(page, 'S4-wall-pair-card');
       page.__code = w.code;
       return { detail: `card shows a code and ${w.url}` };
+    },
+  );
+
+  await step(
+    'K8-S1',
+    'calm unpaired wall (SUP-5): only the field, the dot grid and the pair card; the 3D scene paused; the card’s words as Appendix D',
+    async () => {
+      must(page, 'no S6 page');
+      await pageUntil(
+        page,
+        () => document.body.dataset.ttCard === 'pair',
+        null,
+        30000,
+        'the pair card',
+      );
+      const x = await cardIn(page);
+      must(
+        ONLY_CARD(x),
+        `not calm: unpaired ${x.unpaired}, render ${x.render}, grid ${x.grid}, grid node ${x.gridNode}, visible ${x.visible.join(', ')}`,
+      );
+      must(x.kicker === 'PAIR THIS SCREEN', `kicker "${x.kicker}"`);
+      must(
+        x.how ===
+          'On the remote in control: Screens & devices › Pair a screen. Enter this code and pick the screen number.',
+        `how "${x.how}"`,
+      );
+      must(
+        new RegExp(`^Code valid until ${HHMM} · a new one appears then$`).test(
+          x.valid || '',
+        ),
+        `valid "${x.valid}"`,
+      );
+      must(
+        x.foot ===
+          `${x.host} · this window shows nothing from the wall until it is paired`,
+        `foot "${x.foot}"`,
+      );
+      await shotSteel(page, 'K8-S1-wall-unpaired');
+      return {
+        detail: `card "${x.kicker}" with a code; visible: ${x.visible.join(', ')}; 3D ${x.render}`,
+      };
     },
   );
 
@@ -828,8 +1035,8 @@ async function smoke(server, browser) {
         actors.includes(`${by.ref} Trip Twin computer`),
         `actors ${actors.join(', ')}`,
       );
-      // The real S6 page still says "Updated" for a change (info.by is an
-      // object now; the wall tests it for truthiness only).
+      // The real S6 page names the device in its chip (K8: the words come
+      // from twinDescribe.js).
       const ack = remote.c.next(
         (m) => m.t === 'ack' && m.reqId === 41,
         8000,
@@ -843,9 +1050,9 @@ async function smoke(server, browser) {
       must((await ack).ok, 'S6 command refused');
       const chip = await waitWall(
         page,
-        (x) => /· Updated\b/.test(x.chip),
+        (x) => /^S6 · .+ · by (Trip Twin computer|iPad)\b/.test(x.chip),
         8000,
-        'S6 "Updated"',
+        'the S6 chip to name the remote',
       );
       const ids = await idsOf();
       const hits = leaks([launcher, remote.c, ...walls.map((d) => d.c)], ids);
@@ -894,6 +1101,430 @@ async function smoke(server, browser) {
       return { detail: `${told.join('; ')}; chip "${w.chip}"` };
     },
   );
+
+  // ---- K8: the chip names the device; the remote page (T1–T3, T5) -----
+  await step(
+    'K8-S2',
+    'E8.1: the S6 wall names the device within 2 s of its change ("S6 · Scale grid off · by … · HH:MM"), then "last change m:ss ago" after 3 s',
+    async () => {
+      await sleep(3500); // past any earlier 3 s window
+      const ack = remote.c.next(
+        (m) => m.t === 'ack' && m.reqId === 81,
+        8000,
+        'ack',
+      );
+      const t0 = Date.now();
+      remote.c.say({
+        t: 'cmd',
+        reqId: 81,
+        cmd: { type: 'screens', target: 6, patch: { layers: { grid: false } } },
+      });
+      must((await ack).ok, 'S6 command refused');
+      const chip = await pageUntil(
+        page,
+        (re) => {
+          const t = document.querySelector('[data-tt-chip]')?.textContent || '';
+          return new RegExp(re).test(t) && t;
+        },
+        `^S6 · Scale grid off · by Trip Twin computer · ${HHMM}$`,
+        2000,
+        'the S6 chip to name the remote within 2 s',
+      );
+      const ms = Date.now() - t0;
+      await shotSteel(page, 'K8-S2-wall-chip-change', {
+        x: 0,
+        y: 0,
+        w: 1280,
+        h: 96,
+      });
+      const idle = await pageUntil(
+        page,
+        () => {
+          const t = document.querySelector('[data-tt-chip]')?.textContent || '';
+          return (
+            /^S6 · Remote: Trip Twin computer · last change 0:0\d ago$/.test(
+              t,
+            ) && t
+          );
+        },
+        null,
+        8000,
+        'the idle chip',
+      );
+      await shotSteel(page, 'K8-S2-wall-chip-idle', {
+        x: 0,
+        y: 0,
+        w: 1280,
+        h: 96,
+      });
+      return { detail: `"${chip}" ${ms} ms after the command; then "${idle}"` };
+    },
+  );
+
+  // The remote page on this computer joins as a second remote (view only).
+  let rmCtx = null;
+  let rm = null;
+  const control = () => textIn(rm, '[data-tt-control]');
+  const barText = () => textIn(rm, '[data-tt-bar] .t');
+  const wallState = (n) => walls[n - 1].c.last('state')?.state;
+  await step(
+    'K1-T5 / K8-R1',
+    'T5: a second remote page at 1180×820 is view only ("View only · … in control since HH:MM"), asks for control and does not take it; handed over, its status strip says "In control · this remote (…)"',
+    async () => {
+      rmCtx = await BROWSER.createBrowserContext();
+      rm = await rmCtx.newPage();
+      rm.setDefaultNavigationTimeout(120000);
+      watch(rm, 'remote-page');
+      await rm.setViewport({ width: 1180, height: 820 });
+      await rm.goto(`${base}/twin-remote.html?setup=${setup}`, {
+        waitUntil: 'domcontentloaded',
+      });
+      const view = await pageUntil(
+        rm,
+        (re) => {
+          const t =
+            document.querySelector('[data-tt-control]')?.textContent || '';
+          return new RegExp(re).test(t) && t;
+        },
+        `^View only · Trip Twin computer in control since ${HHMM}$`,
+        30000,
+        'the view-only control cell',
+      );
+      await shot(rm, 'K8-R1-remote-view-only');
+      const asked = remote.c.next(
+        (m) => m.presence?.handover && !m.presence.handover.you,
+        8000,
+        'the handover request',
+      );
+      await press(rm, '[data-tt-ask-control]');
+      const h = (await asked).presence.handover;
+      must(h.fromName === 'Trip Twin computer 2', `asked by "${h.fromName}"`);
+      must(/^View only/.test(await control()), 'took control without asking');
+      must(
+        (await textIn(rm, '[data-tt-ask-control]')) === 'Asked for control…',
+        'the button does not say it asked',
+      );
+      remote.c.say({ t: 'handover', accept: true });
+      const inc = await pageUntil(
+        rm,
+        () => {
+          const t =
+            document.querySelector('[data-tt-control]')?.textContent || '';
+          return t === 'In control · this remote (Trip Twin computer 2)' && t;
+        },
+        null,
+        10000,
+        'the page to be in control',
+      );
+      await shot(rm, 'K8-R1-remote-in-control');
+      return { detail: `"${view}" → asked → "${inc}"` };
+    },
+  );
+
+  await step(
+    'K1-T1 / K8-R2',
+    'T1: target S2, Layers & display, a layer on, then Undo: S2 changes and goes back; the bar and the active-station card say it in the describer’s words',
+    async () => {
+      must(rm, 'no remote page');
+      await press(rm, '[data-tt-target="2"]');
+      await press(rm, '[data-tt-station="layers"]');
+      const on = walls[1].c.next(
+        (m) => m.t === 'state' && m.state.screens[2]?.layers?.streets === true,
+        8000,
+        'S2 streets on',
+      );
+      await press(rm, '[data-tt-layer="streets:on"]');
+      const st = await on;
+      must(st.by?.name === 'Trip Twin computer 2', `by ${st.by?.name}`);
+      const said = await pageUntil(
+        rm,
+        () =>
+          document.querySelector('[data-tt-bar] .t')?.textContent ===
+            'S2: streets on' && 'S2: streets on',
+        null,
+        5000,
+        'the result line',
+      );
+      const card = await pageUntil(
+        rm,
+        (re) => {
+          const t =
+            document.querySelector('[data-tt-last-change]')?.textContent || '';
+          return new RegExp(re).test(t) && t;
+        },
+        `^Last change on S2 · ${HHMM} · streets on · by Trip Twin computer 2$`,
+        5000,
+        'the last-change line',
+      );
+      await shot(rm, 'K8-R2-remote-result');
+      const back = walls[1].c.next(
+        (m) => m.t === 'state' && m.cause === 'undo',
+        8000,
+        'S2 undone',
+      );
+      await press(rm, '[data-tt-undo]');
+      const u = await back;
+      must(!u.state.screens[2].layers?.streets, 'S2 streets still on');
+      const undone = await pageUntil(
+        rm,
+        () => {
+          const t = document.querySelector('[data-tt-bar] .t')?.textContent;
+          return t === 'Undone on S2: streets off' && t;
+        },
+        null,
+        5000,
+        'the undo line',
+      );
+      return { detail: `"${said}" · "${card}" · "${undone}"` };
+    },
+  );
+
+  await step(
+    'K1-T2 / K8-R3',
+    'T2: pin S3 in Screens & devices, then an All push of a layer: every other screen changes, S3 does not; the bar says "S3 pinned, unchanged"',
+    async () => {
+      must(rm, 'no remote page');
+      await press(rm, '[data-tt-target="3"]');
+      await press(rm, '[data-tt-station="screens"]');
+      const pinned = walls[2].c.next(
+        (m) => m.t === 'state' && m.state.screens[3]?.pinned === true,
+        8000,
+        'S3 pinned',
+      );
+      await press(rm, '[data-tt-pin]');
+      await pinned;
+      await press(rm, '[data-tt-target="all"]');
+      await press(rm, '[data-tt-station="layers"]');
+      const pushed = walls[0].c.next(
+        (m) =>
+          m.t === 'state' && m.state.screens[1]?.layers?.lightning === true,
+        8000,
+        'the All push',
+      );
+      await press(rm, '[data-tt-layer="lightning:on"]');
+      const st = (await pushed).state;
+      must(!st.screens[3].layers?.lightning, 'S3 changed though pinned');
+      must(
+        [1, 2, 4, 5, 6].every((n) => st.screens[n].layers?.lightning === true),
+        'not every other screen changed',
+      );
+      const said = await pageUntil(
+        rm,
+        () => {
+          const t =
+            document.querySelector('[data-tt-bar] .t')?.textContent || '';
+          return /S3 pinned, unchanged$/.test(t) && t;
+        },
+        null,
+        5000,
+        'the pinned line',
+      );
+      must(
+        said === 'S1, S2, S4, S5, S6: lightning on · S3 pinned, unchanged',
+        `bar "${said}"`,
+      );
+      await shot(rm, 'K8-R3-remote-all-push');
+      // Unpin S3 again (later steps expect a plain wall).
+      await press(rm, '[data-tt-target="3"]');
+      await press(rm, '[data-tt-station="screens"]');
+      const un = walls[2].c.next(
+        (m) => m.t === 'state' && m.state.screens[3]?.pinned === false,
+        8000,
+        'S3 unpinned',
+      );
+      await press(rm, '[data-tt-pin]');
+      await un;
+      return { detail: `"${said}"` };
+    },
+  );
+
+  await step(
+    'K1-T3 / K8-R4',
+    'T3: Return all asks first (confirm bar); Confirm puts every wall back to Live; the bar says so in the describer’s words',
+    async () => {
+      must(rm, 'no remote page');
+      await press(rm, '[data-tt-return-all]');
+      const ask = await pageUntil(
+        rm,
+        () => {
+          const b = document.querySelector('[data-tt-bar]');
+          return (
+            b &&
+            !b.hidden &&
+            b.querySelector('[data-tt-confirm="yes"]') &&
+            b.querySelector('.t').textContent
+          );
+        },
+        null,
+        5000,
+        'the confirm bar',
+      );
+      must(/^Confirm: /.test(ask), `ask "${ask}"`);
+      await shot(rm, 'K8-R4-remote-confirm');
+      const live = walls[0].c.next(
+        (m) =>
+          m.t === 'state' &&
+          m.cause === 'cmd' &&
+          Object.values(m.state.screens).every(
+            (s) => s.mode === 'live' && !s.layers?.lightning,
+          ),
+        8000,
+        'every wall Live',
+      );
+      await press(rm, '[data-tt-confirm="yes"]');
+      await live;
+      const said = await pageUntil(
+        rm,
+        () => {
+          const t =
+            document.querySelector('[data-tt-bar] .t')?.textContent || '';
+          return (
+            /^Every screen back to Live and role defaults · pinned too/.test(
+              t,
+            ) && t
+          );
+        },
+        null,
+        5000,
+        'the Return all line',
+      );
+      return { detail: `"${ask}" → "${said}"` };
+    },
+  );
+
+  await step(
+    'K8-R5',
+    'hand control back: the socket remote asks, the page shows Hand over, the page answers; its status strip goes back to view only',
+    async () => {
+      must(rm, 'no remote page');
+      remote.c.say({ t: 'request-control' });
+      await pageUntil(
+        rm,
+        () => Boolean(document.querySelector('[data-tt-handover="accept"]')),
+        null,
+        8000,
+        'Hand over',
+      );
+      await shot(rm, 'K8-R5-remote-asked');
+      const back = remote.c.next(
+        (m) => m.presence?.youControl === true,
+        8000,
+        'control back',
+      );
+      await press(rm, '[data-tt-handover="accept"]');
+      await back;
+      const v = await pageUntil(
+        rm,
+        (re) => {
+          const t =
+            document.querySelector('[data-tt-control]')?.textContent || '';
+          return new RegExp(re).test(t) && t;
+        },
+        `^View only · Trip Twin computer in control since ${HHMM}$`,
+        8000,
+        'view only again',
+      );
+      return { detail: `"${v}"` };
+    },
+  );
+
+  await step(
+    'K8-R6',
+    'Log not writing (CF-D9, Appendix D 3): with the audit file read-only, the remote page and the launch page say "Log not writing" in their status strips within one presence tick; touch keeps working; with the file writable again it goes',
+    async () => {
+      if (server.external) return { notRun: true, ok: true };
+      must(rm, 'no remote page');
+      const launchPage = await rmCtx.newPage();
+      watch(launchPage, 'launch-page');
+      await launchPage.setViewport({ width: 1280, height: 900 });
+      await launchPage.goto(
+        `${base}/twin.html?view=launch&setup=${setup}&${CITY}`,
+        { waitUntil: 'domcontentloaded' },
+      );
+      await pageUntil(
+        launchPage,
+        () => document.querySelectorAll('.tt-entry-opens button').length === 6,
+        null,
+        60000,
+        'the launch card',
+      );
+      await shot(launchPage, 'K8-R6-launcher');
+      const files = fs
+        .readdirSync(server.auditDir)
+        .filter((n) => /^audit-.*\.jsonl$/.test(n))
+        .map((n) => path.join(server.auditDir, n));
+      for (const f of files) fs.chmodSync(f, 0o400);
+      let stripRm = '';
+      let stripL = '';
+      try {
+        const ack = remote.c.next(
+          (m) => m.t === 'ack' && m.reqId === 82,
+          8000,
+          'ack',
+        );
+        remote.c.say({
+          t: 'cmd',
+          reqId: 82,
+          cmd: { type: 'screens', target: 4, patch: { textScale: 2.5 } },
+        });
+        must((await ack).ok, 'a command was refused while the log was down');
+        stripRm = await pageUntil(
+          rm,
+          () =>
+            document.querySelector('[data-tt-status-item="log"]')?.textContent,
+          null,
+          12000,
+          '"Log not writing" on the remote',
+        );
+        stripL = await pageUntil(
+          launchPage,
+          () =>
+            document.querySelector('[data-tt-status-item="log"]')?.textContent,
+          null,
+          12000,
+          '"Log not writing" on the launcher',
+        );
+        must(
+          stripRm === 'Log not writing' && stripL === 'Log not writing',
+          `"${stripRm}" / "${stripL}"`,
+        );
+        await shot(rm, 'K8-R6-remote-log-not-writing');
+        await shot(launchPage, 'K8-R6-launcher-log-not-writing');
+        const wallSees = await page.evaluate(() =>
+          document.body.innerText.includes('Log not writing'),
+        );
+        must(!wallSees, 'a wall says "Log not writing"');
+      } finally {
+        for (const f of files) fs.chmodSync(f, 0o600);
+      }
+      const ack2 = remote.c.next(
+        (m) => m.t === 'ack' && m.reqId === 83,
+        8000,
+        'ack',
+      );
+      remote.c.say({
+        t: 'cmd',
+        reqId: 83,
+        cmd: { type: 'screens', target: 4, patch: { textScale: 2 } },
+      });
+      must((await ack2).ok, 'refused');
+      await pageUntil(
+        rm,
+        () => !document.querySelector('[data-tt-status-item="log"]'),
+        null,
+        45000, // the audit log tries again every 30 s (K6)
+        'the log item to go',
+      );
+      await launchPage.close();
+      return {
+        detail: `remote "${stripRm}", launcher "${stripL}", walls never; gone once the file was writable`,
+      };
+    },
+  );
+  // The page closes; its context keeps the pairing for T4 after the
+  // restarts (a page left open could take the lease back first).
+  await rm?.close().catch(() => {});
+  rm = null;
 
   await step(
     'K1-S9',
@@ -984,7 +1615,20 @@ async function smoke(server, browser) {
           .catch((x) => ({ err: String(x) }));
         throw new Error(`${e.message} · page ${JSON.stringify(st)}`);
       });
-      const mark = await page.evaluate(() => window.__ttQaMark ?? null);
+      // The Vite client may reload the page just after its socket came
+      // back (K8 run): then it must rejoin once more.
+      let mark = await page
+        .evaluate(() => window.__ttQaMark ?? null)
+        .catch(() => 'reloading');
+      if (mark === 'reloading') {
+        await waitWall(
+          page,
+          (x) => !x.pairShown && REMOTE_CHIP.test(x.chip),
+          60000,
+          'S6 to rejoin after its reload',
+        );
+        mark = null;
+      }
       await shot(page, 'S12-wall-after-restart');
       return {
         // HMR is off, but Vite's client still reloads a page when its server
@@ -1574,6 +2218,506 @@ async function smoke(server, browser) {
     },
   );
 
+  // ---- K8, after the restarts: T4, the cards, the All-in-one (T6) ------
+  await step(
+    'K1-T4 / K8-R7',
+    'T4: pair a screen by code in Screens & devices: a wrong code says the tries left before the pause; the right code pairs it into S5 ("Paired S5 · …"); the old S5 is told its slot was taken and is paired back the same way',
+    async () => {
+      must(rmCtx, 'no remote page context');
+      rm = await rmCtx.newPage();
+      rm.setDefaultNavigationTimeout(120000);
+      watch(rm, 'remote-page');
+      await rm.setViewport({ width: 1180, height: 820 });
+      // No link: the page rejoins by the pairing its context kept.
+      await rm.goto(`${base}/twin-remote.html`, {
+        waitUntil: 'domcontentloaded',
+      });
+      await pageUntil(
+        rm,
+        () =>
+          /^View only/.test(
+            document.querySelector('[data-tt-control]')?.textContent || '',
+          ),
+        null,
+        30000,
+        'the page to rejoin',
+      );
+      const asked = remote.c.next(
+        (m) => m.presence?.handover && !m.presence.handover.you,
+        8000,
+        'the handover request',
+      );
+      await press(rm, '[data-tt-ask-control]');
+      await asked;
+      remote.c.say({ t: 'handover', accept: true });
+      await pageUntil(
+        rm,
+        () =>
+          /^In control/.test(
+            document.querySelector('[data-tt-control]')?.textContent || '',
+          ),
+        null,
+        10000,
+        'control',
+      );
+      await press(rm, '[data-tt-station="screens"]');
+      const fresh = await device(base, {
+        id: 'screen-qa-k8-fresh',
+        kind: 'screen',
+      });
+      const w = await fresh.hello();
+      must(
+        w.type === 'pair-code' && /^\d{4}$/.test(w.code),
+        `fresh screen got ${w.type}`,
+      );
+      k7Secrets.push(`"${w.code}"`);
+      await fillPair(rm, w.code === '0000' ? '0001' : '0000', 5);
+      await press(rm, '[data-tt-pair-go]');
+      const wrong = await pageUntil(
+        rm,
+        () =>
+          document.querySelector('[data-tt-pair-result="refused"]')
+            ?.textContent,
+        null,
+        8000,
+        'the refusal',
+      );
+      must(
+        /^Code not recognised or expired · [1-4] tr(y|ies) left before a 1-minute pause$/.test(
+          wrong,
+        ),
+        `wrong code: "${wrong}"`,
+      );
+      await shot(rm, 'K8-R7-remote-pair-wrong');
+      const s5 = walls[4];
+      const told = s5.c.next('unpaired', 8000, 'S5 told');
+      const joined = fresh.c.next('paired', 8000, 'the fresh screen paired');
+      await fillPair(rm, w.code, 5);
+      await press(rm, '[data-tt-pair-go]');
+      const ok = await pageUntil(
+        rm,
+        () => document.querySelector('[data-tt-pair-result="ok"]')?.textContent,
+        null,
+        8000,
+        'the pairing result',
+      );
+      must(ok === "Paired S5 · it shows S5's role now", `result "${ok}"`);
+      const p = await joined;
+      k7Secrets.push(p.token, fresh.id);
+      must((await told).reason === 'SLOT_TAKEN', 'S5 not told SLOT_TAKEN');
+      await shot(rm, 'K8-R7-remote-paired');
+      // The old S5 asks again and is paired back by the page.
+      s5.token = null;
+      await s5.c.close();
+      const w2 = await s5.hello();
+      must(w2.type === 'pair-code', `old S5 got ${w2.type}`);
+      k7Secrets.push(`"${w2.code}"`);
+      const back = s5.c.next('paired', 8000, 'S5 paired back');
+      await fillPair(rm, w2.code, 5);
+      await press(rm, '[data-tt-pair-go]');
+      s5.token = (await back).token;
+      // Control back to the socket remote.
+      remote.c.say({ t: 'request-control' });
+      await pageUntil(
+        rm,
+        () => Boolean(document.querySelector('[data-tt-handover="accept"]')),
+        null,
+        8000,
+        'Hand over',
+      );
+      await press(rm, '[data-tt-handover="accept"]');
+      await sleep(500);
+      return {
+        detail: `"${wrong}" → "${ok}"; the old S5 was told SLOT_TAKEN and paired back`,
+      };
+    },
+  );
+
+  await step(
+    'K8-S4',
+    'replaced (Appendix D 7, sup S8): a second window for S6 takes it; the first shows "S6 IS SHOWN IN ANOTHER WINDOW · since HH:MM · this window can be closed" with no code; "Use this window instead" gives it a fresh pair card, and the new window stays S6',
+    async () => {
+      must(page, 'no S6 page');
+      const ctx = page.browserContext();
+      const p2 = await ctx.newPage();
+      p2.setDefaultNavigationTimeout(120000);
+      watch(p2, 'wall-S6-second');
+      await p2.setViewport({ width: 1280, height: 760 });
+      await p2.goto(page.url(), { waitUntil: 'domcontentloaded' });
+      await pageUntil(
+        page,
+        () => document.body.dataset.ttCard === 'replaced',
+        null,
+        60000,
+        'the replaced card',
+      );
+      const x = await cardIn(page);
+      must(
+        ONLY_CARD(x),
+        `not calm: ${x.visible.join(', ')} · render ${x.render}`,
+      );
+      must(
+        x.kicker === 'S6 IS SHOWN IN ANOTHER WINDOW',
+        `kicker "${x.kicker}"`,
+      );
+      must(
+        new RegExp(`^since ${HHMM} · this window can be closed$`).test(
+          x.lines[0] || '',
+        ),
+        `line "${x.lines[0]}"`,
+      );
+      must(
+        x.button === 'Use this window instead' && x.code === null,
+        `button "${x.button}", code ${x.code}`,
+      );
+      await shotSteel(page, 'K8-S4-wall-replaced');
+      const w2 = await waitWall(
+        p2,
+        (v) => /^S6 · Remote/.test(v.chip),
+        60000,
+        'the second window as S6',
+      );
+      await press(page, '.tt-wall-card button');
+      await pageUntil(
+        page,
+        () => document.body.dataset.ttCard === 'pair',
+        null,
+        60000,
+        'a fresh pair card',
+      );
+      const y = await cardIn(page);
+      must(
+        /^\d{4}$/.test(y.code || '') && y.kicker === 'PAIR THIS SCREEN',
+        `after: ${y.kicker} ${y.code}`,
+      );
+      await sleep(5500);
+      must(presenceOf(remote.c)?.screens?.[6]?.online, 'S6 went offline');
+      await shot(page, 'K8-S4-wall-use-this-window');
+      return {
+        detail: `"${x.kicker} · ${x.lines[0]}" [${x.button}]; then a fresh code; the second window: "${w2.chip}"`,
+      };
+    },
+  );
+
+  await step(
+    'K8-S5',
+    'out of date (Appendix D 1, 1a, 1c): a wall page the relay calls out of date reloads once, then shows "THIS SCREEN NEEDS A RELOAD"; a remote page keeps its page and says "This remote page is out of date · nothing was sent" with Reload; a launch page says "This page is out of date" with Reload',
+    async () => {
+      const ctx = await newCtx();
+      const wall = await newPage(ctx, 'wall-old');
+      await wall.setViewport({ width: 1280, height: 760 });
+      await scriptHello(wall, { proto: PROTO - 1 });
+      await wall.goto(`${base}/twin.html?view=screen&${CITY}`, {
+        waitUntil: 'domcontentloaded',
+      });
+      await pageUntil(
+        wall,
+        () => document.body.dataset.ttCard === 'reload',
+        null,
+        90000,
+        'the reload card',
+      );
+      const x = await cardIn(wall);
+      const reloads = await wall.evaluate(() =>
+        sessionStorage.getItem('tripTwin.soc.protoReloadAt'),
+      );
+      must(reloads, 'it never reloaded itself first');
+      must(
+        ONLY_CARD(x) && x.kicker === 'THIS SCREEN NEEDS A RELOAD',
+        `${x.kicker} · ${x.visible.join(', ')}`,
+      );
+      must(
+        new RegExp(
+          `^refused as out of date at ${HHMM} · it shows nothing from the wall until reloaded$`,
+        ).test(x.lines[0] || ''),
+        `line "${x.lines[0]}"`,
+      );
+      await shotSteel(wall, 'K8-S5-wall-out-of-date');
+      const rp = await newPage(ctx, 'remote-old');
+      await rp.setViewport({ width: 1180, height: 820 });
+      await scriptHello(rp, { proto: PROTO - 1 });
+      await rp.goto(`${base}/twin-remote.html`, {
+        waitUntil: 'domcontentloaded',
+      });
+      const item = await pageUntil(
+        rp,
+        () =>
+          document.querySelector('[data-tt-status-item="reload"]')?.textContent,
+        null,
+        30000,
+        'the remote out-of-date item',
+      );
+      must(
+        item === 'This remote page is out of date · nothing was sent',
+        `remote "${item}"`,
+      );
+      must(
+        (await textIn(rp, '[data-tt-reload]')) === 'Reload',
+        'no Reload button',
+      );
+      must(
+        (await textIn(rp, '[data-tt-bar="reload"] .t')) === item,
+        'no error bar',
+      );
+      await shot(rp, 'K8-S5-remote-out-of-date');
+      const lp = await newPage(ctx, 'launch-old');
+      await lp.setViewport({ width: 1280, height: 900 });
+      await scriptHello(lp, { proto: PROTO - 1 });
+      await lp.goto(`${base}/twin.html?view=launch&setup=qa-old&${CITY}`, {
+        waitUntil: 'domcontentloaded',
+      });
+      const li = await pageUntil(
+        lp,
+        () =>
+          document.querySelector('[data-tt-status-item="reload"]')?.textContent,
+        null,
+        60000,
+        'the launcher out-of-date item',
+      );
+      must(li === 'This page is out of date', `launcher "${li}"`);
+      await shot(lp, 'K8-S5-launcher-out-of-date');
+      return {
+        detail: `wall "${x.kicker} · ${x.lines[0]}"; remote "${item}" + Reload; launcher "${li}" + Reload`,
+      };
+    },
+    { cleanup: true },
+  );
+
+  await step(
+    'K8-S6',
+    'wall cards with no code (Appendix D 6c, 6d; SUP-5): rejoining paused (RATE_LIMITED) and too many waiting (BUSY) and any other refusal from scripted relay answers; a lost pairing (ID_IN_USE, scripted once) and a used link (a real expired link) fall to a pair card that says why',
+    async () => {
+      const ctx = await newCtx();
+      const seen = [];
+      const open = async (
+        name,
+        fakes,
+        url = `${base}/twin.html?view=screen&${CITY}`,
+      ) => {
+        const p = await newPage(ctx, name);
+        await p.setViewport({ width: 1280, height: 760 });
+        if (fakes) await scriptHello(p, { fakes });
+        await p.goto(url, { waitUntil: 'domcontentloaded' });
+        return p;
+      };
+      const deny = (code, extra = {}) => ({
+        t: 'welcome',
+        type: 'denied',
+        code,
+        error: 'scripted',
+        proto: PROTO,
+        ...extra,
+      });
+      const rl = await open('wall-rate', [
+        deny('RATE_LIMITED', { retryAfterMs: 120000 }),
+        deny('RATE_LIMITED', { retryAfterMs: 120000 }),
+      ]);
+      await pageUntil(
+        rl,
+        () => document.body.dataset.ttCard === 'rate-limited',
+        null,
+        60000,
+        'the paused card',
+      );
+      const a = await cardIn(rl);
+      must(
+        ONLY_CARD(a) && a.code === null,
+        `paused card: ${a.visible.join(', ')}`,
+      );
+      must(
+        new RegExp(
+          `^Rejoining paused on this computer until ${HHMM} · too many tries · screens already on the wall are not affected$`,
+        ).test(a.lines[0] || ''),
+        `"${a.lines[0]}"`,
+      );
+      await shotSteel(rl, 'K8-S6-wall-rate-limited');
+      // One WebGL page at a time (SwiftShader runs out of contexts).
+      await rl.close();
+      seen.push(a.lines[0]);
+      const busy = await open('wall-busy', [
+        deny('BUSY', { retryAfterMs: 45000 }),
+        deny('BUSY', { retryAfterMs: 45000 }),
+      ]);
+      await pageUntil(
+        busy,
+        () => document.body.dataset.ttCard === 'busy',
+        null,
+        60000,
+        'the busy card',
+      );
+      const b = await cardIn(busy);
+      must(
+        b.lines[0] ===
+          'Too many screens are waiting to pair · trying again in 1 min' &&
+          b.code === null,
+        `"${b.lines[0]}"`,
+      );
+      await shotSteel(busy, 'K8-S6-wall-busy');
+      await busy.close();
+      seen.push(b.lines[0]);
+      const other = await open('wall-denied', [
+        deny('UNKNOWN_KIND', { error: 'Unknown device' }),
+        deny('UNKNOWN_KIND', { error: 'Unknown device' }),
+      ]);
+      await pageUntil(
+        other,
+        () => document.body.dataset.ttCard === 'denied',
+        null,
+        60000,
+        'the refused card',
+      );
+      const c = await cardIn(other);
+      must(
+        c.kicker === "THIS SCREEN CAN'T JOIN THE WALL" &&
+          c.lines[0] ===
+            'Unknown device · it shows nothing from the wall until it joins',
+        `"${c.kicker}" "${c.lines[0]}"`,
+      );
+      await shotSteel(other, 'K8-S6-wall-denied');
+      await other.close();
+      const lost = await open('wall-lost', [
+        deny('ID_IN_USE', { error: 'This device id is already in use' }),
+      ]);
+      await pageUntil(
+        lost,
+        () => document.body.dataset.ttCard === 'lost',
+        null,
+        60000,
+        'the lost card',
+      );
+      const d = await cardIn(lost);
+      must(
+        d.kicker === 'PAIR THIS SCREEN AGAIN' && /^\d{4}$/.test(d.code || ''),
+        `${d.kicker} ${d.code}`,
+      );
+      must(
+        new RegExp(
+          `^This window lost its pairing at ${HHMM}: another window took it over\\.$`,
+        ).test(d.lines[0] || ''),
+        `"${d.lines[0]}"`,
+      );
+      await shotSteel(lost, 'K8-S6-wall-lost');
+      await lost.close();
+      // A real used link: the K1 setup did not survive the restarts.
+      const link = await open(
+        'wall-link',
+        null,
+        `${base}/twin.html?view=screen&slot=5&setup=${setup}&${CITY}`,
+      );
+      await pageUntil(
+        link,
+        () => document.body.dataset.ttCard === 'link-expired',
+        null,
+        60000,
+        'the link card',
+      );
+      const e = await cardIn(link);
+      must(
+        e.lines[0] ===
+          'This screen link was already used or has expired · pair with the code below' &&
+          /^\d{4}$/.test(e.code || ''),
+        `"${e.lines[0]}" ${e.code}`,
+      );
+      await shotSteel(link, 'K8-S6-wall-link-expired');
+      await link.close();
+      for (const x of [d, e]) k7Secrets.push(`"${x.code}"`);
+      return {
+        detail: `${seen.join(' | ')} | "${c.lines[0]}" | lost → "${d.lines[0]}" + code | link → "${e.lines[0]}" + code`,
+      };
+    },
+    { cleanup: true },
+  );
+
+  await step(
+    'K1-T6 / K8-T6',
+    'T6: the All-in-one at 2560×1440 and 1728×1117: the stations rail (data-tt-rail), its active pane, six station tiles, the foot menu (Layers, Display, Keys) and the aperture, which opens and closes the rail',
+    async () => {
+      const ctx = await newCtx();
+      const out = [];
+      for (const [w, h] of [
+        [2560, 1440],
+        [1728, 1117],
+      ]) {
+        const p = await newPage(ctx, `all-in-one-${w}`);
+        await p.setViewport({ width: w, height: h });
+        await p.evaluateOnNewDocument(() => {
+          try {
+            localStorage.setItem('tripTwin.layout', 'all');
+          } catch {
+            /* the entry card then shows; the rail is under it */
+          }
+        });
+        await p.goto(`${base}/twin.html?${CITY}`, {
+          waitUntil: 'domcontentloaded',
+        });
+        const r = await pageUntil(
+          p,
+          () => {
+            const rail = document.querySelector('[data-tt-rail]');
+            const tiles = document.querySelectorAll(
+              '[data-tt-rail] [data-tt-station]',
+            );
+            const menu = [
+              ...document.querySelectorAll('[data-tt-foot] [data-tt-menu]'),
+            ].map((b) => b.dataset.ttMenu);
+            return rail &&
+              tiles.length >= 6 &&
+              document.querySelector('[data-tt-aperture]') &&
+              document.querySelector('[data-tt-active]')
+              ? {
+                  tiles: tiles.length,
+                  menu: menu.join(','),
+                  open: document.body.classList.contains('tt-st-open'),
+                }
+              : null;
+          },
+          null,
+          120000,
+          'the stations rail',
+        );
+        must(r.menu === 'layers,display,keys', `menu ${r.menu}`);
+        await shot(p, `K8-T6-all-in-one-${w}`);
+        await press(p, '[data-tt-aperture]');
+        const flipped = await pageUntil(
+          p,
+          (was) =>
+            document.body.classList.contains('tt-st-open') !== was && 'flipped',
+          r.open,
+          5000,
+          'the aperture to toggle the rail',
+        );
+        await press(p, '[data-tt-aperture]');
+        out.push(
+          `${w}×${h}: ${r.tiles} tiles, menu ${r.menu}, rail ${r.open ? 'open' : 'closed'} → ${flipped} → back`,
+        );
+        await p.close();
+      }
+      return { detail: out.join('; ') };
+    },
+    { cleanup: true },
+  );
+
+  await step(
+    'K8-S9',
+    'C65 steel only: no saturated colour in the wall chrome K8 adds (the chip band, the pair card and every card with no code), sampled from the shots',
+    async () => {
+      const rows = [];
+      for (const s of STEEL_SHOTS) {
+        if (!fs.existsSync(s.file)) throw new Error(`no shot ${s.name}`);
+        const r = await saturatedIn(s.file, s.box);
+        rows.push(`${s.name} ${r.n}/${r.px}`);
+        must(
+          r.n === 0,
+          `${s.name}: ${r.n} saturated pixels (first ${JSON.stringify(r.worst)})`,
+        );
+      }
+      return {
+        detail: `${STEEL_SHOTS.length} shots, 0 saturated pixels: ${rows.join(', ')}`,
+      };
+    },
+  );
+  await rmCtx?.close().catch(() => {});
+
   await step(
     'K6-S1',
     'audit log: 0600 files in a 0700 folder; envelope v1, seq rising across the restarts and the revert drill; the smoke’s events are there; no setup token, token, pairing code, device id, thumbnail or wall text in the folder',
@@ -1777,47 +2921,6 @@ async function smoke(server, browser) {
       };
     },
   );
-
-  // Remote and All-in-one DOM steps: selectors come from the shell's
-  // data-tt-* hooks after shell step C (S-5; §3.2 c). Stubs, not failures.
-  const TODO = [
-    [
-      'K1-T1',
-      'remote at 1180×820: target S2, Layers off/on, undo',
-      'data-tt-target, data-tt-station="layers", data-tt-undo',
-    ],
-    [
-      'K1-T2',
-      'remote: All push with S3 pinned ("S3 pinned, unchanged")',
-      'data-tt-scope="all", data-tt-pin',
-    ],
-    [
-      'K1-T3',
-      'remote: confirm bar for Return all; walls Live',
-      'data-tt-confirm, data-tt-return-all',
-    ],
-    [
-      'K1-T4',
-      'remote: pair a screen by code through the Screens station',
-      'data-tt-station="screens", data-tt-pair',
-    ],
-    [
-      'K1-T5',
-      'laptop remote at 1440×900 asks for control, not takes it',
-      'data-tt-ask-control',
-    ],
-    [
-      'K1-T6',
-      'All-in-one at 2560×1440 and 1728×1117: stations rail, aperture',
-      'data-tt-rail, data-tt-aperture',
-    ],
-  ];
-  for (const [id, what, hooks] of TODO)
-    await step(id, what, async () => ({
-      todo: true,
-      ok: true,
-      detail: `TODO after shell step C · hooks ${hooks}`,
-    }));
 
   dbg('smoke: closing sockets');
   await launcher?.close();

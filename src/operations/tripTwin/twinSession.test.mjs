@@ -265,7 +265,10 @@ test('pairing: code, single use, expiry, lockout, token rejoin, unpaired notice'
   // Lockout after 5 wrong codes.
   for (let i = 0; i < 5; i++) host.pair({ by: 'r1', code: '0000', slot: 3 });
   const d = host.hello({ id: 's3', kind: 'screen' });
-  assert.match(host.pair({ by: 'r1', code: d.code, slot: 3 }).error, /locked/);
+  assert.match(
+    host.pair({ by: 'r1', code: d.code, slot: 3 }).error,
+    /^Pairing paused until \d\d:\d\d:\d\d after 5 wrong codes/,
+  );
 });
 
 test('a device id with a token cannot be claimed without it (R1)', () => {

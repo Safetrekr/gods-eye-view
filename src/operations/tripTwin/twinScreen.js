@@ -10,12 +10,30 @@
 // Phase CF K6 (BE-6, ET-5): the `local` message also says `drift` and
 // `driftReason` (twinProtocol.js DRIFT_REASONS), so the relay logs drift
 // and hands-on from fields, never from the text. Non-visual.
+// Phase CF K8 (SUP-4, SUP-5, CL-11, Appendix D): the chip names the device
+// that made a change ("S4 · Radar on · by iPad · 21:32", then "last change
+// 2:14 ago by Laptop"), in steel only (C65); its words come from
+// twinDescribe.js. A window that is not on the wall shows one calm card
+// and nothing else (body.tt-unpaired: field, dot grid, the card, 3D
+// paused): the pair card (also after a lost pairing, a used link or a slot
+// given away), or a card with no code: shown in another window, out of
+// date, rejoining paused (RATE_LIMITED), too many waiting (BUSY), refused.
+// The band under the chip stays free for the V1 voice strip.
 import { toJpeg } from 'html-to-image';
 import { ROLES, wallName } from './twinScreenRoles.js';
 import { connectSync } from './twinSync.js';
-import { DENY, driftState, reloadGuard } from './twinProtocol.js';
+import { DENY, UNPAIRED, driftState, reloadGuard } from './twinProtocol.js';
 import { setNameStyle } from './twinHud.js';
 import { createWallSheet } from './twinWallSheet.js';
+import {
+  CHIP_RECENT_MS,
+  byText,
+  chipText,
+  describeChange,
+  lastChangeOf,
+  render,
+  wallCard,
+} from './twinDescribe.js';
 
 const el = (tag, cls, text) => {
   const n = document.createElement(tag);
@@ -73,21 +91,35 @@ export function createScreenMode({ api, slot = null, setup = null }) {
   panel.hidden = true;
   const pair = el('div', 'tt-wall-pair');
   pair.hidden = true;
+  pair.dataset.ttCard = '';
+  // A card with no code (K8): replaced, out of date, paused, refused.
+  const card = el('div', 'tt-wall-card');
+  card.hidden = true;
+  card.setAttribute('role', 'status');
+  chip.dataset.ttChip = '';
   const ident = el('div', 'tt-wall-ident');
   ident.hidden = true;
   const banner = el('div', 'tt-wall-banner');
   banner.hidden = true;
   banner.setAttribute('role', 'alert');
-  // No dot grid over the 3D view (Jesse, 23 Oct 2026).
-  document.body.append(head, wxStrip, stale, panel, banner, pair, ident);
+  // No dot grid over the 3D view (Jesse, 23 Oct 2026). The calm unpaired
+  // card draws its own on the field while the scene is paused (K8).
+  document.body.append(head, wxStrip, stale, panel, banner, pair, card, ident);
 
   let state = null;
   let presence = null;
   let mySlot = slot ? Number(slot) : null;
   let applied = {};
-  let lastChangeAt = 0;
-  let changeText = '';
-  let welcomeAt = 0;
+  // K8: the change shown in the chip for 3 s ({summary, byName, at}), the
+  // newest change this window saw arrive ({rev, at, byName}: its own
+  // clock), and the name of the last remote in control.
+  let change = null;
+  let seen = null;
+  let lastCtl = null;
+  // Why the next pair card asks again: {kind, at} (lost, link, slot).
+  let pairNote = null;
+  let cardOn = null; // the card shown, or null
+  let sheet = null; // this screen's L / D / K sheets (D5), made below
   // Hands-on (Jesse): reach in with the mouse on any wall — rotate, zoom,
   // select. Settings stay on the remote. 20 s after the last input the
   // wall is display-only again; the camera stays where it was left.
@@ -120,18 +152,83 @@ export function createScreenMode({ api, slot = null, setup = null }) {
   const linkLost = () =>
     !sync?.online || (sync?.linkAgeS != null && sync.linkAgeS > 15);
 
-  function showPair(code) {
-    pair.replaceChildren(
-      el('div', 'k', 'PAIR THIS SCREEN'),
-      el('div', 'code', code),
-      el(
-        'div',
-        'how',
-        'On the remote: Screens › Pair a screen › enter this code and pick a screen number. Codes expire after 5 minutes.',
-      ),
-      el('div', 'url', location.host),
-    );
-    pair.hidden = false;
+  /**
+   * One calm card and nothing else (SUP-5): the field, the dot grid, the
+   * card; the 3D scene paused. `kind` per twinDescribe.js wallCard.
+   */
+  function showCard(kind, data = {}) {
+    const c = wallCard(kind, { slot: mySlot, host: location.host, ...data });
+    const box = el('div', 'box tt-panel');
+    box.append(el('div', 'k', c.kicker));
+    for (const line of c.lines) box.append(el('div', 'lead', line));
+    if (c.code) {
+      box.append(el('div', 'code', c.code), el('div', 'how', c.how));
+      if (c.valid) box.append(el('div', 'valid', c.valid));
+      const foot = el('div', 'foot');
+      foot.append(
+        el('span', 'url', location.host),
+        el(
+          'span',
+          'note',
+          ' · this window shows nothing from the wall until it is paired',
+        ),
+      );
+      box.append(foot);
+    }
+    if (c.button) {
+      const b = el('button', 'tt-btn', c.button);
+      b.type = 'button';
+      b.addEventListener('click', useThisWindow);
+      box.append(b);
+    }
+    const node = c.code ? pair : card;
+    (c.code ? card : pair).hidden = true;
+    node.dataset.ttCard = c.kind;
+    node.replaceChildren(box);
+    node.hidden = false;
+    cardOn = c.kind;
+    // A card replaces the scene: no wall sheet stays open behind it.
+    sheet?.close();
+    const b = document.body;
+    b.classList.add('tt-unpaired');
+    b.dataset.ttCard = c.kind;
+    // Nothing from the wall shows, and the 3D scene stops (K8).
+    b.dataset.role = '';
+    api.pauseRender(true);
+  }
+  /** Back on the wall: the scene returns with this screen's role. */
+  function hideCard() {
+    if (!cardOn) return;
+    cardOn = null;
+    pair.hidden = true;
+    card.hidden = true;
+    const b = document.body;
+    b.classList.remove('tt-unpaired');
+    delete b.dataset.ttCard;
+  }
+  function showPair(code, ttlMs) {
+    const note = pairNote;
+    showCard(note?.kind || 'pair', {
+      code,
+      at: note?.at,
+      slot: note?.slot ?? mySlot,
+      expires: ttlMs ? Date.now() + ttlMs : null,
+    });
+  }
+  /**
+   * "Use this window instead" (sup S8): this window takes a fresh id and
+   * asks for a code; the shared slot record stays the other window's.
+   */
+  function useThisWindow() {
+    try {
+      sessionStorage.removeItem('tripTwin.soc.device.screen');
+    } catch {
+      /* no storage: a fresh id anyway */
+    }
+    const q = new URLSearchParams(location.search);
+    q.delete('setup');
+    q.delete('slot');
+    location.search = `?${q}`;
   }
 
   /** Apply the role's look (CSS) and its defaults (once per role). */
@@ -140,7 +237,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     const b = document.body;
     if (b.dataset.role !== role.key) {
       b.dataset.role = role.key;
-      api.pauseRender(!role.canvas);
+      api.pauseRender(!role.canvas || Boolean(cardOn));
       // A new role starts at its own scale (the operator can change it).
       if (role.scale && !s.meta?.scale) api.scale(role.scale);
       api.applyRoleDefaults?.(role.key);
@@ -284,13 +381,21 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       wxAt: ss.wxAt,
       simStorm: ss.simStorm || null,
     };
+    // Who changed this wall, in the chip's words (SUP-4, CL-11).
     if (prev && info.by) {
-      lastChangeAt = Date.now();
-      changeText = info.undone
-        ? 'Undone'
-        : info.by === 'screen' && info.slot === mySlot
-          ? 'Set at this screen'
-          : 'Updated';
+      const at = Date.now();
+      const c = describeChange(prev, next, info, at);
+      const summary = render(c, {
+        audience: 'wall',
+        slot: mySlot,
+        visitor: Boolean(ss.visitor),
+        names: api.names || undefined,
+      });
+      if (summary) {
+        const byName = byText(info.by, presence?.actors);
+        change = { summary, byName, at };
+        seen = { rev: next.rev, at, byName };
+      }
     }
     try {
       localStorage.setItem(
@@ -338,21 +443,33 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     time.textContent = api.clockText();
     visitorMark.hidden = !ss.visitor;
     const ctl = presence?.remotes?.find((r) => r.controller);
+    if (ctl?.name) lastCtl = ctl.name;
     const hands = handsOn() ? ' · hands-on' : drifting ? ' · drifting' : '';
-    const changed = lastChangeAt || welcomeAt;
-    if (!sync?.online) {
-      chip.textContent = `S${mySlot ?? '?'} · not connected${hands}`;
-      chip.className = 'tt-wall-chip warn';
-    } else if (!ctl) {
-      if (!remoteGoneAt) remoteGoneAt = Date.now();
-      chip.textContent = `S${mySlot ?? '?'} · Remote offline · since ${clock(remoteGoneAt).slice(0, 5)}${hands}`;
-      chip.className = 'tt-wall-chip warn';
-    } else {
-      remoteGoneAt = null;
-      const recent = Date.now() - lastChangeAt < 3000;
-      chip.textContent = `S${mySlot} · Remote: ${ctl.name || 'remote'}${recent ? ` · ${changeText}` : changed ? ` · changed ${mmss((Date.now() - changed) / 1000)} ago` : ''}${hands}`;
-      chip.className = `tt-wall-chip${recent ? ' changed' : ''}${s?.pinned ? ' pinned' : ''}`;
-    }
+    const now = Date.now();
+    const online = Boolean(sync?.online);
+    if (online && !ctl && !remoteGoneAt) remoteGoneAt = now;
+    if (ctl) remoteGoneAt = null;
+    const recent = Boolean(change) && now - change.at < CHIP_RECENT_MS;
+    // The last change this wall shows: the one seen arriving (this
+    // computer's clock), else the state's meta (a page opened after it).
+    const meta = lastChangeOf(state, mySlot);
+    const last =
+      seen && (!meta || seen.rev >= meta.rev)
+        ? seen
+        : meta && { at: meta.at, byName: byText(meta.ref, presence?.actors) };
+    chip.textContent = chipText({
+      slot: mySlot,
+      online,
+      controller: ctl ? ctl.name || 'a remote' : null,
+      lastController: lastCtl,
+      remoteGoneAt,
+      change: recent ? change : null,
+      last,
+      now,
+      suffix: `${s?.pinned ? ' · pinned' : ''}${hands}`,
+    });
+    // Steel only (C65): the words carry the state, not a colour.
+    chip.className = `tt-wall-chip${!online || !ctl ? ' warn' : ''}${recent ? ' changed' : ''}`;
     // Link age, separate from data age (supervision spec).
     const link = sync?.linkAgeS ?? null;
     const lost = !sync?.online || (link != null && link > 15);
@@ -439,10 +556,12 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     window.addEventListener(t, onInput, { capture: true, passive: true });
   // L / D / K: this screen's own Layers, Display and Keys sheets (D5),
   // written through the session so the remote stays the truth.
-  const sheet = createWallSheet({
+  sheet = createWallSheet({
     screen: me,
     slot: () => mySlot,
     online: () => Boolean(sync?.online && mySlot),
+    // Not while a card replaces the scene (K8): nothing to change yet.
+    blocked: () => Boolean(cardOn),
     write: (cmd, label) => sync.request({ t: 'screen-cmd', cmd, label }),
   });
   window.addEventListener('pointerup', () => {
@@ -601,9 +720,30 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       /* no storage: the guard says no */
     }
     const g = reloadGuard({ storage: store, now: () => Date.now() });
-    if (g.reload) location.reload();
-    else if (g.waitMs) reloadTimer = setTimeout(reloadOutOfDate, g.waitMs);
+    if (g.reload) return location.reload();
+    // Refused again within 2 minutes: say so, show nothing (Appendix D 1a).
+    showCard('reload', { at: Date.now() });
+    if (g.waitMs) reloadTimer = setTimeout(reloadOutOfDate, g.waitMs);
   };
+  /** A refusal the page itself shows (not the ones twinSync answers). */
+  function denied(m) {
+    if (m.code === DENY.RELOAD) return reloadOutOfDate();
+    if (m.code === DENY.RATE_LIMITED)
+      return showCard('rate-limited', {
+        until: Date.now() + (m.retryAfterMs || 60000),
+      });
+    if (m.code === DENY.BUSY)
+      return showCard('busy', { retryAfterMs: m.retryAfterMs });
+    showCard('denied', { error: m.error });
+  }
+  // A slot given away reloads this window into a pair card that says so.
+  const NOTE_KEY = 'tripTwin.soc.wallNote';
+  try {
+    pairNote = JSON.parse(sessionStorage.getItem(NOTE_KEY) || 'null');
+    sessionStorage.removeItem(NOTE_KEY);
+  } catch {
+    pairNote = null;
+  }
 
   sync = connectSync({
     kind: 'screen',
@@ -611,32 +751,61 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     setup,
     on: {
       welcome(m) {
-        if (m.type === 'denied' && m.code === DENY.RELOAD)
-          return reloadOutOfDate();
-        welcomeAt = Date.now();
+        if (m.type === 'denied') return denied(m);
         // A wall waiting for a code gets no presence or state (K7).
         if (m.presence) presence = m.presence;
         if (m.type === 'paired') {
           mySlot = m.slot;
-          pair.hidden = true;
+          pairNote = null;
+          hideCard();
           restoredAt = null;
           dropSetupFromUrl();
           keepSlotInUrl(m.slot);
           applyState(m.state, { force: true });
-        } else if (m.type === 'pair-code') showPair(m.code);
+        } else if (m.type === 'pair-code') {
+          // No cached state behind a code: this window holds no pairing.
+          state = null;
+          applied = {};
+          restoredAt = null;
+          showPair(m.code, m.ttlMs);
+        }
+      },
+      // A terminal refusal twinSync answered with a fresh id (S-16): the
+      // next pair card says why.
+      refused(m) {
+        const kind =
+          m.code === DENY.TICKET_EXPIRED || m.code === DENY.TICKET_USED
+            ? 'link-expired'
+            : m.code === DENY.TOKEN_EXPIRED
+              ? 'token-expired'
+              : m.code === DENY.ID_IN_USE
+                ? 'lost'
+                : null;
+        if (kind) pairNote = { kind, at: Date.now() };
       },
       // Another window took this identity (C16): stop, keep storage as it
-      // is — the shared token is the winner's. The chip says "not
-      // connected" until K8 adds the card; data-tt-link is for the harness.
+      // is — the shared token is the winner's. The card has no code (sup
+      // S8); data-tt-link is for the harness.
       replaced() {
         document.body.dataset.ttLink = 'replaced';
+        state = null;
+        showCard('replaced', { at: Date.now() });
         paint();
       },
       // This slot went to another device: back to a pairing code (R10).
-      unpaired() {
+      unpaired(m) {
         sync.forget();
         try {
           localStorage.removeItem(`tripTwin.soc.lastState.${mySlot}`);
+          if (m?.reason === UNPAIRED.SLOT_TAKEN)
+            sessionStorage.setItem(
+              NOTE_KEY,
+              JSON.stringify({
+                kind: 'slot-taken',
+                at: Date.now(),
+                slot: mySlot,
+              }),
+            );
         } catch {
           /* ignore */
         }
@@ -647,7 +816,8 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       },
       paired(m) {
         mySlot = m.slot;
-        pair.hidden = true;
+        pairNote = null;
+        hideCard();
         dropSetupFromUrl();
         keepSlotInUrl(m.slot);
         identify();

@@ -2,6 +2,13 @@
 // Right: the STATIONS rail. Left: the target picker (S1–S6 · All), a live
 // snapshot of the target, then the station's controls. Every setting for
 // the walls lives here; the walls are display only.
+// Phase CF K8 (SUP-1, SUP-4, CL-11, Appendix D 1, 2d, 3): the status strip
+// (the top bar) says who is in control and since when, "Log not writing"
+// when the audit log stops, and that an out-of-date page sent nothing; the
+// active-station card names the last change on the target and its device;
+// result lines come from twinDescribe.js (a dry run of the reducer).
+// Pairing and the screens list live in the rail foot's Screens & devices.
+// data-tt-* hooks are for the harness (PHASE-CF-PLAN §3.2 c).
 import './remote.css';
 import './remote.instrument.css';
 import { connectSync } from '../twinSync.js';
@@ -22,6 +29,19 @@ import {
 } from '../twinNowcastLoad.js';
 import { STATIONS, FOOT_STATIONS, btn, stationOf } from './stations.js';
 import { weatherPill } from '../twinStations.js';
+import {
+  STATUS,
+  byText,
+  controlText,
+  describeChange,
+  describeCommand,
+  hhmm,
+  lastChangeOf,
+  metaPhrase,
+  render,
+  scopeLine,
+} from '../twinDescribe.js';
+import { DENY, pairPausedUntil } from '../twinProtocol.js';
 
 const params = new URLSearchParams(location.search);
 const app = document.getElementById('rm-app');
@@ -65,6 +85,15 @@ const ui = {
   link: 'connecting',
   denied: null,
   wx: null, // phase 12: the nowcast for the trip in focus (same as the walls)
+  // K8: since when the link is down; the page is out of date (RELOAD);
+  // the newest change seen per scope (slot or 'wall') and anywhere;
+  // pairing's last answer and pause; an undo waiting for its broadcast.
+  offlineSince: Date.now(),
+  outOfDate: null,
+  seen: {},
+  seenAny: null,
+  pair: null, // {text, err, until}
+  awaitUndo: false,
 };
 
 const device =
@@ -132,6 +161,7 @@ function ask(cmd, text, label = '') {
   renderBar();
 }
 async function send(cmd, label = '') {
+  if (ui.outOfDate) return notify(STATUS.RELOAD_REMOTE, true);
   if (!ui.controller)
     return notify('View only — take control first (top bar)', true);
   if (needsConfirm(cmd) && ui.confirm?.cmd !== cmd)
@@ -143,21 +173,37 @@ async function send(cmd, label = '') {
       label,
     );
   ui.confirm = null;
+  // What will change, from a dry run of the same reducer (SUP-1, G2).
+  const before = ui.state;
   const r = await sync.request({ t: 'cmd', cmd });
   if (!r.ok) return notify(r.error || 'Not applied', true);
-  const applied = (r.changed || [])
-    .filter((c) => c !== 'session')
-    .map((s) => `S${s}`);
-  const skipped = (r.skipped || []).map((s) => `S${s}`);
-  // Name the screens only for an All push; a single target is in the label.
-  const all = cmd.target === 'all' || cmd.type === 'returnLive';
+  const said = render(describeCommand(cmd, before), {
+    audience: 'remote',
+    names: personNames(),
+  });
   ui.bar = {
     kind: 'undo',
     undoId: r.undoId,
-    text: `${label || 'Applied'}${all && applied.length ? ` · ${applied.join(', ')}` : ''}${skipped.length ? ` · ${skipped.join(', ')} pinned, unchanged` : ''}`,
+    // Every end state says whether the wall changed (G1).
+    text: said || `${label ? `${label} · ` : ''}nothing changed on the walls`,
     until: Date.now() + 10000,
   };
   renderBar();
+}
+/** Full names on this device only (the walls show their own forms). */
+function personNames() {
+  const data = tripData(tripById(ui.state?.session?.tripId));
+  const snap = data?.snapshot;
+  return {
+    person: (id) =>
+      (snap?.participants || []).find((p) => p.id === id)?.name || null,
+    place: (id) => {
+      for (const d of data?.days || [])
+        for (const st of d.sites || [])
+          for (const p of st.places || []) if (p.id === id) return p.label;
+      return null;
+    },
+  };
 }
 function setTarget(t) {
   ui.target = t;
@@ -253,12 +299,14 @@ async function copyResponders(report) {
 const head = el('header', 'rm-head');
 const grid = el('div', 'rm-body-grid');
 const main = el('main', 'rm-main');
+head.dataset.ttStatus = '';
 const targets = el('div', 'rm-targets');
 targets.setAttribute('role', 'radiogroup');
 targets.setAttribute('aria-label', 'Target screen');
 const bar = el('div', 'rm-bar');
 bar.hidden = true;
 bar.setAttribute('role', 'status');
+bar.dataset.ttBar = '';
 const stage = el('div', 'rm-stage');
 const preview = el('section', 'rm-preview');
 const content = el('section', 'rm-content');
@@ -266,6 +314,7 @@ content.setAttribute('aria-live', 'polite');
 stage.append(preview, content);
 main.append(targets, bar, stage);
 const rail = el('aside', 'rm-rail');
+rail.dataset.ttRail = '';
 let waveTimer = null;
 // This remote's own animation (its device, its choice); reduced motion wins.
 const remoteMotion = () => {
@@ -287,6 +336,7 @@ const aperture = btn('rm-aperture', 'MENU', () =>
   document.body.classList.toggle('rm-menu'),
 );
 aperture.setAttribute('aria-controls', 'rm-rail');
+aperture.dataset.ttAperture = '';
 rail.id = 'rm-rail';
 app.append(head, grid, aperture);
 
@@ -306,19 +356,44 @@ function renderHead() {
     el('span', 'mono', t.orgShort),
     el('span', 'org', `${t.title} · ${t.org}`),
   );
+  // The control cell (K8, SUP-4): who is in control, and since when.
   const ctl = ui.presence?.remotes?.find((r) => r.controller && !r.you);
+  const me = ui.presence?.remotes?.find((r) => r.you);
+  const online = ui.link === 'online';
   const link = el(
     'div',
-    `rm-link ${ui.link === 'online' ? (ui.controller ? 'ok' : 'warn') : 'warn'}`,
-    ui.link !== 'online'
-      ? 'Not connected · retrying'
-      : ui.controller
-        ? `In control · this ${device}`
-        : `View only · ${ctl ? `${ctl.name || 'another remote'} in control` : 'no remote in control'}`,
+    `rm-link ${online ? (ui.controller ? 'ok' : 'warn') : 'warn'}`,
+    controlText({
+      link: ui.link,
+      offlineMs: online ? 0 : Date.now() - ui.offlineSince,
+      host: location.host,
+      controller: ui.controller,
+      me: me?.name || device,
+      ctl: ctl ? ctl.name || 'another remote' : null,
+      since: ctl?.controlSince,
+    }),
   );
+  link.dataset.ttControl = ui.controller ? 'in-control' : 'view-only';
+  // Status items (Appendix D 1, 3): steel, the log in dim amber text.
+  const items = [];
+  if (ui.outOfDate) {
+    const o = el('span', 'rm-status err', STATUS.RELOAD_REMOTE);
+    o.dataset.ttStatusItem = 'reload';
+    items.push(
+      o,
+      btn('rm-btn', STATUS.RELOAD, () => location.reload(), {
+        'data-tt-reload': '',
+      }),
+    );
+  }
+  if (online && ui.presence?.health && ui.presence.health.audit === false) {
+    const l = el('span', 'rm-status attn', STATUS.LOG);
+    l.dataset.ttStatusItem = 'log';
+    items.push(l);
+  }
   const extra = [];
   const ho = ui.presence?.handover;
-  if (ui.link === 'online' && !ui.controller)
+  if (online && !ui.controller && !ui.outOfDate)
     extra.push(
       btn(
         'rm-btn',
@@ -328,20 +403,34 @@ function renderHead() {
             : 'Ask for control'
           : 'Take control',
         () => sync.send({ t: 'request-control' }),
+        { 'data-tt-ask-control': '' },
       ),
     );
   // Never silent (R14): the controller sees who asks and decides.
   if (ui.controller && ho && !ho.you)
     extra.push(
       el('span', 'rm-link warn', `${ho.fromName} asks for control`),
-      btn('rm-btn', 'Hand over', () =>
-        sync.send({ t: 'handover', accept: true }),
+      btn(
+        'rm-btn',
+        'Hand over',
+        () => sync.send({ t: 'handover', accept: true }),
+        { 'data-tt-handover': 'accept' },
       ),
-      btn('rm-btn', 'Keep control', () =>
-        sync.send({ t: 'handover', accept: false }),
+      btn(
+        'rm-btn',
+        'Keep control',
+        () => sync.send({ t: 'handover', accept: false }),
+        { 'data-tt-handover': 'keep' },
       ),
     );
-  head.replaceChildren(plate, link, ...extra, el('span', 'rm-seal', 'OP'));
+  // Out of date before any presence: who is in control is not known here.
+  head.replaceChildren(
+    plate,
+    ...(ui.outOfDate && !ui.presence ? [] : [link]),
+    ...items,
+    ...extra,
+    el('span', 'rm-seal', 'OP'),
+  );
   // Write controls dim while this remote only views (F20).
   document.body.classList.toggle('rm-viewonly', !ui.controller);
 }
@@ -361,6 +450,7 @@ function renderTargets() {
         role: 'radio',
         'aria-checked': String(on),
         tabindex: on ? '0' : '-1',
+        'data-tt-target': String(t),
         title:
           t === 'all'
             ? 'Every screen'
@@ -484,6 +574,32 @@ function ctx() {
     tripData,
     copyResponders,
     wxRefresh: () => refreshWx(true),
+    /** Pair a screen by its code (Screens & devices; SUP-5 copy). */
+    async pairScreen(code, slot) {
+      if (ui.outOfDate) return notify(STATUS.RELOAD_REMOTE, true);
+      const r = await sync.request({ t: 'pair', code, slot });
+      ui.pair = r.ok
+        ? {
+            text: `Paired S${r.slot} · it shows S${r.slot}'s role now`,
+            err: false,
+          }
+        : { text: r.error, err: true, until: pairPausedUntil(r.error) };
+      notify(ui.pair.text, !r.ok);
+      renderContent(true);
+    },
+    /** Who last changed a screen, when it was not this remote (SUP-4). */
+    lastBy(slot) {
+      const myRef = ui.presence?.remotes?.find((r) => r.you)?.ref ?? null;
+      const seen = ui.seen[slot];
+      const meta = lastChangeOf(
+        { session: {}, screens: { [slot]: ui.state?.screens?.[slot] } },
+        slot,
+      );
+      const ref =
+        seen && (!meta || seen.rev >= meta.rev) ? seen.byRef : meta?.ref;
+      if (!ref || ref === myRef) return null;
+      return byText(ref, ui.presence?.actors);
+    },
     remoteMotion,
     setRemoteMotion(on) {
       try {
@@ -758,7 +874,15 @@ function renderRail() {
     'Active station',
     el('span', `st${online ? '' : ' warn'}`, online ? '● LIVE' : '● OFFLINE'),
   );
+  active.dataset.ttActive = st.id;
   active.append(k, el('div', 'v', st.label), el('div', 's', st.sub));
+  // The last change on the target, and which device made it (SUP-4).
+  const last = lastChangeLine();
+  if (last) {
+    const l = el('div', 's last', last);
+    l.dataset.ttLastChange = '';
+    active.append(l);
+  }
   const list = el('div', 'r-context');
   if (st.context) list.append(...st.context(ctx()));
   else list.append(targetCard());
@@ -777,6 +901,7 @@ function renderRail() {
       () => setStation(s.id),
       {
         'aria-label': `Station ${s.num}, ${s.label}${s.later ? ' (next phase)' : ''}`,
+        'data-tt-station': s.id,
       },
     );
     if (s.id === ui.station) t.setAttribute('aria-current', 'true');
@@ -821,11 +946,73 @@ function renderRail() {
   for (const s of FOOT_STATIONS) {
     const b = btn('rm-foot-btn', s.label, () => setStation(s.id), {
       'aria-label': `${s.label} · ${s.sub}`,
+      'data-tt-station': s.id,
     });
     if (s.id === ui.station) b.setAttribute('aria-current', 'true');
     foot.append(b);
   }
+  foot.dataset.ttFoot = '';
   rail.replaceChildren(h, active, list, g, foot);
+}
+/**
+ * "Last change on S4 · 21:32 · radar on · by Laptop": the newest change on
+ * the target (or anywhere, for All) that this remote saw arrive, else the
+ * state's field meta (a page opened after it).
+ */
+function lastChangeLine() {
+  if (!ui.state) return '';
+  const t = ui.target;
+  const pick = (a, b) => (!a ? b : !b ? a : b.rev > a.rev ? b : a);
+  const seen = t === 'all' ? ui.seenAny : pick(ui.seen[t], ui.seen.wall);
+  const meta = lastChangeOf(ui.state, t === 'all' ? null : t);
+  if (seen && (!meta || seen.rev >= meta.rev))
+    return seen.on
+      ? `Last change on ${seen.on} · ${hhmm(seen.at)} · ${seen.text} · by ${seen.byName}`
+      : `Last change · ${hhmm(seen.at)} · ${seen.text} · by ${seen.byName}`;
+  if (!meta) return '';
+  const on = meta.scope === 'wall' ? 'every screen' : `S${meta.scope}`;
+  const what = metaPhrase(ui.state, meta, { names: personNames() });
+  return `Last change on ${on} · ${hhmm(meta.at)} · ${what} · by ${byText(meta.ref, ui.presence?.actors)}`;
+}
+/** Remember a change from a state broadcast, per scope (K8). */
+function noteChange(prev, m) {
+  if (!prev || !m.by) return;
+  const at = Date.now();
+  const c = describeChange(prev, m.state, m, at);
+  if (!c) return;
+  const byName = byText(m.by, ui.presence?.actors);
+  const o = { names: personNames() };
+  const slots = new Set([
+    ...c.parts.map((p) => p.scope).filter((x) => x !== 'wall'),
+    ...c.pinned,
+  ]);
+  for (const slot of slots) {
+    const line = scopeLine(c, slot, o);
+    if (line)
+      ui.seen[slot] = { ...line, at, rev: c.rev, byName, byRef: m.by.ref };
+  }
+  if (c.parts.some((p) => p.scope === 'wall') || c.returnAll)
+    ui.seen.wall = {
+      on: 'every screen',
+      text: scopeLine(c, null, o)?.text || '',
+      at,
+      rev: c.rev,
+      byName,
+      byRef: m.by.ref,
+    };
+  const all = render(c, { audience: 'remote', ...o });
+  ui.seenAny = {
+    on: null,
+    text: all,
+    at,
+    rev: c.rev,
+    byName,
+    byRef: m.by.ref,
+  };
+  if (ui.awaitUndo && m.cause === 'undo') {
+    ui.awaitUndo = false;
+    notify(render(c, { audience: 'remote', ...o }));
+  }
 }
 function renderBar() {
   const b = ui.bar;
@@ -836,13 +1023,21 @@ function renderBar() {
     bar.className = 'rm-bar ask';
     bar.replaceChildren(
       el('span', 't', `Confirm: ${ui.confirm.text}`),
-      btn('rm-btn primary', 'Confirm', () =>
-        send(ui.confirm.cmd, ui.confirm.label),
+      btn(
+        'rm-btn primary',
+        'Confirm',
+        () => send(ui.confirm.cmd, ui.confirm.label),
+        { 'data-tt-confirm': 'yes' },
       ),
-      btn('rm-btn', 'Cancel', () => {
-        ui.confirm = null;
-        renderBar();
-      }),
+      btn(
+        'rm-btn',
+        'Cancel',
+        () => {
+          ui.confirm = null;
+          renderBar();
+        },
+        { 'data-tt-confirm': 'no' },
+      ),
     );
     // Focus the new question once; the 1 s repaint must not steal focus.
     // The bar also scrolls into view, so a question is never off screen.
@@ -851,6 +1046,17 @@ function renderBar() {
       bar.scrollIntoView?.({ block: 'nearest' });
       bar.querySelector('.primary')?.focus();
     }
+    return;
+  }
+  // Out of date: nothing is sent until the page reloads (Appendix D 1).
+  if (ui.outOfDate) {
+    bar.hidden = false;
+    bar.className = 'rm-bar err';
+    bar.dataset.ttBar = 'reload';
+    bar.replaceChildren(
+      el('span', 't', STATUS.RELOAD_REMOTE),
+      btn('rm-btn', STATUS.RELOAD, () => location.reload()),
+    );
     return;
   }
   if (!b || Date.now() > b.until) {
@@ -863,11 +1069,21 @@ function renderBar() {
   bar.replaceChildren(el('span', 't', b.text));
   if (b.kind === 'undo')
     bar.append(
-      btn('rm-btn', `Undo (${left} s)`, async () => {
-        const r = await sync.request({ t: 'undo', undoId: b.undoId });
-        ui.bar = null;
-        notify(r.ok ? 'Undone' : r.error, !r.ok);
-      }),
+      btn(
+        'rm-btn',
+        `Undo (${left} s)`,
+        async () => {
+          ui.awaitUndo = true;
+          const r = await sync.request({ t: 'undo', undoId: b.undoId });
+          ui.bar = null;
+          // The words come with the undone state (what really went back).
+          if (!r.ok) {
+            ui.awaitUndo = false;
+            notify(r.error, true);
+          } else if (ui.awaitUndo) notify('Undone');
+        },
+        { 'data-tt-undo': '' },
+      ),
     );
 }
 function renderAll() {
@@ -904,7 +1120,14 @@ const sync = connectSync({
   name: device,
   on: {
     welcome(m) {
+      // Out of date (RELOAD, Appendix D 1): keep the page, send nothing.
+      if (m.type === 'denied' && m.code === DENY.RELOAD) {
+        ui.outOfDate = { at: Date.now() };
+        renderHead();
+        return renderBar();
+      }
       if (m.type === 'denied') return renderDenied(m.error);
+      ui.outOfDate = null;
       // The QR's setup code has done its job; the token rejoins from now on.
       if (params.has('setup')) {
         params.delete('setup');
@@ -920,6 +1143,7 @@ const sync = connectSync({
       renderAll();
     },
     state(m) {
+      noteChange(ui.state, m);
       ui.state = m.state;
       // A change made at a wall (its L / D sheet) is named here (D5),
       // never over a live Undo.
@@ -978,8 +1202,9 @@ const sync = connectSync({
         renderContent(true);
     },
     status(s) {
+      if (s !== 'online' && ui.link === 'online') ui.offlineSince = Date.now();
       ui.link = s;
-      if (ui.state) renderHead();
+      if (ui.state || ui.outOfDate) renderHead();
     },
   },
 });
@@ -997,6 +1222,13 @@ window.addEventListener('keydown', (e) => {
 setInterval(() => {
   renderBar();
   renderPreview();
+  // "Can't reach … · retrying" after 15 s offline (Appendix D 2d).
+  if (ui.link !== 'online' && (ui.state || ui.outOfDate)) renderHead();
+  // The Pair button counts down a pairing pause, then comes back.
+  if (ui.pair?.until && ui.station === 'screens') {
+    if (Date.now() >= ui.pair.until) ui.pair = { ...ui.pair, until: null };
+    renderContent(true);
+  }
 }, 1000);
 setInterval(() => refreshWx(), 20e3);
 app.replaceChildren(head, grid, aperture);

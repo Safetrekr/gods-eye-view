@@ -5,6 +5,10 @@
 // alerts · 05 Day plan · 06 Trips on watch. Screens sits in the rail foot. Every section says its scope: the target (S2 / all screens) or
 // EVERY SCREEN for wall-wide items. Each station renders the left-hand
 // content and, when it has one, its level-2 list in the rail.
+// Phase CF K8 (PHASE-CF-PLAN §3.2 a, §3.3; SUP-5): the rail foot's
+// Screens becomes Screens & devices: the screens list, Pair a screen with
+// the host's own words for a wrong code and the 1-minute pause (the Pair
+// button counts down), then the target's role and display.
 import {
   LAYER_CATALOG,
   ROLES,
@@ -417,15 +421,16 @@ function tripContext(ctx) {
   );
 }
 
-// ---------------------------------------------------------------- 05 Screens
+// ------------------------------------- Screens & devices (the rail foot)
 function screens(ctx) {
   const { state, presence, target } = ctx;
   const out = [
     ...head(
-      'Screens',
+      'Screens & devices',
       `Wall · ${state.count} screen${state.count > 1 ? 's' : ''} · target ${tgtName(target)}`,
     ),
   ];
+  out.push(kick('Screens on the wall'));
   const grid = el('div', 'rm-screens');
   for (const slot of Object.keys(state.screens).map(Number)) {
     const s = state.screens[slot];
@@ -458,6 +463,10 @@ function screens(ctx) {
       card.append(
         el('div', `sum${at.on ? ' hands' : ''}`, `At the wall: ${at.text}`),
       );
+    // Only when another device made it: you know what you did (SUP-4).
+    const by = ctx.lastBy?.(slot);
+    if (by) card.append(el('div', 'sum', `Last change by ${by}`));
+    card.dataset.ttScreen = String(slot);
     grid.append(card);
   }
   out.push(grid);
@@ -482,6 +491,7 @@ function screens(ctx) {
     ),
   );
   const pair = el('div', 'rm-actions');
+  pair.dataset.ttPair = '';
   const code = el('input', 'rm-input');
   code.inputMode = 'numeric';
   code.maxLength = 4;
@@ -491,19 +501,25 @@ function screens(ctx) {
   slotSel.setAttribute('aria-label', 'Screen number');
   for (let n = 1; n <= 6; n++) slotSel.append(new Option(`S${n}`, String(n)));
   slotSel.value = String(Math.min(6, state.count + 1));
-  pair.append(
-    code,
-    slotSel,
-    btn('rm-btn', 'Pair', async () => {
-      const r = await ctx.sync.request({
-        t: 'pair',
-        code: code.value.trim(),
-        slot: Number(slotSel.value),
-      });
-      ctx.notify(r.ok ? `Paired S${r.slot}` : r.error, !r.ok);
-    }),
+  // After 5 wrong codes pairing pauses for a minute: the button says how
+  // long is left, and is off until then.
+  const p = ctx.ui.pair;
+  const left = p?.until ? Math.ceil((p.until - Date.now()) / 1000) : 0;
+  const pairBtn = btn(
+    'rm-btn',
+    left > 0
+      ? `Pair (${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')})`
+      : 'Pair',
+    () => ctx.pairScreen(code.value.trim(), Number(slotSel.value)),
+    { 'data-tt-pair-go': '', ...(left > 0 ? { disabled: 'true' } : {}) },
   );
+  pair.append(code, slotSel, pairBtn);
   out.push(pair);
+  if (p?.text) {
+    const msg = el('div', p.err ? 'rm-flag' : 'rm-note', p.text);
+    msg.dataset.ttPairResult = p.err ? 'refused' : 'ok';
+    out.push(msg);
+  }
   if (target === 'all') {
     out.push(
       kick('All screens'),
@@ -574,7 +590,7 @@ function screens(ctx) {
             { type: 'screens', target, patch: { pinned: !s?.pinned } },
             s?.pinned ? `S${target} unpinned` : `S${target} pinned`,
           ),
-        { 'aria-pressed': String(Boolean(s?.pinned)) },
+        { 'aria-pressed': String(Boolean(s?.pinned)), 'data-tt-pin': '' },
       ),
       btn('rm-btn', 'Clear the wall’s own selection', () =>
         ctx.send(
@@ -612,11 +628,15 @@ function screens(ctx) {
         ),
       { 'aria-pressed': String(Boolean(state.session.visitor)) },
     ),
-    btn('rm-btn', 'Return all to Live + defaults', () =>
-      ctx.send(
-        { type: 'returnLive' },
-        'Every screen, pinned ones too, back to Live and its role defaults',
-      ),
+    btn(
+      'rm-btn',
+      'Return all to Live + defaults',
+      () =>
+        ctx.send(
+          { type: 'returnLive' },
+          'Every screen, pinned ones too, back to Live and its role defaults',
+        ),
+      { 'data-tt-return-all': '' },
     ),
   );
   out.push(w);
@@ -630,7 +650,7 @@ function screens(ctx) {
       () => ctx.setRemoteMotion?.(!on),
       { 'aria-pressed': String(on) },
     ),
-    el('span', 'rm-note', 'Wall motion is set per screen under 06 Layers.'),
+    el('span', 'rm-note', 'Wall motion is set per screen in Layers & display.'),
   );
   out.push(rm);
   out.push(kick('Number of screens', WALL));
@@ -734,7 +754,10 @@ function layersAndDisplay(ctx, out, value, slots) {
                 },
                 `${L.label} ${on ? 'on' : 'off'}`,
               ),
-            { 'aria-pressed': String(v === on) },
+            {
+              'aria-pressed': String(v === on),
+              'data-tt-layer': `${L.key}:${on ? 'on' : 'off'}`,
+            },
           ),
         );
       r.append(lab, seg);
@@ -971,8 +994,8 @@ export const FOOT_STATIONS = [
   {
     id: 'screens',
     num: '',
-    label: 'Screens',
-    sub: 'Wall screens & roles',
+    label: 'Screens & devices',
+    sub: 'Wall screens, pairing & roles',
     icon: ICON.screens,
     render: screens,
   },

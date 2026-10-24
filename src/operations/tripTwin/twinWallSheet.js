@@ -63,10 +63,17 @@ const WALL_KEYS = [
 
 /**
  * createWallSheet({screen: () => this screen's state, slot: () => n,
- *   online: () => bool, write: (cmd, label) => Promise<{ok, error}>})
+ *   online: () => bool, write: (cmd, label) => Promise<{ok, error}>,
+ *   blocked: () => bool (a K8 card replaces the scene: no sheet opens)})
  *   → {open(kind), close(), toggle(kind), refresh(), kind}
  */
-export function createWallSheet({ screen, slot, online, write }) {
+export function createWallSheet({
+  screen,
+  slot,
+  online,
+  write,
+  blocked = () => false,
+}) {
   const root = el('section', 'tt-wall-sheet');
   root.setAttribute('role', 'dialog');
   root.setAttribute('aria-modal', 'true');
@@ -324,7 +331,8 @@ export function createWallSheet({ screen, slot, online, write }) {
         }
         return;
       }
-      if (!to || e.target.closest?.('input, textarea, select')) return;
+      if (!to || blocked() || e.target.closest?.('input, textarea, select'))
+        return;
       e.preventDefault();
       e.stopPropagation();
       open(to);

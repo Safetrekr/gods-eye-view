@@ -41,6 +41,10 @@
 // is the same sha256 and compare, reached without a node: import. A record
 // restored with a plain `token` (a v1 store, an older test) is hashed on
 // the way in.
+//
+// Phase CF K8 (SUP-5): a wrong code says how many tries are left before
+// the 1-minute pause, and the pause says when it ends (the same words on
+// the remote; values only, no new fields).
 // Prototype only — production needs TLS, device enrolment, operator SSO,
 // signed commands and an audit log (07-production-delta).
 import { LIMITS } from '../../../server/tripTwin/twinLimits.js';
@@ -54,6 +58,8 @@ import {
   REMOTE_NAMES,
   VIA,
   isRef,
+  pairLockedText,
+  pairWrongText,
 } from './twinProtocol.js';
 import { LAYER_CATALOG } from './twinScreenRoles.js';
 
@@ -785,10 +791,12 @@ export function createSessionHost({
           code: CODE.LEASE_NOT_CONTROLLER,
           error: 'Only the remote in control can pair',
         });
+      // The words the remote shows as they are (K8, SUP-5): tries left,
+      // and when a pause ends (this computer's clock).
       if (t < lockedUntil)
         return failed('locked', {
           ok: false,
-          error: 'Pairing locked for a minute after 5 wrong codes',
+          error: pairLockedText(lockedUntil),
         });
       purge(t);
       const c = codes.get(String(code));
@@ -797,10 +805,14 @@ export function createSessionHost({
         if (tries >= MAX_TRIES) {
           lockedUntil = t + 60000;
           tries = 0;
+          return failed('code', {
+            ok: false,
+            error: pairLockedText(lockedUntil),
+          });
         }
         return failed('code', {
           ok: false,
-          error: 'Code not recognised or expired',
+          error: pairWrongText(MAX_TRIES - tries),
         });
       }
       tries = 0;
