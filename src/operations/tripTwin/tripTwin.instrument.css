@@ -2770,3 +2770,221 @@ body:not([data-view='screen']) #tt-layers.tt-sheet:not([hidden]) {
     column-count: 5;
   }
 }
+
+/* ---------- wall sheets: L / D / K at a wall (Jesse, 23 Oct 2026, D5) ----
+   The All-in-one's full-screen sheets, for this screen only. The wall
+   header (and its status chip) stays visible above; type is set for
+   someone standing at the screen, not across the room. */
+.tt-wall-sheet[hidden] {
+  display: none;
+}
+.tt-wall-sheet {
+  position: fixed;
+  inset: 112px 24px 24px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--tt-radius-lg);
+  border: 1px solid var(--tt-border);
+  background: rgba(4, 12, 18, 0.92);
+  backdrop-filter: blur(28px) saturate(1.2);
+  -webkit-backdrop-filter: blur(28px) saturate(1.2);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+  color: var(--tt-text);
+  font: 400 18px/26px var(--tt-font);
+  cursor: default;
+}
+body.tt-wall-sheet-open.tt-idle-cursor .tt-wall-sheet,
+body.tt-wall-sheet-open.tt-idle-cursor .tt-wall-sheet * {
+  cursor: default;
+}
+.tt-wall-sheet .tt-pop-head {
+  position: static;
+  flex: 0 0 auto;
+  height: 88px;
+  margin: 0;
+  padding: 0 28px 0 48px;
+  background: rgba(4, 12, 18, 0.96);
+  border-bottom: 1px solid var(--tt-hair);
+  border-radius: var(--tt-radius-lg) var(--tt-radius-lg) 0 0;
+}
+.tt-wall-sheet .tt-pop-head .t {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font: 300 40px/1 var(--tt-display);
+  letter-spacing: -0.01em;
+}
+.tt-wall-sheet .kbd {
+  font: 500 15px/1 var(--tt-mono);
+  padding: 5px 9px;
+  margin: 0;
+}
+.tt-wall-sheet .tt-pop-head .scope {
+  font: 500 15px/1 var(--tt-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tt-text-2);
+  padding-left: 16px;
+  border-left: 1px solid var(--tt-hair);
+}
+.tt-wall-sheet .tt-x {
+  width: 52px;
+  height: 52px;
+  font-size: 30px;
+}
+.tt-wall-sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 32px 48px 36px;
+}
+.tt-wall-sheet .tt-kicker {
+  font: 500 14px/18px var(--tt-mono);
+  letter-spacing: 0.12em;
+  margin: 0 0 12px;
+}
+.tt-wall-sheet .tt-note {
+  font-size: 16px;
+  line-height: 23px;
+  color: var(--tt-text-2);
+  margin-top: 10px;
+}
+.tt-wall-sheet input[type='checkbox'] {
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  flex: 0 0 auto;
+  accent-color: var(--tt-text);
+}
+.tt-wall-sheet :focus-visible {
+  outline: 2px solid var(--tt-text);
+  outline-offset: 3px;
+}
+/* Layers: every group is a card in a grid. */
+.tt-wall-sheet-layers .tt-wall-sheet-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  gap: 20px;
+  align-content: start;
+  align-items: start;
+}
+.tt-wall-sheet .tt-layer-group {
+  margin: 0;
+  padding: 20px 22px 18px;
+  border: 1px solid var(--tt-hair);
+  border-radius: var(--tt-radius);
+  background: rgba(8, 22, 30, 0.6);
+}
+.tt-wall-sheet .tt-layer-row,
+.tt-wall-sheet .tt-check {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 52px;
+  margin: 0;
+  padding: 0;
+  font-size: 18px;
+  line-height: 24px;
+  color: var(--tt-text);
+  cursor: pointer;
+}
+.tt-wall-sheet .tt-check small {
+  display: block;
+  font-size: 15px;
+  line-height: 20px;
+  color: var(--tt-text-2);
+}
+/* Display: two columns of groups. */
+.tt-wall-sheet-display .tt-wall-sheet-body {
+  column-count: 2;
+  column-gap: 72px;
+}
+.tt-wall-sheet-display .tt-pop-group {
+  break-inside: avoid;
+  margin: 0 0 36px;
+}
+.tt-wall-seg {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.tt-wall-seg button,
+.tt-wall-reset {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 0 22px;
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius);
+  font: 500 18px/1 var(--tt-font);
+  color: var(--tt-text);
+  cursor: pointer;
+}
+.tt-wall-seg button:hover:not(:disabled),
+.tt-wall-reset:hover:not(:disabled) {
+  background: var(--tt-hover-bg);
+}
+.tt-wall-seg button.on {
+  background: var(--tt-text);
+  border-color: var(--tt-text);
+  color: var(--tt-field);
+}
+.tt-wall-seg button.on .kbd {
+  color: var(--tt-field);
+  border-color: rgba(4, 12, 18, 0.4);
+}
+.tt-wall-seg button:disabled,
+.tt-wall-reset:disabled,
+.tt-wall-sheet input:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.tt-wall-seg .val {
+  min-width: 72px;
+  text-align: center;
+  font: 500 22px/1 var(--tt-mono);
+}
+/* Keys: three columns of groups. */
+.tt-wall-sheet-keys .tt-wall-sheet-body {
+  column-count: 3;
+  column-gap: 64px;
+}
+.tt-wall-sheet-keys .tt-pop-group {
+  break-inside: avoid;
+  margin: 0;
+}
+.tt-wall-sheet .tt-keys-h {
+  font: 300 26px/1.2 var(--tt-display);
+  margin: 0 0 14px;
+}
+.tt-wall-sheet .tt-keys {
+  grid-template-columns: 140px 1fr;
+  gap: 14px 20px;
+  font-size: 18px;
+  line-height: 24px;
+  margin: 0 0 32px;
+}
+.tt-wall-sheet .tt-keys dt {
+  font-size: 17px;
+}
+.tt-wall-sheet-foot {
+  flex: 0 0 auto;
+  padding: 18px 48px;
+  border-top: 1px solid var(--tt-hair);
+  font: 500 15px/20px var(--tt-mono);
+  letter-spacing: 0.06em;
+  color: var(--tt-text-2);
+}
+.tt-wall-sheet-foot.warn {
+  color: var(--tt-attention);
+}
+@media (max-width: 1599px) {
+  .tt-wall-sheet-keys .tt-wall-sheet-body {
+    column-count: 2;
+  }
+}

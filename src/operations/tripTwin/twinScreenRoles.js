@@ -47,6 +47,8 @@ export const ROLES = Object.freeze({
     sub: 'Official alerts · sensed hazards',
     canvas: true,
     scale: 'city',
+    // Seen from across the room (review R7): the weather and heat layers.
+    layersOn: ['precip', 'clouds', 'lightning', 'radar3d', 'fires'],
   },
   day: {
     key: 'day',
@@ -182,3 +184,15 @@ export const LAYER_CATALOG = Object.freeze([
     layers: [{ key: 'waysOut', label: 'Ways out view', def: false }],
   },
 ]);
+
+/**
+ * What a layer shows on one screen: the session's value, else the role's
+ * default, else the twin's own (the wall's L sheet and the remote agree).
+ */
+export function layerValue(screen = {}, key) {
+  if (screen.layers && key in screen.layers) return Boolean(screen.layers[key]);
+  if (ROLES[screen.role]?.layersOn?.includes(key)) return true;
+  for (const g of LAYER_CATALOG)
+    for (const L of g.layers) if (L.key === key) return L.def;
+  return false;
+}

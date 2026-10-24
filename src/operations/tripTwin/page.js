@@ -6543,7 +6543,8 @@ async function main() {
   // ---- keyboard (no key sends a message or dismisses a report) ----
   let attentionIndex = -1;
   const flatNeeds = () => (lastCtx?.mode.groups || []).flatMap((g) => g.rows);
-  // Walls: only view keys work by hand; every setting is on the remote.
+  // Walls: only view keys work by hand here; L / D / K open the wall's own
+  // sheets (twinWallSheet.js) and every other setting is on the remote.
   const WALL_KEYS = new Set([
     '1',
     '2',
@@ -6929,11 +6930,7 @@ async function main() {
     applyRoleDefaults(role) {
       // Roles look different from across the room (review R7): weather
       // over the area with heat detections; people from straight above.
-      if (role === 'weather') {
-        for (const k of ['precip', 'clouds', 'lightning', 'radar3d'])
-          screenApi.setLayer(k, true);
-        screenApi.setLayer('fires', true);
-      }
+      for (const k of ROLES[role]?.layersOn || []) screenApi.setLayer(k, true);
       if (role === 'travelers') screenApi.frame({ kind: 'topdown' });
     },
     frame(subject) {

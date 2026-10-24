@@ -921,6 +921,13 @@ const sync = connectSync({
     },
     state(m) {
       ui.state = m.state;
+      // A change made at a wall (its L / D sheet) is named here (D5),
+      // never over a live Undo.
+      const undoLive = ui.bar?.kind === 'undo' && ui.bar.until > Date.now();
+      if (m.by === 'screen' && m.slot && !undoLive)
+        notify(
+          `S${m.slot} · ${m.label || 'Display changed'} · set at the screen`,
+        );
       setTimeout(() => refreshWx(), 0);
       ui.presence = m.presence || ui.presence;
       ui.controller = Boolean(ui.presence?.youControl);

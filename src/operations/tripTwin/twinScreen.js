@@ -8,6 +8,7 @@ import { toJpeg } from 'html-to-image';
 import { ROLES, wallName } from './twinScreenRoles.js';
 import { connectSync } from './twinSync.js';
 import { setNameStyle } from './twinHud.js';
+import { createWallSheet } from './twinWallSheet.js';
 
 const el = (tag, cls, text) => {
   const n = document.createElement(tag);
@@ -275,7 +276,11 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     };
     if (prev && info.by) {
       lastChangeAt = Date.now();
-      changeText = info.undone ? 'Undone' : 'Updated';
+      changeText = info.undone
+        ? 'Undone'
+        : info.by === 'screen' && info.slot === mySlot
+          ? 'Set at this screen'
+          : 'Updated';
     }
     try {
       localStorage.setItem(
@@ -286,6 +291,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       /* ignore */
     }
     paint();
+    sheet?.refresh();
   }
 
   /** Header, chip, badge and stale band — repainted every second. */
@@ -421,6 +427,14 @@ export function createScreenMode({ api, slot = null, setup = null }) {
   }
   for (const t of ['pointermove', 'pointerdown', 'wheel', 'keydown'])
     window.addEventListener(t, onInput, { capture: true, passive: true });
+  // L / D / K: this screen's own Layers, Display and Keys sheets (D5),
+  // written through the session so the remote stays the truth.
+  const sheet = createWallSheet({
+    screen: me,
+    slot: () => mySlot,
+    online: () => Boolean(sync?.online && mySlot),
+    write: (cmd, label) => sync.request({ t: 'screen-cmd', cmd, label }),
+  });
   window.addEventListener('pointerup', () => {
     dragging = false;
     const run = pendingCamera;
@@ -591,7 +605,10 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         paint();
       },
       identify,
-      status: () => paint(),
+      status: () => {
+        paint();
+        sheet.refresh();
+      },
     },
   });
 

@@ -198,6 +198,7 @@ Each has an id, name, org, days and its own scenario. Tiles come from the same p
 
 ## Changes during the build (Jesse, 16 Oct 2026)
 - **Walls are display only.** Every setting (layers, scale, text size, Ways out, display) moved to the remote; a wall shows only its role's content. A **04 Layers** station was added to this phase for that.
+  - *Amended 23 Oct 2026 (Jesse, D5):* a keyboard at a wall opens that screen's own full-screen sheets: **L** Layers, **D** Display (scale, text size, motion, reset to role defaults), **K** Keys. They write through the session (`screen-cmd`; the host accepts only the screen's own slot and those fields, no lease needed), so the remote shows the change at once ("S4 · Rain map off · set at the screen") and stays the one truth. Role, Live/Advance, pin and wall-wide settings stay on the remote. Code: `twinWallSheet.js`, `twinSessionHost.screenCommand`.
 - **One screen at a time.** The target picker (S1–S6 · All) applies every control to the chosen screen or to all of them.
 - **QR pairing.** Two libraries were added: `qrcode` for the remote's QR on the Trip Twin computer and `html-to-image` for the true-picture previews. Pairing:
   - The computer that chooses Multi-view starts a setup. Only this computer (localhost) can start one.

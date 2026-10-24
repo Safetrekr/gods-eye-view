@@ -182,6 +182,20 @@ export function createRelay({
           });
         break;
       }
+      case 'screen-cmd': {
+        // A wall's own L / D sheet: its own slot, display fields only.
+        if (me.kind !== 'screen') break;
+        const r = host.screenCommand({ by: me.id, cmd: m.cmd });
+        send(ws, { t: 'ack', reqId: m.reqId, ...r });
+        if (r.ok)
+          broadcastState({
+            changed: r.changed,
+            by: 'screen',
+            slot: r.slot,
+            label: String(m.label || '').slice(0, 80),
+          });
+        break;
+      }
       case 'undo': {
         const r = host.undo({ by: me.id, undoId: m.undoId });
         send(ws, { t: 'ack', reqId: m.reqId, ...r });

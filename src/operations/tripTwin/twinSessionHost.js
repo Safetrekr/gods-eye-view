@@ -6,6 +6,13 @@
 // Prototype only — production needs TLS, device enrolment, operator SSO,
 // signed commands and an audit log (07-production-delta).
 import { applyCommand, applyUndo, createSession } from './twinSession.js';
+import { LAYER_CATALOG } from './twinScreenRoles.js';
+
+const LAYER_KEYS = new Set(
+  LAYER_CATALOG.flatMap((g) => g.layers.map((L) => L.key)),
+);
+const MOTION_KEYS = new Set(['live', 'event', 'cine']);
+const SCALES = new Set(['building', 'neighborhood', 'city']);
 
 export const CODE_TTL_MS = 5 * 60 * 1000;
 export const LEASE_MS = 30 * 1000;
@@ -289,6 +296,53 @@ export function createSessionHost({
         skipped: r.skipped,
         undoId,
       };
+    },
+    /**
+     * A paired screen changes its own layers and display from its keyboard
+     * (L / D at the wall; Jesse, 23 Oct 2026). Its own slot only, these
+     * fields only, no lease needed: the session stays the one truth, so
+     * the remote shows the change at once. Role, mode, pin and anything
+     * wall-wide stay on the remote.
+     */
+    screenCommand({ by, cmd }) {
+      const d = devices.get(by);
+      if (d?.kind !== 'screen' || !d.slot)
+        return { ok: false, error: 'This screen is not paired' };
+      const own = Number(cmd?.target) === d.slot;
+      let safe = null;
+      if (cmd?.type === 'reset' && own)
+        safe = { type: 'reset', target: d.slot };
+      if (cmd?.type === 'screens' && own) {
+        const p = cmd.patch || {};
+        const patch = {};
+        const flags = (o, keys) =>
+          Object.fromEntries(
+            Object.entries(o && typeof o === 'object' ? o : {})
+              .filter(([k, v]) => keys.has(k) && typeof v === 'boolean')
+              .slice(0, 40),
+          );
+        if ('layers' in p) {
+          const l = flags(p.layers, LAYER_KEYS);
+          if (Object.keys(l).length) patch.layers = l;
+        }
+        if ('motion' in p) {
+          const m = flags(p.motion, MOTION_KEYS);
+          if (Object.keys(m).length) patch.motion = m;
+        }
+        if (SCALES.has(p.scale)) patch.scale = p.scale;
+        if (Number.isFinite(p.textScale))
+          patch.textScale = Math.max(1, Math.min(3.5, p.textScale));
+        if (Object.keys(patch).length)
+          safe = { type: 'screens', target: d.slot, patch };
+      }
+      if (!safe)
+        return {
+          ok: false,
+          error: 'A screen changes only its own layers and display',
+        };
+      const r = applyCommand(session, safe, { by: `S${d.slot}`, at: now() });
+      session = r.state;
+      return { ok: true, rev: session.rev, changed: r.changed, slot: d.slot };
     },
     undo({ by, undoId }) {
       const u = undos.get(undoId);

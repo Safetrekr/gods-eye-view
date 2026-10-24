@@ -158,3 +158,70 @@ test('a screen whose slot is given away is told', () => {
   assert.ok(a.last('unpaired'), 'old screen told');
   assert.equal(b.last('welcome').slot, 2);
 });
+
+test('a wall changes its own layers and display, nothing else (D5)', () => {
+  const relay = createRelay();
+  const launcher = fakeSocket();
+  relay.attach(launcher);
+  launcher.say({ t: 'setup', count: 3 });
+  const { setup } = launcher.last('setup');
+  const s2 = fakeSocket();
+  relay.attach(s2);
+  s2.say({ t: 'hello', id: 'S2', kind: 'screen', setup, slot: 2 });
+  const remote = fakeSocket();
+  relay.attach(remote);
+  remote.say({ t: 'hello', id: 'R', kind: 'remote', setup, name: 'iPad' });
+
+  // Its own slot, with a remote in control: applied, and the remote hears.
+  s2.say({
+    t: 'screen-cmd',
+    reqId: 1,
+    label: 'Rain map on',
+    cmd: {
+      type: 'screens',
+      target: 2,
+      patch: { layers: { precip: true, bogus: true }, scale: 'city' },
+    },
+  });
+  assert.equal(s2.last('ack').ok, true);
+  const st = remote.last('state');
+  assert.equal(st.by, 'screen');
+  assert.equal(st.slot, 2);
+  assert.equal(st.label, 'Rain map on');
+  assert.deepEqual(st.state.screens[2].layers, { precip: true });
+  assert.equal(st.state.screens[2].scale, 'city');
+  assert.equal(st.state.screens[2].meta.scale.by, 'S2');
+
+  // Another screen, the role, a pin or the session: refused, no broadcast.
+  const before = remote.out.length;
+  for (const cmd of [
+    { type: 'screens', target: 1, patch: { layers: { precip: true } } },
+    { type: 'screens', target: 2, patch: { role: 'trips', pinned: true } },
+    { type: 'screens', target: 'all', patch: { scale: 'city' } },
+    { type: 'session', patch: { visitor: true } },
+    { type: 'returnLive' },
+  ]) {
+    s2.say({ t: 'screen-cmd', reqId: 2, cmd });
+    assert.equal(s2.last('ack').ok, false);
+  }
+  assert.equal(remote.out.length, before);
+
+  // Text size is clamped; a reset of its own slot is allowed.
+  s2.say({
+    t: 'screen-cmd',
+    reqId: 3,
+    cmd: { type: 'screens', target: 2, patch: { textScale: 9 } },
+  });
+  assert.equal(remote.last('state').state.screens[2].textScale, 3.5);
+  s2.say({ t: 'screen-cmd', reqId: 4, cmd: { type: 'reset', target: 2 } });
+  assert.equal(s2.last('ack').ok, true);
+  assert.deepEqual(remote.last('state').state.screens[2].layers, {});
+
+  // A remote cannot use the screen path.
+  remote.say({
+    t: 'screen-cmd',
+    reqId: 5,
+    cmd: { type: 'screens', target: 2, patch: { scale: 'building' } },
+  });
+  assert.equal(remote.last('ack')?.reqId, undefined);
+});

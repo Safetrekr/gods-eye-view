@@ -9,6 +9,7 @@ import {
   LAYER_CATALOG,
   ROLES,
   ROLE_ORDER,
+  layerValue,
   screenSummary,
 } from '../twinScreenRoles.js';
 import { DEMO_TRIPS, tripById } from '../demoTrips.js';
@@ -652,8 +653,9 @@ function layers(ctx) {
   const { state, target } = ctx;
   const slots =
     target === 'all' ? Object.keys(state.screens).map(Number) : [target];
-  const value = (key, def) => {
-    const vals = slots.map((s) => state.screens[s]?.layers?.[key] ?? def);
+  // What each wall shows, role defaults included (the wall's L sheet agrees).
+  const value = (key) => {
+    const vals = slots.map((s) => layerValue(state.screens[s], key));
     return vals.every((v) => v === vals[0]) ? vals[0] : null;
   };
   const out = [...head('Layers & display', `Applies to ${tgtName(target)}`)];
@@ -708,7 +710,7 @@ function layersAndDisplay(ctx, out, value, slots) {
   for (const g of LAYER_CATALOG) {
     out.push(kick(g.group, scopeOf(target)));
     for (const L of g.layers) {
-      const v = value(L.key, L.def);
+      const v = value(L.key);
       const r = el('div', 'rm-layer');
       const lab = el('div', 'lab', L.label);
       if (v === null) lab.append(el('small', '', 'differs between screens'));
