@@ -981,11 +981,22 @@ export function createSessionHost({
      * fields only, no lease needed: the session stays the one truth, so
      * the remote shows the change at once. Role, mode, pin and anything
      * wall-wide stay on the remote.
+     * CF: attributed to the wall's own ref with via 'keyboard', logged as
+     * cmd.applied / cmd.refused like a remote's command; no Undo entry
+     * (the wall's sheet sets the value back itself). The command is
+     * rebuilt from the allowlist below, so no actor field can ride along.
      */
     screenCommand({ by, cmd }) {
+      const refused = (error, code = CODE.VALIDATION_COMMAND) => {
+        say('cmd.refused', {
+          actor: actorOfId(by, VIA.KEYBOARD),
+          data: { type: cmd?.type, code, field: null },
+        });
+        return { ok: false, code, error };
+      };
       const d = devices.get(by);
       if (d?.kind !== 'screen' || !d.slot)
-        return { ok: false, error: 'This screen is not paired' };
+        return refused('This screen is not paired');
       const own = Number(cmd?.target) === d.slot;
       let safe = null;
       if (cmd?.type === 'reset' && own)
@@ -1014,13 +1025,29 @@ export function createSessionHost({
           safe = { type: 'screens', target: d.slot, patch };
       }
       if (!safe)
-        return {
-          ok: false,
-          error: 'A screen changes only its own layers and display',
-        };
-      const r = applyCommand(session, safe, { by: `S${d.slot}`, at: now() });
+        return refused('A screen changes only its own layers and display');
+      const r = applyCommand(session, safe, { by: refOfId(by), at: now() });
+      if (r.error) return refused(r.error, CODE.UNKNOWN_COMMAND);
+      const before = session;
       session = r.state;
-      return { ok: true, rev: session.rev, changed: r.changed, slot: d.slot };
+      say('cmd.applied', {
+        actor: actorOfId(by, VIA.KEYBOARD),
+        rev: { before: before.rev, after: session.rev },
+        data: {
+          type: safe.type,
+          target: safe.target,
+          fields: Object.keys(safe.patch || {}),
+          diffs: commandDiffs(before, session, safe, r.changed),
+          changed: r.changed,
+          skipped: r.skipped || [],
+        },
+      });
+      return {
+        ok: true,
+        rev: session.rev,
+        changed: r.changed,
+        skipped: r.skipped || [],
+      };
     },
     undo({ by, undoId }) {
       const u = undos.get(undoId);

@@ -358,6 +358,25 @@ test('K6 ET-5: each message type writes exactly one line; heartbeats, thumbnails
     [R, { t: 'request-control' }, 1],
     [V, { t: 'handover', accept: false }, 1],
     [V, { t: 'identify' }, 1],
+    [
+      S2,
+      {
+        t: 'screen-cmd',
+        reqId: 12,
+        label: 'x',
+        cmd: { type: 'screens', target: 2, patch: { scale: 'city' } },
+      },
+      1,
+    ],
+    [
+      S2,
+      {
+        t: 'screen-cmd',
+        reqId: 13,
+        cmd: { type: 'screens', target: 1, patch: { scale: 'city' } },
+      },
+      1,
+    ],
     [S2, { t: 'local', on: true, text: 'x', drift: false }, 1],
     [S2, { t: 'local', on: true, text: 'y', drift: false }, 0],
     [S1, { t: 'thumb', data: THUMB }, 0],
@@ -370,6 +389,39 @@ test('K6 ET-5: each message type writes exactly one line; heartbeats, thumbnails
   ];
   for (const [ws, msg, want] of rows)
     assert.equal(await count(ws, msg), want, JSON.stringify(msg));
+});
+
+test('CF (shell D5): a wall\'s keyboard change is logged as cmd.applied by the wall\'s ref, via keyboard; a refused one as cmd.refused with its code', async () => {
+  const dir = freshDir();
+  const audit = createAuditLog({ dir, pruneEveryMs: 0 });
+  const { socks } = goldenSession(audit);
+  // Its free-text label (a planted name here) never reaches the folder.
+  socks.S2.say({
+    t: 'screen-cmd',
+    reqId: 80,
+    label: `Rain map on · ${PLANTED}`,
+    cmd: { type: 'screens', target: 2, patch: { layers: { precip: true } } },
+  });
+  socks.S2.say({
+    t: 'screen-cmd',
+    reqId: 81,
+    label: PLANTED,
+    cmd: { type: 'screens', target: 1, patch: { role: 'day' } },
+  });
+  await audit.flush();
+  assert.equal(folderText(dir).includes('Ottoline'), false);
+  const lines = linesIn(dir);
+  const mine = lines.filter((l) => l.actor?.via === 'keyboard');
+  const applied = mine.find((l) => l.type === 'cmd.applied');
+  assert.ok(applied, 'cmd.applied via keyboard');
+  assert.equal(applied.actor.kind, 'screen');
+  assert.equal(applied.actor.slot, 2);
+  assert.match(applied.actor.ref, /^D\d+$/);
+  assert.deepEqual(applied.data.fields, ['layers']);
+  assert.equal(applied.data.target, 2);
+  const refused = mine.find((l) => l.type === 'cmd.refused');
+  assert.ok(refused, 'cmd.refused via keyboard');
+  assert.equal(refused.data.code, 'VALIDATION_COMMAND');
 });
 
 // ------------------------------------------------------------- canary

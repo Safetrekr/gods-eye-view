@@ -45,7 +45,7 @@ const rel = (p) => path.relative(ROOT, p).split(path.sep).join('/');
  * slice. K8 adds fifteen describer, chip, card-copy and status-strip tests
  * (twinDescribe.test.mjs).
  */
-export const BASELINE = 295;
+export const BASELINE = 298;
 /**
  * From K6 every gate re-runs the audit canary (PHASE-CF-PLAN §6.2 rule 8);
  * from L5 the token scan and the v1 migration (§6.6 L5 gate, S-14): these

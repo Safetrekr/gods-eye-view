@@ -213,12 +213,19 @@ test('a wall changes its own layers and display, nothing else (D5)', () => {
   });
   assert.equal(s2.last('ack').ok, true);
   const st = remote.last('state');
-  assert.equal(st.by, 'screen');
-  assert.equal(st.slot, 2);
-  assert.equal(st.label, 'Rain map on');
+  // CF (K5 attribution): the wall's actor, via its keyboard; a CMD state,
+  // so no message changes shape; the page's label is never broadcast.
+  assert.equal(st.cause, 'cmd');
+  assert.equal(st.by.kind, 'screen');
+  assert.equal(st.by.slot, 2);
+  assert.equal(st.by.name, 'S2');
+  assert.equal(st.by.via, 'keyboard');
+  assert.match(st.by.ref, /^D\d+$/);
+  assert.equal('label' in st, false);
+  assert.equal('slot' in st, false);
   assert.deepEqual(st.state.screens[2].layers, { precip: true });
   assert.equal(st.state.screens[2].scale, 'city');
-  assert.equal(st.state.screens[2].meta.scale.by, 'S2');
+  assert.equal(st.state.screens[2].meta.scale.by, st.by.ref);
 
   // Another screen, the role, a pin or the session: refused, no broadcast.
   const before = remote.out.length;
@@ -231,6 +238,7 @@ test('a wall changes its own layers and display, nothing else (D5)', () => {
   ]) {
     s2.say({ t: 'screen-cmd', reqId: 2, cmd });
     assert.equal(s2.last('ack').ok, false);
+    assert.equal(s2.last('ack').code, 'VALIDATION_COMMAND');
   }
   assert.equal(remote.out.length, before);
 
@@ -252,6 +260,46 @@ test('a wall changes its own layers and display, nothing else (D5)', () => {
     cmd: { type: 'screens', target: 2, patch: { scale: 'building' } },
   });
   assert.equal(remote.last('ack')?.reqId, undefined);
+});
+
+test('CF: a wall\'s keyboard changes share the per-device command limit (S-16) and carry no actor field from the page', () => {
+  const relay = createRelay();
+  const launcher = fakeSocket();
+  relay.attach(launcher);
+  launcher.say({ t: 'setup', count: 3 });
+  const { setup } = launcher.last('setup');
+  const s3 = fakeSocket();
+  relay.attach(s3);
+  s3.say({ t: 'hello', id: 'S3', kind: 'screen', setup, slot: 3 });
+  // An actor claimed inside the command or beside it is never read.
+  s3.say({
+    t: 'screen-cmd',
+    reqId: 1,
+    by: 'D0',
+    via: 'voice',
+    cmd: {
+      type: 'screens',
+      target: 3,
+      by: 'D0',
+      patch: { layers: { lightning: true } },
+    },
+  });
+  const st = launcher.last('state') || s3.last('state');
+  assert.equal(st.by.kind, 'screen');
+  assert.equal(st.by.via, 'keyboard');
+  // Burst 20, then RATE_LIMITED with retryAfterMs; nothing past it applies.
+  const acks = [];
+  for (let i = 0; i < 40; i++) {
+    s3.say({
+      t: 'screen-cmd',
+      reqId: 100 + i,
+      cmd: { type: 'screens', target: 3, patch: { textScale: 1 + (i % 2) } },
+    });
+    acks.push(s3.last('ack'));
+  }
+  const refused = acks.filter((a) => a.code === 'RATE_LIMITED');
+  assert.ok(refused.length >= 15, `${refused.length} refused`);
+  assert.ok(refused.every((a) => a.ok === false && a.retryAfterMs > 0));
 });
 
 // ---- Today's upgrade rule, through the real Vite plugin handler --------

@@ -1161,6 +1161,52 @@ async function smoke(server, browser) {
     },
   );
 
+  // ---- Shell D5 (CF contract): a wall's own L sheet --------------------
+  await step(
+    'D5-S1',
+    'shell D5 under CF: the S6 wall opens its own L sheet and turns the grid back on; the remote hears a CMD state by S6 via keyboard (no label, no raw id) and the chip says "S6 · Scale grid on · by S6 keyboard · HH:MM"',
+    async () => {
+      await sleep(3500); // past the K8-S2 chip window
+      const heard = remote.c.next(
+        (m) => m.t === 'state' && m.by?.via === 'keyboard',
+        8000,
+        'the keyboard state',
+      );
+      await page.keyboard.press('l');
+      await page.waitForSelector('.tt-wall-sheet:not([hidden])', {
+        timeout: 5000,
+      });
+      await page.click('.tt-wall-sheet [data-focus="layer:grid"]');
+      const st = await heard;
+      must(st.cause === 'cmd', `cause ${st.cause}`);
+      must(
+        st.by.kind === 'screen' && st.by.slot === 6 && st.by.name === 'S6',
+        `by ${JSON.stringify(st.by)}`,
+      );
+      must(/^D\d+$/.test(st.by.ref), 'by.ref is a ref');
+      must(!('label' in st) && !('slot' in st), 'no label or slot beside by');
+      must(st.state.screens[6].layers.grid === true, 'S6 grid on');
+      const chip = await pageUntil(
+        page,
+        (re) => {
+          const t = document.querySelector('[data-tt-chip]')?.textContent || '';
+          return new RegExp(re).test(t) && t;
+        },
+        // The keys pressed at S6 make it hands-on: the chip says so too.
+        `^S6 · Scale grid on · by S6 keyboard · ${HHMM}( · hands-on)?$`,
+        3000,
+        'the S6 chip to name its keyboard',
+      ).catch(async (e) => {
+        const now = await page.evaluate(
+          () => document.querySelector('[data-tt-chip]')?.textContent || '',
+        );
+        throw new Error(`${e.message} (chip says "${now}")`);
+      });
+      await page.keyboard.press('Escape');
+      return { detail: `by ${st.by.ref} (${st.by.name}, via ${st.by.via}); chip "${chip}"` };
+    },
+  );
+
   // The remote page on this computer joins as a second remote (view only).
   let rmCtx = null;
   let rm = null;
@@ -2162,9 +2208,12 @@ async function smoke(server, browser) {
         height: 1440,
         deviceScaleFactor: 2,
       });
+      // 60 s: a 5K page drawn to JPEG in software (SwiftShader) on a busy
+      // machine missed 30 s once in four runs (24 Oct); this step checks
+      // format, size and spacing, not speed.
       await until(
         () => remote.c.all('thumb').filter((m) => m.slot === 6).length >= 2,
-        30000,
+        60000,
       );
       await page.setViewport({ width: 1280, height: 760 });
       const thumbs = remote.c.all('thumb');

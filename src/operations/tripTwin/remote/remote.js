@@ -41,7 +41,7 @@ import {
   render,
   scopeLine,
 } from '../twinDescribe.js';
-import { DENY, pairPausedUntil } from '../twinProtocol.js';
+import { DENY, VIA, pairPausedUntil } from '../twinProtocol.js';
 
 const params = new URLSearchParams(location.search);
 const app = document.getElementById('rm-app');
@@ -1146,11 +1146,12 @@ const sync = connectSync({
       noteChange(ui.state, m);
       ui.state = m.state;
       // A change made at a wall (its L / D sheet) is named here (D5),
-      // never over a live Undo.
+      // never over a live Undo. The words are the describer's (K8).
       const undoLive = ui.bar?.kind === 'undo' && ui.bar.until > Date.now();
-      if (m.by === 'screen' && m.slot && !undoLive)
+      const atWall = m.by?.via === VIA.KEYBOARD && m.by.slot;
+      if (atWall && !undoLive)
         notify(
-          `S${m.slot} · ${m.label || 'Display changed'} · set at the screen`,
+          `S${m.by.slot} · ${ui.seen[m.by.slot]?.text || 'display changed'} · set at the screen`,
         );
       setTimeout(() => refreshWx(), 0);
       ui.presence = m.presence || ui.presence;

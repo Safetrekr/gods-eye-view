@@ -80,12 +80,13 @@ export const MSG_TYPES = Object.freeze([
   'identify',
   'local',
   'thumb',
+  'screen-cmd',
 ]);
 
 // ---------------------------------------------------------------- K5
 // Protocol version (S-15, review U-B1, ET S1). Every slice that changes a
 // message shape raises PROTO and sets PROTO_MIN = PROTO: K5 → 2, K7 → 3,
-// K9 → 4, K10 → 5, K11 → 6. A hello below PROTO_MIN (or with no `proto`:
+// wall keyboard commands (shell D5) → 4, then K9 → 5, K10 → 6, K11 → 7. A hello below PROTO_MIN (or with no `proto`:
 // every page from before K5) is refused RELOAD with text an old page can
 // show. twinProtocol.test.mjs keeps one schema hash per PROTO: a shape
 // change without a bump fails it.
@@ -95,11 +96,14 @@ export const MSG_TYPES = Object.freeze([
  * is `{type:'pair-code', code, ttlMs}` with no state or presence (and is
  * sent again with a new code when the old one expires); launchers get
  * presence only; presence carries `health {audit, store}`; BUSY and
- * RATE_LIMITED carry `retryAfterMs`.
+ * RATE_LIMITED carry `retryAfterMs`. 4 (shell D5): a wall's own L / D
+ * sheet sends `screen-cmd`; the CMD state it causes has `by` = the wall's
+ * actor, whose `slot` is a number (a remote's is null) and `via`
+ * 'keyboard'.
  */
-export const PROTO = 3;
+export const PROTO = 4;
 /** The oldest page the relay still talks to. */
-export const PROTO_MIN = 3;
+export const PROTO_MIN = 4;
 
 /** True when a page says a protocol this relay still talks to. */
 export const protoOk = (proto) => Number.isInteger(proto) && proto >= PROTO_MIN;
@@ -187,9 +191,14 @@ export const CAUSE = Object.freeze({
 
 /**
  * How an actor acted (§4.4). Set by the relay from the socket, never taken
- * from a message. V1 adds 'voice', relay-verified, never client-claimed.
+ * from a message. 'keyboard': a paired wall's own L / D sheet (shell D5,
+ * `screen-cmd`). V1 adds 'voice', relay-verified, never client-claimed.
  */
-export const VIA = Object.freeze({ TOUCH: 'touch', SYSTEM: 'system' });
+export const VIA = Object.freeze({
+  TOUCH: 'touch',
+  SYSTEM: 'system',
+  KEYBOARD: 'keyboard',
+});
 
 /**
  * Attribution (§4.4, CF-D8, F-0003). An actor is
