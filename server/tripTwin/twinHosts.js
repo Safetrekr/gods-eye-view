@@ -330,15 +330,15 @@ export function twinHostGuard({ check }) {
     const peer = req.socket?.remoteAddress || '';
     const site = req.headers?.['sec-fetch-site'];
     // Always on: a cross-site or same-site page cannot fire these blind.
+    const secure = Boolean(req.socket?.encrypted);
     if (!fetchSiteOk(site)) {
-      check.note('http.refused', {
-        reason: 'fetch-site',
-        site: clip(site),
-        path: pathOnly(path),
-      });
+      check.note(
+        'http.refused',
+        { reason: 'fetch-site', site: clip(site), path: pathOnly(path) },
+        { peer: { ip: peer, local: isLoopbackPeer(peer) }, secure },
+      );
       return forbid(res, 'Cross-site requests are refused');
     }
-    const secure = Boolean(req.socket?.encrypted);
     const port = req.socket?.localPort || check.port();
     const v = hostVerdict(req.headers?.host, check.lists(port), { secure });
     // Report mode (K3): today has no Host check here, so the floor allows;
@@ -360,5 +360,30 @@ export function twinHostGuard({ check }) {
         }),
       );
     return next();
+  };
+}
+
+/**
+ * `handler` only for this computer (§4.4, K6: /api/twin-sync/health and
+ * /log): localOnly() in every host-check mode; anything else gets 403 and
+ * an `http.refused` audit event with the peer. Mount after the guard.
+ */
+export function twinLocalOnly({ check, handler }) {
+  return function tripTwinLocalOnly(req, res, next) {
+    const v = localOnlyRequest(req, check.port());
+    if (v.ok) return handler(req, res, next);
+    const peer = req.socket?.remoteAddress || '';
+    check.note(
+      'http.refused',
+      {
+        reason: `local-${v.reason}`,
+        path: pathOnly(req.originalUrl || req.url),
+      },
+      {
+        peer: { ip: peer, local: isLoopbackPeer(peer) },
+        secure: Boolean(req.socket?.encrypted),
+      },
+    );
+    return forbid(res, 'Only on the Trip Twin computer');
   };
 }

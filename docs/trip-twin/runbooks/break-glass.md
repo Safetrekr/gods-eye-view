@@ -4,7 +4,7 @@ In this order; stop at the first step that works (PHASE-CF-PLAN K2, S-11, S-14; 
 
 ## 1. Walls stuck on "connecting": add the name first
 
-The page was opened through a name or address the relay does not allow (a new DHCP address, the `.local` name, a venue network). From K3 the dev log says `host.would_refuse` with the Host, and the same line is in `~/Library/Logs/trip-twin/would-refuse.jsonl` (or `$TRIP_TWIN_AUDIT_DIR`). In K3 nothing is refused yet for this reason (report mode); from K12 it is.
+The page was opened through a name or address the relay does not allow (a new DHCP address, the `.local` name, a venue network). From K3 the dev log says `host.would_refuse` with the Host, and the same line is in `~/Library/Logs/trip-twin/would-refuse.jsonl` (or `$TRIP_TWIN_AUDIT_DIR`). In K3 nothing is refused yet for this reason (report mode); from K12 it is. From K6 a request that today's rule does refuse (a foreign Origin on the socket, a cross-site page) is also an `upgrade.refused` or `http.refused` line, with the peer, in the day's `~/Library/Logs/trip-twin/audit-YYYY-MM-DD.jsonl`.
 
 ```sh
 tail -n 20 ~/Library/Logs/trip-twin/would-refuse.jsonl   # host, origin, peer, reason; never a token

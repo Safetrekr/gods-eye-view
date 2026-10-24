@@ -11,15 +11,25 @@
 //     (default ~/Library/Logs/trip-twin/, folder 0700, file 0600; refused
 //     inside the repo or Vite's root, never swapped for the default). At
 //     most 60 lines a minute (the rest are counted), and the file stops at
-//     20 MB. K6 takes the file over.
+//     20 MB. K6 takes the file over: auditLog.js keeps it to the audit's
+//     30 days and 200 MB, and health reports it.
 //   - One check per dev server: the relay, the routing proxy and the
-//     weather proxy share it (hostCheckFor).
+//     weather proxy share it (hostCheckFor), and the server's audit log
+//     (K6): real refusals (`upgrade.refused`, `http.refused`) are audit
+//     events with the peer, at most 60 a minute (the rest counted).
 import { execFile, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { resolveFencedDir } from './sessionStore.js';
+import {
+  AUDIT_DIR_MODE,
+  AUDIT_FILE_MODE,
+  WOULD_REFUSE_FILE,
+  auditLogFor,
+  defaultAuditDir,
+  resolveAuditDir,
+} from './auditLog.js';
 import {
   DEFAULT_HOST_CHECK,
   HOST_CHECK_MODES,
@@ -28,9 +38,15 @@ import {
   parseAllowedHosts,
 } from './twinHosts.js';
 
-export const WOULD_REFUSE_FILE = 'would-refuse.jsonl';
-export const AUDIT_DIR_MODE = 0o700;
-export const AUDIT_FILE_MODE = 0o600;
+// The folder rules live with the audit log since K6; re-exported for K3's
+// callers and tests.
+export {
+  AUDIT_DIR_MODE,
+  AUDIT_FILE_MODE,
+  WOULD_REFUSE_FILE,
+  defaultAuditDir,
+  resolveAuditDir,
+};
 export const LIST_MEMO_MS = 1000;
 export const BONJOUR_MEMO_MS = 60 * 1000;
 export const LINES_PER_MINUTE = 60;
@@ -42,26 +58,6 @@ const REPO_ROOT = path.resolve(
   '..',
   '..',
 );
-
-/** macOS convention (S-1). */
-export const defaultAuditDir = (home = os.homedir()) =>
-  path.join(home, 'Library', 'Logs', 'trip-twin');
-
-/** The audit folder, fenced like the data folder. */
-export function resolveAuditDir({
-  env = process.env,
-  home = os.homedir(),
-  fences = [],
-  fs: fsi = fs,
-} = {}) {
-  return resolveFencedDir({
-    name: 'TRIP_TWIN_AUDIT_DIR',
-    env,
-    fallback: defaultAuditDir(home),
-    fences,
-    fs: fsi,
-  });
-}
 
 /** TRIP_TWIN_HOST_CHECK → {mode, asked, note}. Never weaker than report. */
 export function hostCheckMode(env = process.env) {
@@ -190,6 +186,11 @@ export function openWouldRefuse({
       }
     },
     status: () => ({ file, lines, dropped, full, lastError }),
+    /** After the audit's retention trimmed the file (K6): look again. */
+    resync() {
+      size = null;
+      full = false;
+    },
   };
 }
 
@@ -207,10 +208,11 @@ export function createHostCheck({
   now = Date.now,
   port = () => null,
   fs: fsi = fs,
+  audit = null,
 } = {}) {
   const { mode, asked, note } = hostCheckMode(env);
   const extra = parseAllowedHosts(env.TRIP_TWIN_ALLOWED_HOSTS);
-  const audit = resolveAuditDir({
+  const where = resolveAuditDir({
     env,
     fences: [
       { name: 'the repo', path: REPO_ROOT },
@@ -219,11 +221,14 @@ export function createHostCheck({
     fs: fsi,
   });
   const bonjourName = bonjour || bonjourSource({ now });
-  const sink = openWouldRefuse({ dir: audit.dir, now, log, fs: fsi });
+  const sink = openWouldRefuse({ dir: where.dir, now, log, fs: fsi });
+  audit?.onPrune?.(() => sink.resync());
   let memo = null;
-  // Dev-log lines for real refusals: at most 60 a minute.
+  // Dev-log lines and audit events for real refusals: at most 60 a
+  // minute; the next one written says how many were left out.
   let noteMinute = -1;
   let notes = 0;
+  let notesDropped = 0;
   log('hosts.check', {
     mode,
     asked,
@@ -233,9 +238,9 @@ export function createHostCheck({
     ),
     ...(extra.refused.length ? { allowedHostsRefused: extra.refused } : {}),
     wouldRefuse: sink.file,
-    ...(audit.refused
+    ...(where.refused
       ? {
-          auditDirRefused: audit.refused,
+          auditDirRefused: where.refused,
           effect: 'would-refuse lines go to the dev log only',
         }
       : {}),
@@ -262,13 +267,32 @@ export function createHostCheck({
     /** This machine's LAN addresses now (for /api/twin-sync/info). */
     addresses: () => lanAddresses(osi.networkInterfaces()),
     record: (line) => sink.record(line),
-    note(event, data) {
+    /**
+     * A real refusal: a dev-log line and (K6) an audit event. `ctx` is
+     * {peer, secure, data}: the peer and any extra fields go to the audit
+     * only (C38), never to the dev log.
+     */
+    note(event, data, ctx = {}) {
       const m = Math.floor(now() / 60000);
       if (m !== noteMinute) {
         noteMinute = m;
         notes = 0;
       }
-      if (notes++ < LINES_PER_MINUTE) log(event, data);
+      if (notes++ >= LINES_PER_MINUTE) {
+        notesDropped += 1;
+        return;
+      }
+      log(event, data);
+      audit?.emit?.(event, {
+        data: {
+          ...data,
+          ...ctx.data,
+          ...(notesDropped ? { dropped: notesDropped } : {}),
+        },
+        peer: ctx.peer,
+        secure: ctx.secure,
+      });
+      notesDropped = 0;
     },
     status: () => ({ mode, wouldRefuse: sink.status() }),
   };
@@ -297,9 +321,11 @@ export function useHostCheck(server, check) {
 export function hostCheckFor(server) {
   let check = perServer.get(server);
   if (!check) {
+    const log = twinLogger(server);
     check = createHostCheck({
       viteRoot: server?.config?.root || null,
-      log: twinLogger(server),
+      log,
+      audit: auditLogFor(server, { log }),
       port: () => {
         const a = server?.httpServer?.address?.();
         return typeof a === 'object' && a ? a.port : null;

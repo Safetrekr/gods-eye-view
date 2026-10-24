@@ -3,8 +3,8 @@
 The morning of a demo, on the Mac Studio, before anyone is in the room (PHASE-CF-PLAN §6.2; ET S10). No deploy within 48 hours of a demo (CF-D10). The launcher will show these as one pre-flight line once K6 and K11 land; until then, check by hand.
 
 1. **Reload every page**: the six walls and the iPad.
-2. **Routing health up** (health from K6; before that, draw one rally path on the iPad and see the minutes).
-3. **The log is writing** (health from K6; before that, `tail ~/Library/Logs/trip-twin-dev.log` shows today's lines). Store lines should read `store.loaded`, never `store.saved_error`: `grep '\[trip-twin\] store\.' ~/Library/Logs/trip-twin-dev.log | tail -3`.
+2. **Routing health up** (from L1; until then, draw one rally path on the iPad and see the minutes).
+3. **The log is writing** (from K6: on the Mac Studio, `curl -s http://localhost:4173/api/twin-sync/health` shows `"audit":{"ok":true` and `"store":{"ok":true`; the remote's "Log not writing" line comes with K8; before K6, `tail ~/Library/Logs/trip-twin-dev.log` shows today's lines). Store lines should read `store.loaded`, never `store.saved_error`: `grep '\[trip-twin\] store\.' ~/Library/Logs/trip-twin-dev.log | tail -3`.
 4. **Host-check mode `enforce`** (from K12). `report` is break-glass only ([break-glass.md](break-glass.md)).
 5. **iPad pairing not near its limit**. If the iPad warns, press Renew (from L6). An iPad unused for a week may need a new code ([re-pair.md](re-pair.md)).
 6. **The iPad is on the expected network name or IP** (the one in the launcher's QR).

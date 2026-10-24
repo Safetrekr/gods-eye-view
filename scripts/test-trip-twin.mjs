@@ -10,6 +10,8 @@
 //    twinIdentity.js; K4). Warnings until K7, failures after.
 // 4. Shared-file guard: no CF commit (on top of the CF base) touches one of
 //    Justin's seven shared paths, and neither does the working tree.
+// 4b. Audit canary (K6, §6.2 rule 8): the canary tests generated from the
+//    audit event catalogue must be there and pass, every run.
 // 5. Repo tests: runs the shared `npm test` runner as it is (never edits
 //    it). Any failure there fails this gate too; skips are listed. --no-repo
 //    leaves it out for a quick loop, and the run then says INCOMPLETE.
@@ -32,9 +34,24 @@ const rel = (p) => path.relative(ROOT, p).split(path.sep).join('/');
  * (twinHosts.test.mjs) and thirteen host-check tests (twinHostCheck.test.mjs);
  * K4 adds twenty-three identity tests (twinIdentity.test.mjs); K5 adds
  * thirteen attribution tests (twinAttribution.test.mjs) and eight protocol
- * tests (twinProtocol.test.mjs). Raise per slice.
+ * tests (twinProtocol.test.mjs); K6 adds seventeen audit and health tests
+ * (twinAudit.test.mjs). Raise per slice.
  */
-export const BASELINE = 234;
+export const BASELINE = 251;
+/**
+ * From K6 every gate re-runs the audit canary (PHASE-CF-PLAN §6.2 rule 8):
+ * these tests must be found and pass, or the gate fails.
+ */
+export const REQUIRED_TESTS = Object.freeze([
+  {
+    file: 'src/operations/tripTwin/twinAudit.test.mjs',
+    name: /^K6 canary \(catalogue\)/,
+  },
+  {
+    file: 'src/operations/tripTwin/twinAudit.test.mjs',
+    name: /^K6 canary \(relay run\)/,
+  },
+]);
 /** The commit CF-core branches from (cf/core). */
 export const CF_BASE = process.env.TRIP_TWIN_CF_BASE || '3431392';
 /** CF slice commits say so in their subject ("Trip Twin CF K1: …"). */
@@ -288,6 +305,16 @@ async function main() {
       `  FAIL ${rows.length} tests, fewer than the baseline ${BASELINE}`,
     );
     failed = true;
+  }
+
+  console.log('\nAudit canary · generated from the event catalogue (K6)');
+  for (const req of REQUIRED_TESTS) {
+    const hit = rows.find((r) => r.file === req.file && req.name.test(r.name));
+    const ok = hit?.status === 'pass';
+    console.log(
+      `  ${ok ? 'pass' : 'FAIL'} ${req.file} › ${hit ? hit.name : `${req.name} (not found)`}`,
+    );
+    if (!ok) failed = true;
   }
 
   const wiring = wiringFindings();
