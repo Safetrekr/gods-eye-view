@@ -244,6 +244,35 @@ function people(ctx) {
       'Spotlight selects the person on the walls (first name and initial there; initials in visitor mode).',
     ),
   );
+  // The spotlighted person, framed on the Site wall on request (the walls
+  // never move their camera on their own).
+  const sp = ctx.state.session.spotlight;
+  const who = sp?.kind === 'person' && list.find((p) => p.id === sp.id);
+  const site = slotWithRole(ctx.state, 'site');
+  if (who && site) {
+    const a = el('div', 'rm-actions');
+    a.append(
+      btn(
+        'rm-btn primary',
+        `Frame ${who.name.split(' ')[0]} on Site (S${site})`,
+        () =>
+          ctx.send(
+            {
+              type: 'screens',
+              target: site,
+              patch: {
+                frame: {
+                  subject: { kind: 'person', id: who.id },
+                  nonce: Date.now(),
+                },
+              },
+            },
+            `S${site} frames ${who.name.split(' ')[0]}`,
+          ),
+      ),
+    );
+    out.push(a);
+  }
   const l = el('div', 'rm-list');
   const sorted = [...list]
     .map((p) => ({ p, pos: positionState(p, 0) }))
@@ -393,7 +422,16 @@ function tripsOnWatch(ctx) {
           ctx.send(
             {
               type: 'session',
-              patch: { tripId: x.id, siteKey: null, spotlight: null },
+              // A report, its acknowledgement and the demo storm belong to
+              // the trip being left: never carried onto the next one.
+              patch: {
+                tripId: x.id,
+                siteKey: null,
+                spotlight: null,
+                report: null,
+                incidentAck: null,
+                simStorm: null,
+              },
             },
             `Every screen → ${x.title} (screens reload into its city)`,
           ),

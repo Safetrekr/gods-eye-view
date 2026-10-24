@@ -6786,7 +6786,16 @@ async function main() {
   );
   const pois = poisBySite[cityKey] || [];
   // SOC multi-view: screens count scenario time from the session's epoch.
-  let scenarioEpoch = null;
+  // Filming (?film, or ?film=<epoch ms> on a page outside a session): the
+  // feed lands on 15 s steps from the epoch, so takes recorded minutes
+  // apart show the same clock and data at the same second (film recording,
+  // scripts/film-trip-twin.mjs).
+  const FILM = params.has('film');
+  const filmEpoch = Number(params.get('film'));
+  let scenarioEpoch =
+    FILM && Number.isFinite(filmEpoch) && filmEpoch > 0 ? filmEpoch : null;
+  if (FILM) document.body.classList.add('tt-film');
+  let filmStep = null;
   const feed = () => {
     lastFeed = Date.now();
     twin.setSnapshot(
@@ -6801,9 +6810,18 @@ async function main() {
     );
   };
   feed();
-  const feedTimer = setInterval(() => {
-    if (!params.has('freeze')) feed();
-  }, 15000);
+  const feedTimer = FILM
+    ? setInterval(() => {
+        if (params.has('freeze') || scenarioEpoch == null) return;
+        const k = Math.floor((Date.now() - scenarioEpoch) / 15000);
+        if (k !== filmStep) {
+          filmStep = k;
+          feed();
+        }
+      }, 100)
+    : setInterval(() => {
+        if (!params.has('freeze')) feed();
+      }, 15000);
   const ageTimer = setInterval(() => twin.age(), 5000);
   cleanups.push(
     () => clearInterval(feedTimer),
@@ -7420,6 +7438,28 @@ async function main() {
       ],
     });
     cleanups.push(() => stations?.dispose());
+    // Filming (?film): the big-screen take's actions, through the same
+    // functions its buttons and keys call (scripts/film-trip-twin.mjs).
+    if (FILM)
+      window.__ttFilm = {
+        /** Select and frame a person, as the A key or a list row does. */
+        select: (id) => twin.selectPerson(id, { frame: true }),
+        /** The open card's path to an end ('site', 'rally', …), as its buttons. */
+        routeTo(prefix) {
+          if (!routeTarget || !routeModel) return false;
+          const end = routeEnds().find(
+            (e) => e && !e.disabled && e.key.startsWith(prefix),
+          );
+          if (!end) return false;
+          routeModel.originKey = end.key;
+          routeModel.stale = '';
+          runRoute();
+          return end.label;
+        },
+        storm: (on) => setSimStorm(on ? Date.now() : null),
+        report: (floor, kind) => twin.reportFloor(floor, kind),
+        trip: (id) => switchToTrip(tripById(id)),
+      };
     $('tt-other-alert').addEventListener('click', () => {
       flashTrip = otherTripIncidents()[0]?.trip.id || null;
       pickStation('trips');
@@ -7440,7 +7480,8 @@ async function main() {
     cleanups.push(() => rcolWatch.disconnect());
     renderStations();
   }
-  if (!VIEW && !params.has('freeze'))
+  // Filming opens straight on the All-in-one: no chooser on camera.
+  if (!VIEW && !params.has('freeze') && !FILM)
     showEntry({
       cityKey,
       scenario,

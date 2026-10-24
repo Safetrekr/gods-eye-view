@@ -3111,3 +3111,9 @@ body[data-view='screen'] .tt-wall-chip {
 .tt-wall-tag[hidden] {
   display: none;
 }
+
+/* Filming (?film): no pointer on camera, whatever the mouse is doing. */
+body.tt-film,
+body.tt-film * {
+  cursor: none !important;
+}

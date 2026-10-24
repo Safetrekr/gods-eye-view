@@ -1,0 +1,108 @@
+{
+  "about": "Trip Twin film cues: what happens at which second of every take. Walls take `cmd` (the remote's command); the All-in-one take (the big screen) takes `aio` (window.__ttFilm in page.js, the same functions as its buttons). `tap` is the iPad cue sheet; a cue with only `note` happens on the big screen. Seconds count from the start of the recording. \"$now\" is the time the cue is sent; \"$newReportId\" makes a report id and \"$reportId\" reuses it. Story: Austin, evening: a storm, Jay out alone and re-routed, smoke on floor 11, then the room switches to London, where the hotel desk has reported smoke.",
+  "tripId": "trip-choir-austin",
+  "seconds": 122,
+  "cues": [
+    {
+      "at": 8,
+      "tap": "Weather · Demo · Simulated storm approaching · start",
+      "cmd": { "type": "session", "patch": { "simStorm": "$now" } },
+      "aio": { "fn": "storm", "args": [true] }
+    },
+    {
+      "at": 18,
+      "tap": "Weather · Frame the storm on S4",
+      "cmd": {
+        "type": "screens",
+        "target": 4,
+        "patch": {
+          "frame": { "subject": { "kind": "storm" }, "nonce": "$now" }
+        }
+      }
+    },
+    {
+      "at": 30,
+      "tap": "People · Jay Patel · Spotlight",
+      "cmd": {
+        "type": "session",
+        "patch": { "spotlight": { "kind": "person", "id": "twin-JP" } }
+      },
+      "aio": { "fn": "select", "args": ["twin-JP"] }
+    },
+    {
+      "at": 38,
+      "tap": "People · Frame Jay on Site (S1)",
+      "cmd": {
+        "type": "screens",
+        "target": 1,
+        "patch": {
+          "frame": {
+            "subject": { "kind": "person", "id": "twin-JP" },
+            "nonce": "$now"
+          }
+        }
+      }
+    },
+    {
+      "at": 46,
+      "note": "Jay's card plans a path back to the Fairmont",
+      "aio": { "fn": "routeTo", "args": ["site"] }
+    },
+    {
+      "at": 60,
+      "note": "the storm is closer: Jay re-routed to the rally point",
+      "aio": { "fn": "routeTo", "args": ["rally"] }
+    },
+    {
+      "at": 72,
+      "tap": "Incident · Add reported floor · 11 · smoke",
+      "cmd": {
+        "type": "session",
+        "patch": {
+          "report": {
+            "id": "$newReportId",
+            "floor": 11,
+            "kind": "smoke",
+            "at": "$now"
+          }
+        }
+      },
+      "aio": { "fn": "report", "args": [11, "smoke"] }
+    },
+    {
+      "at": 80,
+      "tap": "Incident · Frame floor 11 on Site (S1)",
+      "cmd": {
+        "type": "screens",
+        "target": 1,
+        "patch": {
+          "frame": {
+            "subject": { "kind": "floor", "label": 11 },
+            "nonce": "$now"
+          }
+        }
+      }
+    },
+    {
+      "at": 92,
+      "tap": "Incident · Acknowledge (the wall banner shrinks)",
+      "cmd": { "type": "session", "patch": { "incidentAck": "$reportId" } }
+    },
+    {
+      "at": 104,
+      "tap": "Trips · Youth choir tour · Switch all screens",
+      "cmd": {
+        "type": "session",
+        "patch": {
+          "tripId": "trip-youth-london",
+          "siteKey": null,
+          "spotlight": null,
+          "report": null,
+          "incidentAck": null,
+          "simStorm": null
+        }
+      },
+      "aio": { "fn": "trip", "args": ["trip-youth-london"] }
+    }
+  ]
+}
