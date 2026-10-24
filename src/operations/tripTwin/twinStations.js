@@ -10,6 +10,8 @@
 // a station that station's own tiles with Back always first. Badges move
 // onto Back while the picker is not showing, so nothing hides an incident.
 // Pure DOM; no Cesium. The page decides what a station redraws.
+// Phase CF K8 (PHASE-CF-PLAN §3.2 c): stable data-tt-* hooks for the
+// harness on the rail, its active pane, tiles, foot menu and the aperture.
 import { ROLES, ROLE_ORDER } from './twinScreenRoles.js';
 
 const svg = (d) => `<svg viewBox="0 0 20 20">${d}</svg>`;
@@ -155,10 +157,12 @@ export function createStationRail({ onPick, onBack, onToggle, menu = [] }) {
   const rail = el('aside', 'tt-st');
   rail.id = 'tt-st';
   rail.setAttribute('aria-label', 'Stations');
+  rail.dataset.ttRail = '';
   const head = el('div', 'tt-st-head');
   const trail = el('span', 'tt-st-trail');
   head.append(trail);
   const active = el('div', 'tt-st-active');
+  active.dataset.ttActive = '';
   const ak = el('div', 'tt-st-k');
   const status = el('span', 'tt-st-status');
   const akLabel = el('span', '', 'Active station');
@@ -178,9 +182,11 @@ export function createStationRail({ onPick, onBack, onToggle, menu = [] }) {
   const grid = el('div', 'tt-st-grid');
   grid.setAttribute('role', 'group');
   const foot = el('div', 'tt-st-foot');
+  foot.dataset.ttFoot = '';
   for (const m of menu) {
     const b = el('button', 'tt-st-foot-btn', m.label);
     b.type = 'button';
+    b.dataset.ttMenu = m.label.toLowerCase();
     if (m.key) b.append(el('span', 'kbd', m.key));
     b.addEventListener('click', m.action);
     foot.append(b);
@@ -192,6 +198,7 @@ export function createStationRail({ onPick, onBack, onToggle, menu = [] }) {
   const aperture = el('button', 'tt-aperture');
   aperture.type = 'button';
   aperture.id = 'tt-aperture';
+  aperture.dataset.ttAperture = '';
   aperture.setAttribute('aria-controls', 'tt-st');
   aperture.innerHTML = APERTURE_SVG;
   aperture.addEventListener('click', () =>
@@ -223,6 +230,7 @@ export function createStationRail({ onPick, onBack, onToggle, menu = [] }) {
     }
     t.type = 'button';
     t.dataset.tile = key;
+    t.dataset.ttStation = key;
     t.innerHTML = icon || '';
     const pill = el('span', 'tt-st-pill');
     pill.hidden = true;

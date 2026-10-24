@@ -439,3 +439,50 @@ body.rm-alert .rm-content.sw-out {
   width: 89px;
   height: 16px;
 }
+
+/* ---------- Phase CF K8: status strip items, last change (Appendix D) ---- */
+/* The control cell may shorten; the seal and the buttons never move. */
+.rm-link {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* One chip recipe (the visual pass): 24 px, radius 6, hairline, mono 11. */
+.rm-status {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--rm-hair);
+  border-radius: 6px;
+  font: 500 11px/1 var(--rm-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--rm-text-2);
+}
+/* "Log not writing": dim amber text, not a banner (CF-D9). */
+.rm-status.attn {
+  color: rgba(245, 158, 11, 0.82);
+}
+.rm-status.err {
+  color: var(--rm-attn);
+  border-color: rgba(245, 158, 11, 0.45);
+}
+.rm-head .rm-btn {
+  flex: none;
+}
+/* The active-station card names the last change and its device. */
+.r-active .s.last {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rm-hair);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--rm-text-2);
+}
+/* Out of date before any presence: the item takes the cell's place. */
+.rm-plate + .rm-status {
+  margin-left: auto;
+}

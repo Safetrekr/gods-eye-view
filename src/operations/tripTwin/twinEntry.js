@@ -2,10 +2,15 @@
 // All in one (today) or Multi-view (1–6 wall screens + a remote). This
 // computer starts the session: it opens screen windows on its monitors and
 // shows a QR code the iPad scans to open the remote, already paired.
+// Phase CF K8 (PHASE-CF-PLAN §3.2 b, §3.3; Appendix D 1c, 3): the launch
+// cards carry a status strip: "Log not writing" while the audit log is
+// down, and "This page is out of date" with Reload. Never on a wall.
 import QRCode from 'qrcode';
 import { connectSync } from './twinSync.js';
 import { localhostUrl } from './twinIdentity.js';
 import { ROLES, defaultRoles } from './twinScreenRoles.js';
+import { CODE, DENY } from './twinProtocol.js';
+import { STATUS } from './twinDescribe.js';
 
 const el = (tag, cls, text) => {
   const n = document.createElement(tag);
@@ -19,6 +24,48 @@ const btn = (cls, text, fn) => {
   b.addEventListener('click', fn);
   return b;
 };
+
+/**
+ * The launcher's status strip (K8): steel, one row, only while something
+ * is true. `presence(p)` reads its health; `outOfDate()` asks for Reload.
+ */
+function statusStrip() {
+  const row = el('div', 'tt-entry-status');
+  row.dataset.ttStatus = '';
+  row.hidden = true;
+  let reload = false;
+  let health = null;
+  const paint = () => {
+    const items = [];
+    if (reload) {
+      const o = el('span', 'tt-entry-stat err', STATUS.RELOAD_PAGE);
+      o.dataset.ttStatusItem = 'reload';
+      items.push(
+        o,
+        btn('tt-btn sm', STATUS.RELOAD, () => location.reload()),
+      );
+    }
+    if (health && health.audit === false) {
+      const l = el('span', 'tt-entry-stat attn', STATUS.LOG);
+      l.dataset.ttStatusItem = 'log';
+      items.push(l);
+    }
+    row.replaceChildren(...items);
+    row.hidden = !items.length;
+  };
+  return {
+    el: row,
+    presence(p) {
+      if (!p) return;
+      health = p.health || null;
+      paint();
+    },
+    outOfDate() {
+      reload = true;
+      paint();
+    },
+  };
+}
 
 let screensCache = null;
 let openedHere = 0; // windows this computer has opened, for monitor order
@@ -104,18 +151,28 @@ export function showLaunch({ setup, cityKey, scenario }) {
       `${location.origin}/twin.html?view=screen&slot=${slot}&setup=${setup}&city=${cityKey}&scenario=${scenario}`,
   );
   const opens = ob.el;
+  const strip = statusStrip();
+  const seen = (p) => {
+    ob.update(p);
+    strip.presence(p);
+  };
   // Watch who joins (a launcher can never command).
   connectSync({
     kind: 'launcher',
     setup,
     on: {
-      welcome: (m) => ob.update(m.presence),
-      presence: (m) => ob.update(m.presence),
-      state: (m) => ob.update(m.presence),
+      welcome(m) {
+        if (m.type === 'denied' && m.code === DENY.RELOAD)
+          return strip.outOfDate();
+        seen(m.presence);
+      },
+      presence: (m) => seen(m.presence),
+      state: (m) => seen(m.presence),
     },
   });
   card.append(
     el('div', 'tt-kicker', 'MULTI-VIEW · SCREENS ON THIS COMPUTER'),
+    strip.el,
     el(
       'div',
       'tt-note',
@@ -155,6 +212,11 @@ export function showEntry(o) {
   let count = Number(o.pref('screens', 6)) || 6;
   let sync = null;
   let launchButtons = null;
+  const strip = statusStrip();
+  const seen = (p) => {
+    launchButtons?.update(p);
+    strip.presence(p);
+  };
 
   const close = () => {
     sync?.close();
@@ -268,6 +330,15 @@ export function showEntry(o) {
           });
         },
         setup(m) {
+          // Out of date (Appendix D 1c): the strip says so, with Reload.
+          if (m.ok === false && m.code === CODE.RELOAD) {
+            strip.outOfDate();
+            card.replaceChildren(
+              strip.el,
+              btn('tt-btn', 'Back', () => choose()),
+            );
+            return;
+          }
           if (m.ok === false) {
             card.replaceChildren(
               el('div', 'tt-edit-flag', m.error),
@@ -277,8 +348,8 @@ export function showEntry(o) {
           }
           launch(m.setup, info);
         },
-        presence: (m) => launchButtons?.update(m.presence),
-        state: (m) => launchButtons?.update(m.presence),
+        presence: (m) => seen(m.presence),
+        state: (m) => seen(m.presence),
       },
     });
   }
@@ -379,7 +450,7 @@ export function showEntry(o) {
         el(
           'div',
           'tt-note',
-          `Any other device: open ${lanHost ? `${base}/twin.html?view=screen` : 'twin.html?view=screen'} for a 4-digit code, then Screens › Pair a screen on the remote.`,
+          `Any other device: open ${lanHost ? `${base}/twin.html?view=screen` : 'twin.html?view=screen'} for a 4-digit code, then Screens & devices › Pair a screen on the remote.`,
         ),
       ),
     );
@@ -389,6 +460,7 @@ export function showEntry(o) {
         'tt-kicker',
         `MULTI-VIEW · ${count} SCREEN${count > 1 ? 'S' : ''} + REMOTE`,
       ),
+      strip.el,
       steps,
       el(
         'div',

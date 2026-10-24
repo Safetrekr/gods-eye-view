@@ -18,6 +18,8 @@
 // (no state, no presence). The back-off is reset by an accepted welcome,
 // not by an open socket, so a page that is refused (and closed at the
 // relay's hello deadline) backs off instead of reconnecting every second.
+// Phase CF K8: a wall is told (`refused`) of a terminal refusal this client
+// answered itself, so its pair card can say why it asks again.
 import {
   acquireIdentity,
   browserEnv,
@@ -63,7 +65,7 @@ function inert(id) {
 /**
  * connectSync({kind: 'screen'|'remote'|'launcher', slot?, setup?, name?,
  *   on: {welcome, state, presence, thumb, identify, paired, unpaired,
- *   replaced, control, setup, status}, env?}) → {send, request, close,
+ *   replaced, refused, control, setup, status}, env?}) → {send, request, close,
  *   forget, id, online, get linkAgeS}
  */
 export function connectSync({
@@ -134,8 +136,10 @@ export function connectSync({
       ticket = null; // drop the link, keep the id
     else identity.renew({ sent }); // drop the token: a fresh id
     if (kind === 'screen' && asked < 3) {
-      // A wall falls to the pair card (or joins by a still-valid link).
+      // A wall falls to the pair card (or joins by a still-valid link);
+      // the page hears why, for the card's first line (K8).
       asked += 1;
+      on.refused?.(m);
       hello();
       return true;
     }

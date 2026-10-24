@@ -338,7 +338,7 @@ test('K7 T3.11 SEC-8: 10,001 screen hellos (the LAN and this computer) leave a c
   for (let i = 0; i < MAX_TRIES; i += 1)
     ip.say({ t: 'pair', reqId: 20 + i, code: '99999', slot: 2 });
   ip.say({ t: 'pair', reqId: 30, code: '99999', slot: 2 });
-  assert.match(ip.last('pair-result').error, /locked/);
+  assert.match(ip.last('pair-result').error, /^Pairing paused until/);
   assert.ok(floodMs < 20_000, `flood took ${floodMs.toFixed(0)} ms`);
 });
 

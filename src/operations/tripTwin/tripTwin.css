@@ -3896,3 +3896,115 @@ body[data-view='screen'] .tt-compass {
 body[data-view='screen'][data-role='weather'] .tt-compass {
   bottom: calc(var(--foot) + 150px);
 }
+
+/* ---------- Phase CF K8: the chip in steel, wall cards, unpaired ---------- */
+/* C65: process states on walls are steel; the words carry the state.
+   Amber stays for field attention (approach, alerts, the STALE band). */
+body[data-view='screen'] .tt-wall-chip.warn {
+  color: var(--tt-text);
+}
+/* A window not on the wall (SUP-5): the field, the dot grid and one
+   card; nothing from the wall shows and the 3D scene is paused. The grid
+   is drawn on the field here only: never over the live 3D view (Jesse,
+   23 Oct 2026). */
+body[data-view='screen'].tt-unpaired {
+  background-color: var(--tt-field);
+  background-image: radial-gradient(
+    rgba(184, 195, 199, 0.2) 1.3px,
+    transparent 1.6px
+  );
+  background-size: 44px 44px;
+}
+body[data-view='screen'].tt-unpaired > :not(.tt-wall-pair):not(.tt-wall-card) {
+  visibility: hidden !important;
+}
+body[data-view='screen'] .tt-wall-pair,
+body[data-view='screen'] .tt-wall-card {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 48px;
+  background: transparent;
+}
+.tt-wall-card[hidden] {
+  display: none !important;
+}
+body[data-view='screen'] .tt-wall-pair .box,
+body[data-view='screen'] .tt-wall-card .box {
+  display: grid;
+  justify-items: center;
+  gap: 22px;
+  max-width: min(1500px, 88vw);
+  padding: 56px 80px 48px;
+  text-align: center;
+  color: var(--tt-text);
+}
+body[data-view='screen'] .tt-wall-pair .box .k,
+body[data-view='screen'] .tt-wall-card .box .k {
+  font: 600 30px var(--tt-mono);
+  letter-spacing: 0.16em;
+  color: var(--tt-text-2);
+}
+body[data-view='screen'] .tt-wall-pair .box .lead,
+body[data-view='screen'] .tt-wall-card .box .lead {
+  max-width: 1300px;
+  font: 400 30px/1.4 var(--tt-mono);
+  color: var(--tt-text);
+}
+body[data-view='screen'] .tt-wall-pair .box .code {
+  font: 200 220px/1 var(--tt-display);
+  letter-spacing: 0.12em;
+  color: var(--tt-text);
+  margin: 6px 0 2px;
+}
+body[data-view='screen'] .tt-wall-pair .box .how {
+  max-width: 1100px;
+  font: 400 28px/1.4 var(--tt-font);
+  color: var(--tt-text-2);
+}
+body[data-view='screen'] .tt-wall-pair .box .valid {
+  font: 500 24px var(--tt-mono);
+  color: var(--tt-text-2);
+}
+body[data-view='screen'] .tt-wall-pair .box .foot {
+  font: 400 20px var(--tt-mono);
+  color: var(--tt-text-dim);
+}
+body[data-view='screen'] .tt-wall-card .box .tt-btn {
+  margin-top: 10px;
+  min-height: 56px;
+  padding: 0 28px;
+  font: 500 22px var(--tt-font);
+  pointer-events: auto;
+}
+/* The launcher's status strip (K8): steel, one quiet row. */
+.tt-entry-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 12px;
+}
+.tt-entry-status[hidden] {
+  display: none;
+}
+.tt-entry-stat {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--tt-hair, rgba(184, 195, 199, 0.12));
+  border-radius: 6px;
+  font: 500 11px/1 var(--tt-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tt-text-2);
+}
+.tt-entry-stat.attn {
+  color: rgba(245, 158, 11, 0.82);
+}
+.tt-entry-stat.err {
+  color: var(--tt-attention);
+  border-color: rgba(245, 158, 11, 0.45);
+}
