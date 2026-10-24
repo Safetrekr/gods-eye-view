@@ -727,3 +727,19 @@ Retired: `store: revert-and-restart: the pre-K2 loader still finds the wall in t
 - **K9 (revision-checked undo):** a wall can now change a field the remote's open Undo would restore (e.g. the remote turns radar on S4, then S4's sheet turns it off). The rev check must skip that field and say so; the wall's own change has no Undo entry.
 - **K10 (server confirm):** `screen-cmd` touches only a wall's own layers, motion, scale and text size: all Tier A (no confirm). Keep it so: anything that would need a confirm stays off this path. A wall changes state **without the lease**, by design (D5): "In control" on the remote means control of every wall-wide and cross-wall change, not of each wall's own display.
 - **Visitor mode** hides names; the wall sheets change no names, but K10/K13 should check the sheet shows nothing a visitor should not see.
+
+## Rebase onto shell `e78d07e` and merge into `jesse/world-view-visual-layer`
+
+- **Date:** 24 Oct 2026, 08:20–08:55 CDT. **Machine:** MacBook, Node 22.21.1, headless puppeteer (SwiftShader).
+- **Why:** the shell track committed `e78d07e` (walls W2 + W3: other-site incident kicker, "+n more", lists never fade out silently) after `fac0f77`. Jesse approved merging CF into his branch and live tree (24 Oct, "yes").
+- **Rebase:** `git rebase e78d07e` of the 12 CF commits (`382ae2b` … `ead0ea5`): no conflicts. Checked by hand that W2/W3 survive beside K8: `twinScreen.js` (`.tt-wall-inc`, `fitPanel`, `boardSlot`, `refitRail`), `twinHud.js` (`fitWall`, `closedLines`, `refit`), `page.js` (`incidentElsewhere`, `officialLines`, `idlePanel`), the W3 CSS block.
+- **Deploy:** the branch fast-forwards to the CF tip (no merge commit). On the Studio: pull, restart Vite (relay/server changed), reload every page (PROTO 4). The first start migrates the old tmp store (20 devices) into `~/Library/Application Support/SafeTrekr/trip-twin/` as v:2 with hashed tokens and a plain copy `session.v1.json` (kept until the revert drill; then `drop-plain-copy`). Nobody should need to re-pair.
+
+### Gate
+
+| Check | Result |
+|---|---|
+| `node scripts/test-trip-twin.mjs` | **PASS**: 298/298; `npm test` exit 0, 3304 tests, 1 skip (Windows-only). |
+| Twin build | **PASS**. |
+| Smoke `--ref worktree` | **PASS**: 46/46, 0 pageerror (console.error: the SwiftShader WebGL ones on card walls, as in earlier runs). |
+| `repro-pairing --wait-expiry` | **PASS**: 12/12 GREEN incl. the live R-H4 wait; 0 pageerror. |
