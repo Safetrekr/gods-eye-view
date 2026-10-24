@@ -13,7 +13,9 @@
 // 4. Shared-file guard: no CF commit (on top of the CF base) touches one of
 //    Justin's seven shared paths, and neither does the working tree.
 // 4b. Audit canary (K6, §6.2 rule 8): the canary tests generated from the
-//    audit event catalogue must be there and pass, every run.
+//    audit event catalogue must be there and pass, every run. From L5 the
+//    whole-folder token scan and the v1 migration with rejoin (S-14) are
+//    required the same way.
 // 5. Repo tests: runs the shared `npm test` runner as it is (never edits
 //    it). Any failure there fails this gate too; skips are listed. --no-repo
 //    leaves it out for a quick loop, and the run then says INCOMPLETE.
@@ -38,12 +40,15 @@ const rel = (p) => path.relative(ROOT, p).split(path.sep).join('/');
  * thirteen attribution tests (twinAttribution.test.mjs) and eight protocol
  * tests (twinProtocol.test.mjs); K6 adds seventeen audit and health tests
  * (twinAudit.test.mjs); K7 adds twenty-three limits, pending-socket and
- * crypto-id tests (twinLimits.test.mjs). Raise per slice.
+ * crypto-id tests (twinLimits.test.mjs); L5 adds seven hashed-store tests
+ * (twinTokens.test.mjs) and retires K2's dual-write revert test. Raise per
+ * slice.
  */
-export const BASELINE = 274;
+export const BASELINE = 280;
 /**
- * From K6 every gate re-runs the audit canary (PHASE-CF-PLAN §6.2 rule 8):
- * these tests must be found and pass, or the gate fails.
+ * From K6 every gate re-runs the audit canary (PHASE-CF-PLAN §6.2 rule 8);
+ * from L5 the token scan and the v1 migration (§6.6 L5 gate, S-14): these
+ * tests must be found and pass, or the gate fails.
  */
 export const REQUIRED_TESTS = Object.freeze([
   {
@@ -53,6 +58,14 @@ export const REQUIRED_TESTS = Object.freeze([
   {
     file: 'src/operations/tripTwin/twinAudit.test.mjs',
     name: /^K6 canary \(relay run\)/,
+  },
+  {
+    file: 'src/operations/tripTwin/twinTokens.test.mjs',
+    name: /^L5 gate: the whole-folder token scan/,
+  },
+  {
+    file: 'src/operations/tripTwin/twinTokens.test.mjs',
+    name: /^L5 gate: a v1 store \(K2–K7\) migrates once/,
   },
 ]);
 /** The commit CF-core branches from (cf/core). */
@@ -319,7 +332,9 @@ async function main() {
     failed = true;
   }
 
-  console.log('\nAudit canary · generated from the event catalogue (K6)');
+  console.log(
+    '\nRequired every run · audit canary (K6) · token scan and v1 migration (L5)',
+  );
   for (const req of REQUIRED_TESTS) {
     const hit = rows.find((r) => r.file === req.file && req.name.test(r.name));
     const ok = hit?.status === 'pass';

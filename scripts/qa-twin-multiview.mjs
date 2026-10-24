@@ -15,6 +15,10 @@
 // the build under test again. --url runs against a server you started
 // (restart steps are then skipped). Results go to
 // <qa folder>/runs/<mode>-<time>/ (results.json, results.md, shots).
+// From L5 (hashed tokens, v:2 store) a revert to a build below L5 is a
+// re-pair by design: the drill checks the walls and the remote are told so
+// and nothing crashes, then re-pairs on the build under test; L5-S1 scans
+// the QA data folder and TMPDIR for every token the run held.
 // Never prints a token, a setup link or anything from .env.local.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -27,6 +31,7 @@ import WebSocket from 'ws';
 import { startQaServer } from './qa-twin-server.mjs';
 import { fakeSocket } from '../src/operations/tripTwin/twinTestKit.mjs';
 import { PROTO } from '../src/operations/tripTwin/twinProtocol.js';
+import { plainTokenFiles, tokenHash } from '../server/tripTwin/twinTokens.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
@@ -58,6 +63,12 @@ const LIVE_STORES = [
 const REF = arg('ref', 'HEAD');
 const REVERT_REF = arg('revert-ref', REF === 'worktree' ? 'HEAD' : `${REF}~1`);
 const SETUP_TTL_MS = 10 * 60 * 1000; // twinSessionHost.js, base 3431392
+/** Every device token this run was given (never printed; L5-S1 scan). */
+const SEEN_TOKENS = new Set();
+/** A build from L5 on keeps token hashes only (twinTokens.js exists). */
+const hashedBuild = (server) =>
+  Boolean(server.app) &&
+  fs.existsSync(path.join(server.app, 'server/tripTwin/twinTokens.js'));
 
 // ---------------------------------------------------------------- results
 const results = [];
@@ -175,7 +186,10 @@ async function device(base, { id, kind, slot = null, name = '' }) {
       ...extra,
     });
     const w = await welcome;
-    if (w.token) d.token = w.token;
+    if (w.token) {
+      d.token = w.token;
+      SEEN_TOKENS.add(w.token);
+    }
     // As twinSync.js from K4: once joined, a device rejoins by its token
     // and no longer sends the setup link (older builds ignore it then).
     if (w.type === 'paired' || w.type === 'remote') d.setup = null;
@@ -892,10 +906,25 @@ async function smoke(server, browser) {
       await quietRestart(server);
       const slots = storeSlots(server.storeFile);
       must(slots && slots.join() === '1,2,3,4,5,6', `QA store slots ${slots}`);
-      // K2: the store is 0600 in a 0700 folder; the old tmp path holds the
-      // same wall until K11 (dual write, so a revert still loads).
+      // K2: the store is 0600 in a 0700 folder. Before L5 the old tmp
+      // path holds the same wall (dual write); from L5 there is none, and
+      // the store is v:2 with token hashes only.
       const modes = `${modeOf(server.dataDir)}/${modeOf(server.storeFile)}`;
       must(modes === '700/600', `data folder/store modes ${modes}`);
+      if (hashedBuild(server)) {
+        must(!fs.existsSync(server.legacyFile), 'a tmp-path copy was written');
+        const text = fs.readFileSync(server.storeFile, 'utf8');
+        must(JSON.parse(text).v === 2, 'store is not v:2');
+        must(
+          [...walls, remote].every(
+            (d) => !text.includes(d.token) && text.includes(tokenHash(d.token)),
+          ),
+          'a device is not saved as its hash only',
+        );
+        return {
+          detail: `QA store v:2 holds S${slots.join(', S')} (modes ${modes}), token hashes only; no tmp-path copy (L5)`,
+        };
+      }
       const old = storeSlots(server.legacyFile);
       must(old && old.join() === slots.join(), `tmp-path copy slots ${old}`);
       return {
@@ -1000,35 +1029,133 @@ async function smoke(server, browser) {
       what,
     );
   const built = server.sha;
+  // L5: a build under test that hashes tokens, reverted to one that does
+  // not, is a re-pair by design (S-14, re-pair.md): the older build finds
+  // a v:2 store it cannot read, sets it aside and starts a fresh wall.
+  const repair = !server.external && hashedBuild(server);
+  let revertHashed = null;
+  let revertCode = null; // the S6 card's code on the reverted build
   await step(
     'K2-S1',
-    `revert-and-restart: restart on ${REVERT_REF}; S1–S6 and the remote rejoin`,
+    `revert-and-restart: restart on ${REVERT_REF}; S1–S6 and the remote rejoin (below L5: they are told to re-pair, nothing crashes)`,
     async () => {
       if (server.external) return { notRun: true, ok: true };
       await sleep(900);
+      const from = serverLogSize(server);
       await quietRestart(server, { ref: REVERT_REF });
-      await rejoinAll();
-      const w = await s6Back('S6 to rejoin on the reverted code');
+      revertHashed = hashedBuild(server);
+      if (!repair || revertHashed) {
+        await rejoinAll();
+        const w = await s6Back('S6 to rejoin on the reverted code');
+        return {
+          detail: `${server.sha}: walls and remote rejoined; S6 page "${w.chip}"`,
+        };
+      }
+      const told = [];
+      for (const d of walls) {
+        await d.c.close();
+        const w = await d.hello();
+        must(
+          w.type === 'pair-code' && /^\d{4}$/.test(w.code || ''),
+          `S${d.slot} got ${w.type}${w.code ? '' : ' (no code)'}`,
+        );
+        told.push(`S${d.slot} code`);
+        await d.c.close();
+      }
+      await remote.c.close();
+      const r = await remote.hello();
+      must(
+        r.type === 'denied' && r.code === 'FORGOTTEN',
+        `remote got ${r.type} ${r.code ?? ''}`,
+      );
+      told.push('remote FORGOTTEN');
+      await remote.c.close();
+      const w = await waitWall(
+        page,
+        (x) => x.pairShown && /^\d{4}$/.test(x.code || ''),
+        90000,
+        'the S6 pair card on the reverted code',
+      );
+      revertCode = w.code;
+      await shot(page, 'K2-S1-wall-repair-after-revert');
+      const info = await fetch(`${server.url}/api/twin-sync/info`).then((x) =>
+        x.json(),
+      );
+      must(info.ok, 'the reverted server is not answering');
+      const said = serverLogSince(server, from);
+      must(
+        /store\.quarantined/.test(said),
+        'the reverted build did not set the v:2 store aside',
+      );
       return {
-        detail: `${server.sha}: walls and remote rejoined; S6 page "${w.chip}"`,
+        detail: `${server.sha} (below L5): v:2 store quarantined, fresh wall; ${told.join(', ')}; S6 shows the pair card; server up`,
       };
     },
   );
   await step(
     'K2-S2',
-    'forward again: restart on the build under test; everything rejoins from the data folder, no second migration',
+    'forward again: restart on the build under test; everything rejoins from the data folder, no second migration (after a re-pair revert: the tmp file is gone, then S1–S6 and the remote pair again)',
     async () => {
       if (server.external) return { notRun: true, ok: true };
       await sleep(900);
       const from = serverLogSize(server);
       await quietRestart(server, { ref: REF });
-      await rejoinAll();
-      await s6Back('S6 to rejoin on the build under test');
+      if (!repair || revertHashed) {
+        await rejoinAll();
+        await s6Back('S6 to rejoin on the build under test');
+        const said = serverLogSince(server, from);
+        must(!/store\.migrated/.test(said), 'migrated a second time');
+        must(/store\.loaded/.test(said), 'did not load the data-folder store');
+        return {
+          detail: `${server.sha} (was ${built}): store.loaded, no store.migrated`,
+        };
+      }
       const said = serverLogSince(server, from);
-      must(!/store\.migrated/.test(said), 'migrated a second time');
-      must(/store\.loaded/.test(said), 'did not load the data-folder store');
+      must(!/store\.migrated/.test(said), 'read the tmp file again');
+      must(
+        !fs.existsSync(server.legacyFile),
+        'the tmp-path file is still there',
+      );
+      const how = /store\.hashed/.test(said)
+        ? "the reverted build's v1 store hashed in place"
+        : 'fresh wall';
+      // Re-pair as re-pair.md says: Start on the launcher, the QR, a code.
+      SEEN_TOKENS.add(setup); // the old setup link: never saved either
+      let l;
+      ({ c: l, setup } = await startSetup(server.url, 6));
+      launcher = l;
+      for (const d of walls) {
+        d.token = null;
+        d.setup = setup;
+        const w = await d.hello();
+        must(
+          w.type === 'paired' && w.slot === d.slot,
+          `S${d.slot} got ${w.type}`,
+        );
+      }
+      remote.token = null;
+      remote.setup = setup;
+      const r = await remote.hello();
+      must(
+        r.type === 'remote' && r.controller === true,
+        `remote got ${r.type}, controller ${r.controller}`,
+      );
+      // A new code from this build, not the reverted build's card.
+      const card = await waitWall(
+        page,
+        (x) =>
+          x.pairShown && /^\d{4}$/.test(x.code || '') && x.code !== revertCode,
+        90000,
+        'the S6 pair card with a new code',
+      );
+      page.__code = card.code;
+      const ans = remote.c.next('pair-result', 8000, 'pair-result');
+      remote.c.say({ t: 'pair', reqId: 21, code: card.code, slot: 6 });
+      const pr = await ans;
+      must(pr.ok && pr.slot === 6, `pair-result ${pr.ok} ${pr.error || ''}`);
+      const w = await s6Back('S6 to pair again on the build under test');
       return {
-        detail: `${server.sha} (was ${built}): store.loaded, no store.migrated`,
+        detail: `${server.sha} (was ${built}): ${how}; no store.migrated; tmp file absent; S1–S5 and the remote re-paired from a new launcher setup, S6 by code ("${w.chip}")`,
       };
     },
   );
@@ -1248,15 +1375,18 @@ async function smoke(server, browser) {
       must((await res).ok, 'pair refused');
       const p = await paired;
       const t0 = Date.now();
+      // From L5 the store holds the token's hash, never the token.
+      const want = hashedBuild(server) ? tokenHash(p.token) : p.token;
       const inStore = await until(() => {
         try {
-          return fs.readFileSync(server.storeFile, 'utf8').includes(p.token);
+          return fs.readFileSync(server.storeFile, 'utf8').includes(want);
         } catch {
           return false;
         }
       }, 2000);
       const ms = Date.now() - t0;
       must(inStore, 'the new token is not in the store');
+      SEEN_TOKENS.add(p.token);
       must(ms < 250, `in the store after ${ms} ms (debounce is 300)`);
       must(b64.test(p.token), 'paired token shape');
       k7Secrets.push(p.token, pend.id);
@@ -1274,6 +1404,7 @@ async function smoke(server, browser) {
       remote.c.say({ t: 'pair', reqId: 73, code: back.code, slot: 5 });
       must((await r5).ok, 'S5 pair refused');
       s5.token = (await p5).token;
+      SEEN_TOKENS.add(s5.token);
       await pend.c.close();
       return {
         detail: `setup link, ${walls.length + 1} tokens and the new one are 43-character base64url; the new token was in the store after ${ms} ms; S5 paired back by code`,
@@ -1506,6 +1637,9 @@ async function smoke(server, browser) {
         s6?.id,
         page?.__code && `"${page.__code}"`,
         ...k7Secrets,
+        // L5: every token and setup link this run was given, the ones
+        // from before the re-pair too.
+        ...SEEN_TOKENS,
         'data:image',
         'hands-on',
         'shows:',
@@ -1566,6 +1700,41 @@ async function smoke(server, browser) {
       );
       return {
         detail: `health ${h.status}: audit ok (seq ${j.audit.seq}), store ok, host check report, confirmBypass 0, apply→broadcast p95 ${j.timings?.applyToBroadcastMsP95} ms; log ${events.length} events, no peer; LAN Host 403 ×2; /@fs audit file ${served.status}; live audit folder ${live.exists ? 'unchanged' : 'absent'}`,
+      };
+    },
+  );
+
+  await step(
+    'L5-S1',
+    'token scan (S-14): no plain token at rest in the QA data folder (store, backup, marker, quarantine/) or the QA TMPDIR, for every token this run was given, across the restarts and the revert drill',
+    async () => {
+      if (server.external) return { notRun: true, ok: true };
+      if (!hashedBuild(server))
+        return { notRun: true, ok: true, detail: 'build below L5' };
+      const s6 = await page
+        ?.evaluate(() =>
+          JSON.parse(localStorage.getItem('tripTwin.soc.slot.6') || 'null'),
+        )
+        .catch(() => null);
+      if (s6?.token) SEEN_TOKENS.add(s6.token);
+      for (const d of [...walls, remote])
+        if (d?.token) SEEN_TOKENS.add(d.token);
+      const tokens = [...SEEN_TOKENS];
+      const hits = plainTokenFiles({
+        dirs: [server.dataDir, server.tmp],
+        tokens,
+      });
+      must(
+        hits.length === 0,
+        `plain token at rest: ${hits.map((h) => `${path.relative(server.dir, h.file)} (${h.why})`).join('; ')}`,
+      );
+      const files = [server.dataDir, server.tmp].flatMap((d) =>
+        fs.existsSync(d)
+          ? fs.readdirSync(d, { recursive: true }).map(String)
+          : [],
+      );
+      return {
+        detail: `${tokens.length} tokens searched in ${files.length} entries (data folder: ${fs.readdirSync(server.dataDir).sort().join(', ')}): 0 hits`,
       };
     },
   );

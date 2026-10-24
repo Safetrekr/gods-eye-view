@@ -33,6 +33,14 @@
 // outstanding and 6 per IP (loopback exempt, review B4); a free code takes
 // at most 50 draws, then BUSY with retryAfterMs (never a spin). A good code
 // with a wrong slot counts against that code (burnt after 3).
+// Phase CF L5 (SEC-6 hashing, S-14): a device record holds `tokenHash`
+// (sha256), never the token. A presented token is checked with
+// `tokens.same` (timingSafeEqual); the plain token leaves the host only in
+// the reply that issues it, or echoed back to the device that sent it. The
+// relay passes `tokens` (server/tripTwin/twinTokens.js); the default here
+// is the same sha256 and compare, reached without a node: import. A record
+// restored with a plain `token` (a v1 store, an older test) is hashed on
+// the way in.
 // Prototype only — production needs TLS, device enrolment, operator SSO,
 // signed commands and an audit log (07-production-delta).
 import { LIMITS } from '../../../server/tripTwin/twinLimits.js';
@@ -124,6 +132,34 @@ export function randomSource(random = null, cryptoObj = globalThis.crypto) {
       Array.from(bytesOf(cryptoObj, 16), (x) =>
         x.toString(16).padStart(2, '0'),
       ).join(''),
+  };
+}
+
+/**
+ * sha256 and a constant-time compare from node:crypto, reached at the
+ * first use through process.getBuiltinModule (Node ≥ 22.3): no static
+ * node: import, so the module still loads in a browser bundle; there it
+ * throws at the first token, and the host never runs there.
+ */
+function builtinTokens() {
+  let c = null;
+  const crypto = () => {
+    c ||= globalThis.process?.getBuiltinModule?.('node:crypto');
+    if (!c) throw new Error('twinSessionHost: no sha256 here; pass `tokens`');
+    return c;
+  };
+  const hash = (t) =>
+    crypto().createHash('sha256').update(String(t), 'utf8').digest('hex');
+  return {
+    hash,
+    same(t, h) {
+      if (typeof t !== 'string' || !t) return false;
+      if (typeof h !== 'string' || !/^[0-9a-f]{64}$/.test(h)) return false;
+      return crypto().timingSafeEqual(
+        Buffer.from(hash(t), 'hex'),
+        Buffer.from(h, 'hex'),
+      );
+    },
   };
 }
 
@@ -234,6 +270,7 @@ export function createSessionHost({
   random = null,
   restore = null,
   emit = null,
+  tokens = builtinTokens(),
 } = {}) {
   // Audit listeners (K6): called synchronously, in order; a listener that
   // throws never stops the operation.
@@ -247,10 +284,19 @@ export function createSessionHost({
       }
   };
   let session = restore?.session || createSession({ epochMs: now() });
-  // id → {kind, slot, token, name, ref, lastSeen, online}
+  // id → {kind, slot, tokenHash, name, ref, lastSeen, online} (L5: never
+  // the token; a restored plain `token` is hashed here).
   const devices = new Map(
-    (restore?.devices || []).map(([id, d]) => [id, { ...d, online: false }]),
+    (restore?.devices || []).map(([id, d]) => {
+      const { token: plain, ...rest } = d || {};
+      if (typeof plain === 'string' && plain && !rest.tokenHash)
+        rest.tokenHash = tokens.hash(plain);
+      return [id, { ...rest, online: false }];
+    }),
   );
+  /** Does this record's pairing match the token presented? */
+  const holds = (d, tk) =>
+    Boolean(d?.tokenHash) && tokens.same(tk, d.tokenHash);
   // ref → {kind, name, slot}: every ref ever issued (F-0003). D0 is the host.
   const refs = {};
   for (const [r, e] of Object.entries(restore?.refs || {}))
@@ -265,7 +311,7 @@ export function createSessionHost({
   // the state still names the device it named, and is never issued again.
   for (const [, d] of devices)
     if (isRef(d.ref) && d.ref !== HOST_REF && !refs[d.ref]) {
-      if (d.kind === 'remote' && d.token)
+      if (d.kind === 'remote' && d.tokenHash)
         refs[d.ref] = {
           kind: 'remote',
           name:
@@ -343,8 +389,9 @@ export function createSessionHost({
         seen.add(d.ref);
       else delete d.ref;
     for (const [id, d] of devices) {
-      if (!d.ref && d.kind === 'screen' && d.slot && d.token) screenRef(id, d);
-      if (!d.ref && d.kind === 'remote' && d.token) {
+      if (!d.ref && d.kind === 'screen' && d.slot && d.tokenHash)
+        screenRef(id, d);
+      if (!d.ref && d.kind === 'remote' && d.tokenHash) {
         const base =
           REMOTE_NAMES.includes(d.name) || d.name === HOST_NAME
             ? d.name
@@ -390,10 +437,16 @@ export function createSessionHost({
 
   /** A setup token (not saved). */
   const token = () => rng.token();
-  /** A device token: counted, so the relay writes the store at once. */
-  const deviceToken = () => {
+  /**
+   * A device token for `d`: its hash goes on the record, the token goes
+   * back to the caller (to send once). Counted, so the relay writes the
+   * store at once.
+   */
+  const deviceToken = (d) => {
     tokensIssued += 1;
-    return rng.token();
+    const tk = rng.token();
+    d.tokenHash = tokens.hash(tk);
+    return tk;
   };
   /** A free code in at most CODE_DRAWS draws, else null (never a spin). */
   const newCode = () => {
@@ -464,7 +517,7 @@ export function createSessionHost({
     for (const [id, d] of devices)
       if (d.kind === 'screen' && d.slot === slot && id !== keepId) {
         d.slot = null;
-        d.token = null;
+        d.tokenHash = null;
         out.push(id);
       }
     return out;
@@ -537,7 +590,7 @@ export function createSessionHost({
       const r = refOfId(id);
       return r ? actor(r, via) : null;
     },
-    /** What the relay saves to disk (no setup tokens or codes). */
+    /** What the relay saves to disk (no setup tokens or codes; L5: hashes). */
     snapshot() {
       return {
         session,
@@ -596,7 +649,7 @@ export function createSessionHost({
         return deny(DENY.NO_ID, 'No device id');
       const known = devices.get(id);
       const setupOk = Boolean(setup) && setups.get(setup)?.expires > t;
-      if (known?.token && tk !== known.token)
+      if (known?.tokenHash && !holds(known, tk))
         return deny(DENY.ID_IN_USE, 'This device id is already in use');
       if (kind === 'launcher')
         return setupOk
@@ -610,7 +663,7 @@ export function createSessionHost({
       if (kind !== 'screen' && kind !== 'remote')
         return deny(DENY.UNKNOWN_KIND, 'Unknown device');
       // A token proves the device, not a change of kind.
-      if (known?.token && known.kind !== kind)
+      if (known?.tokenHash && known.kind !== kind)
         return deny(DENY.ID_IN_USE, 'This device id is already in use');
       const hint = Number(slot) >= 1 && Number(slot) <= 6 ? Number(slot) : null;
       if (live) {
@@ -628,11 +681,12 @@ export function createSessionHost({
           const d = {
             kind: 'screen',
             slot: s,
-            token: deviceToken(),
+            tokenHash: null,
             ref: known?.ref,
             lastSeen: t,
             online: true,
           };
+          const issued = deviceToken(d);
           devices.set(id, d);
           screenRef(id, d);
           if (!session.screens[s])
@@ -641,12 +695,13 @@ export function createSessionHost({
               { type: 'count', n: Math.max(s, session.count) },
               { by: HOST_REF, at: t },
             ).state;
-          return { type: 'paired', slot: s, token: d.token, unpaired };
+          return { type: 'paired', slot: s, token: issued, unpaired };
         }
-        if (known?.token && known.slot) {
+        if (known?.tokenHash && known.slot) {
           known.lastSeen = t;
           known.online = true;
-          return { type: 'paired', slot: known.slot, token: known.token };
+          // The token it showed (checked above): the host has only its hash.
+          return { type: 'paired', slot: known.slot, token: tk };
         }
         // Say why instead of a bare code (R-1): the window drops the link
         // and asks again without it, which gives the pair card.
@@ -674,7 +729,7 @@ export function createSessionHost({
         };
       }
       // Remotes need the setup QR or their own token from an earlier pairing.
-      const trusted = setupOk || (known?.kind === 'remote' && known.token);
+      const trusted = setupOk || (known?.kind === 'remote' && known.tokenHash);
       if (!trusted) {
         // The token is the pairing: when it is gone, say that first.
         if (tk)
@@ -692,16 +747,17 @@ export function createSessionHost({
           'Scan the QR on the Trip Twin computer to pair this remote',
         );
       }
-      const rt = known?.token || deviceToken();
       // The host names a remote once, at pairing; later hellos keep it.
       const d = {
         kind: 'remote',
         name: '',
-        token: rt,
+        tokenHash: known?.tokenHash || null,
         ref: known?.ref,
         lastSeen: t,
         online: true,
       };
+      // A known remote showed its token (checked above); a new one gets one.
+      const rt = d.tokenHash ? tk : deviceToken(d);
       if (!(refs[d.ref]?.kind === 'remote'))
         issueRef(
           id,
@@ -759,7 +815,7 @@ export function createSessionHost({
       const unpaired = freeSlot(s, c.deviceId);
       const d = devices.get(c.deviceId) || { kind: 'screen' };
       d.slot = s;
-      d.token = deviceToken();
+      const issued = deviceToken(d);
       d.lastSeen = t;
       devices.set(c.deviceId, d);
       screenRef(c.deviceId, d);
@@ -788,7 +844,7 @@ export function createSessionHost({
         ok: true,
         deviceId: c.deviceId,
         slot: s,
-        token: d.token,
+        token: issued,
         unpaired,
       };
     },
@@ -1036,7 +1092,7 @@ export function createSessionHost({
   const helloOf = api.hello;
   api.hello = (args = {}) => {
     const id = typeof args.id === 'string' ? args.id : '';
-    const before = (id && devices.get(id)?.token) || null;
+    const before = (id && devices.get(id)?.tokenHash) || null;
     const r = helloOf(args);
     const accepted = r.type !== 'denied';
     say('device.hello', {
@@ -1049,7 +1105,12 @@ export function createSessionHost({
         slotGiven: r.slot ?? null,
         viaSetup: Boolean(args.setup),
         viaToken: Boolean(args.token),
-        token: !r.token ? 'none' : r.token === before ? 'kept' : 'issued',
+        // Kept: it had a pairing and was handed back the token it showed.
+        token: !r.token
+          ? 'none'
+          : before && r.token === args.token
+            ? 'kept'
+            : 'issued',
         replaces: accepted && Boolean(args.live),
         unpairedRefs: refsOf(r.unpaired),
         controller: r.type === 'remote' ? Boolean(r.controller) : null,
