@@ -136,7 +136,12 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       api.applyRoleDefaults?.(role.key);
     }
     b.dataset.merged = (s.merged || []).join(' ');
-    b.style.setProperty('--wall-scale', String(s.textScale || 2));
+    const ws = String(s.textScale || 2);
+    if (b.style.getPropertyValue('--wall-scale') !== ws) {
+      b.style.setProperty('--wall-scale', ws);
+      // New text size: the lists fit again (W3).
+      requestAnimationFrame(() => api.refitRail?.());
+    }
     renderPanel();
   }
 
@@ -154,8 +159,28 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     else if (role === 'incident') {
       // Idle: say so plainly; the board fills when a floor is reported.
       const open = api.incidentOpen();
-      document.body.classList.toggle('tt-incident-open', open);
-      if (open)
+      const where = api.incidentElsewhere?.();
+      // A report at another site of this trip (W2): the red header, then
+      // the usual board, since there is no floor board for the site on screen.
+      document.body.classList.toggle('tt-incident-open', open && !where);
+      document.body.classList.toggle('tt-incident-elsewhere', Boolean(where));
+      if (where) {
+        const board = el('div');
+        api.idlePanel(board, { reported: true });
+        panel.replaceChildren(
+          el(
+            'div',
+            'tt-kicker tt-wall-inc',
+            `INCIDENT REPORTED AT ${where.toUpperCase()} · NOT VERIFIED`,
+          ),
+          el(
+            'div',
+            'tt-wall-note',
+            `At ${where}, not the site on screen · the list on the left includes who may be there`,
+          ),
+          ...board.childNodes,
+        );
+      } else if (open)
         panel.replaceChildren(
           el('div', 'tt-kicker', 'INCIDENT REPORTED · NOT VERIFIED'),
           el(
@@ -165,6 +190,36 @@ export function createScreenMode({ api, slot = null, setup = null }) {
           ),
         );
       else api.idlePanel(panel);
+      fitPanel();
+    }
+  }
+
+  /**
+   * S3's board never runs off the screen silently (walls-live W3): the
+   * last lines go, and a line says how many.
+   */
+  function fitPanel() {
+    if (panel.hidden || !panel.clientHeight) return;
+    const over = () => panel.scrollHeight > panel.clientHeight + 2;
+    let hidden = 0;
+    while (over() && panel.children.length > 3) {
+      const last = panel.lastElementChild;
+      if (last.classList.contains('tt-wall-line')) hidden += 1;
+      last.remove();
+    }
+    // A kicker left without its lines goes too.
+    if (panel.lastElementChild?.classList.contains('tt-kicker'))
+      panel.lastElementChild.remove();
+    if (!hidden) return;
+    const more = el('div', 'tt-wall-more');
+    panel.append(more);
+    // The line itself may push one more out.
+    for (;;) {
+      more.textContent = `+${hidden} more line${hidden > 1 ? 's' : ''} · not shown on this screen`;
+      if (!over() || panel.children.length <= 4) break;
+      const prev = more.previousElementSibling;
+      if (prev.classList.contains('tt-wall-line')) hidden += 1;
+      prev.remove();
     }
   }
 
@@ -175,6 +230,11 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     state = next;
     const s = me();
     const ss = next.session;
+    // Where the full attention list is (a wall list ends "+n · all on S3").
+    document.body.dataset.boardSlot =
+      Object.keys(next.screens).find(
+        (k) => next.screens[k].role === 'incident',
+      ) || '';
     // A trip in another city needs that city's twin: reload into it —
     // only on live state from the relay. A cached state may name the old
     // trip; acting on it bounced walls between cities (Jesse, 16 Oct).
@@ -434,6 +494,12 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     slot: () => mySlot,
     online: () => Boolean(sync?.online && mySlot),
     write: (cmd, label) => sync.request({ t: 'screen-cmd', cmd, label }),
+  });
+  // A resized wall (another display, full screen) fits its lists again.
+  let refitTimer = 0;
+  window.addEventListener('resize', () => {
+    clearTimeout(refitTimer);
+    refitTimer = setTimeout(() => api.refitRail?.(), 200);
   });
   window.addEventListener('pointerup', () => {
     dragging = false;

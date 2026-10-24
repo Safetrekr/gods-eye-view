@@ -3604,7 +3604,7 @@ body[data-view='screen'][data-role='trips'] {
   background: var(--tt-field);
 }
 body[data-view='screen'][data-role='incident'] .tt-rail {
-  width: calc(46vw / var(--wall-scale));
+  width: calc(48vw / var(--wall-scale));
 }
 body[data-view='screen'][data-role='incident'] .tt-rcol {
   width: calc(48vw / var(--wall-scale));

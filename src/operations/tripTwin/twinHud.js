@@ -526,11 +526,14 @@ export function createHud({
     let shown = 0;
     for (const g of m.groups) {
       const incidentMode = m.mode === 'incident';
-      const cap = incidentMode
-        ? g.key === 'at_or_above'
-          ? Infinity
-          : INCIDENT_GROUP_CAP
-        : Math.max(1, CALM_CAP - shown);
+      // Walls show every row that fits, then say how many more (fitWall).
+      const cap = wall()
+        ? Infinity
+        : incidentMode
+          ? g.key === 'at_or_above'
+            ? Infinity
+            : INCIDENT_GROUP_CAP
+          : Math.max(1, CALM_CAP - shown);
       const all = showAll.has(g.key);
       const rows = all ? g.rows : g.rows.slice(0, cap);
       const box = el('div', `tt-group${g.key === 'at_or_above' ? ' p1' : ''}`);
@@ -613,6 +616,8 @@ export function createHud({
         ...(ctx.safetyLines || []).map((l) => el('div', 'tt-line', l)),
       );
     }
+
+    fitWall();
 
     // ---- Sources ----
     sourcesCard.cnt.textContent = String(ctx.sources.length);
@@ -934,7 +939,80 @@ export function createHud({
     );
   }
 
+  /**
+   * A wall list never fades out silently (walls-live W3): a wall cannot
+   * scroll, so Needs attention keeps the rows that fit and ends with
+   * "+n more". The full list is on the incident board (S3) when the room
+   * has one.
+   */
+  function fitWall() {
+    if (!wall()) return;
+    const needs = needsCard.body;
+    needs.querySelector('.tt-wall-more')?.remove();
+    // Hidden column (a role without the rail): nothing to measure.
+    if (!scroll.clientHeight) return;
+    // Only Needs attention counts: cards below it may run off the wall.
+    // Where the wall rail fades out its last tenth (F5), stop above it.
+    const masked = getComputedStyle(scroll).maskImage !== 'none';
+    const over = () => {
+      const r = scroll.getBoundingClientRect();
+      return (
+        needs.getBoundingClientRect().bottom >
+        r.bottom - (masked ? Math.max(24, r.height * 0.1) : 8)
+      );
+    };
+    let hidden = 0;
+    // Trim the biggest group first, so every group keeps its first name
+    // (a not-located traveler is never hidden behind four not-current);
+    // people at or above a reported floor (.p1) go last.
+    const drop = () => {
+      const groups = [...needs.querySelectorAll('.tt-group')];
+      const n = (g) => g.querySelectorAll('.tt-rowbtn').length;
+      if (groups.reduce((a, g) => a + n(g), 0) <= 1) return false;
+      const pick = (list) => {
+        const big = list.filter((g) => n(g) > 1);
+        if (!big.length) return null;
+        const max = Math.max(...big.map(n));
+        return big.filter((g) => n(g) === max).at(-1);
+      };
+      const calm = groups.filter((g) => !g.classList.contains('p1'));
+      const g =
+        pick(calm) || pick(groups) || calm.filter(n).at(-1) || groups.at(-1);
+      [...g.querySelectorAll('.tt-rowbtn')].at(-1).remove();
+      if (!n(g)) g.remove();
+      hidden += 1;
+      return true;
+    };
+    while (over() && drop()) {
+      // trimmed one row
+    }
+    if (!hidden) return;
+    const board = document.body.dataset.boardSlot;
+    const here = document.body.dataset.role === 'incident';
+    const more = el(
+      'div',
+      'tt-wall-more',
+      `+${hidden} more${board && !here ? ` · all on S${board}` : ' · not shown on this screen'}`,
+    );
+    needs.append(more);
+    // The line itself may push one more row out.
+    if (over() && drop())
+      more.textContent = more.textContent.replace(/^\+\d+/, `+${hidden}`);
+  }
+
   return {
+    /** Closed lines of Hazards and Safety & paths (S3's right column). */
+    closedLines() {
+      return {
+        hazards: hazardsCard.line.textContent,
+        safety: safetyCard.sec.hidden ? '' : safetyCard.line.textContent,
+        safetyCount: safetyCard.cnt.textContent,
+      };
+    },
+    /** The wall was resized or its text scale changed: fit again. */
+    refit() {
+      if (last) renderRail(last.a, last.ctx);
+    },
     render(a, ctx) {
       last = { a, ctx };
       renderRail(a, ctx);

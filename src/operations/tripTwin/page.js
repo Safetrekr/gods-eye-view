@@ -5582,7 +5582,16 @@ async function main() {
           official: true,
           text: `${src}: ${w.event}${w.ends ? ` · until ${untilText(w.ends)}` : ''}${w.inside === true ? ` · the ${noun} is inside the area` : ''}`,
         });
-    return list;
+    // The same notice for several areas reads once, with its count.
+    const seen = new Map();
+    for (const l of list) {
+      const k = `${l.sim}|${l.official}|${l.text}`;
+      if (seen.has(k)) seen.get(k).n += 1;
+      else seen.set(k, { ...l, n: 1 });
+    }
+    return [...seen.values()].map(({ n, ...l }) =>
+      n > 1 ? { ...l, text: `${l.text} · ${n} notices` } : l,
+    );
   }
   function alertList() {
     const list = (nc.alerts || []).map((a) => ({
@@ -7008,7 +7017,16 @@ async function main() {
       lastCtx?.snapshot
         ? `${sampleClock(lastCtx.snapshot)} local · sample`
         : '',
-    incidentOpen: () => lastCtx?.mode?.mode === 'incident',
+    // A report at another site of this trip counts too (walls-live W2).
+    incidentOpen: () =>
+      ['incident', 'incident_elsewhere'].includes(lastCtx?.mode?.mode),
+    /** Fit the wall's lists again (resize, text size). */
+    refitRail: () => hud.refit(),
+    /** Where the report is when it is not the site on screen, else null. */
+    incidentElsewhere: () =>
+      lastCtx?.mode?.mode === 'incident_elsewhere'
+        ? lastCtx.mode.elsewhere?.where || 'another site'
+        : null,
     /** A report open on any trip on watch (drift stops for all of them). */
     anyIncidentOpen() {
       const now = Date.now();
@@ -7046,9 +7064,12 @@ async function main() {
     incidentText() {
       const m = lastCtx?.mode;
       // The banner names its trip (review R3).
-      return m?.mode === 'incident'
-        ? `${focusTrip.title} · ${m.topLine.split(' — ')[0]}`
-        : '';
+      if (m?.mode === 'incident')
+        return `${focusTrip.title} · ${m.topLine.split(' — ')[0]}`;
+      // Another site of this trip: say so, the wall shows a different place.
+      if (m?.mode === 'incident_elsewhere')
+        return `${focusTrip.title} · ${m.topLine.split(' — ')[0]} · not the site on screen`;
+      return '';
     },
     /** Phase 12: the approach line, the lens line, the demo storm. */
     approachLine: () => nc.text,
@@ -7057,7 +7078,7 @@ async function main() {
       if ((start || null) !== nc.simStart) setSimStorm(start);
     },
     /** S3 idle: what changed, what is next, what is official. */
-    idlePanel(node) {
+    idlePanel(node, { reported = false } = {}) {
       const add = (cls, t) => {
         const n = document.createElement('div');
         n.className = cls;
@@ -7065,16 +7086,19 @@ async function main() {
         node.append(n);
       };
       node.replaceChildren();
-      add(
-        'tt-kicker',
-        `NO INCIDENT REPORTED · ${focusTrip.title.toUpperCase()}`,
-      );
-      add(
-        'tt-wall-note',
-        document.body.dataset.view === 'screen'
-          ? 'A reported floor opens the board here · needs attention is on the left'
-          : 'A reported floor opens the incident board here',
-      );
+      // Under a report at another site (W2) the caller writes the head.
+      if (!reported) {
+        add(
+          'tt-kicker',
+          `NO INCIDENT REPORTED · ${focusTrip.title.toUpperCase()}`,
+        );
+        add(
+          'tt-wall-note',
+          document.body.dataset.view === 'screen'
+            ? 'A reported floor opens the board here · needs attention is on the left'
+            : 'A reported floor opens the incident board here',
+        );
+      }
       if (lastA?.counts)
         add(
           'tt-wall-line',
@@ -7082,7 +7106,8 @@ async function main() {
             .map(([k, v]) => `${k === 'Away' ? 'Away from this site' : k} ${v}`)
             .join(' · '),
         );
-      if (lastSiteCounts) {
+      // On the wall the list's summary already gives people by site.
+      if (lastSiteCounts && document.body.dataset.view !== 'screen') {
         add('tt-kicker', 'PEOPLE BY SITE');
         add('tt-wall-line', siteCountsLine(lastSiteCounts, siteKey));
       }
@@ -7112,6 +7137,24 @@ async function main() {
         );
       }
       officialInto(add);
+      // Hazards and Safety & paths live here on S3, beside the list
+      // (walls-live W3: the left column is Needs attention only).
+      const closed = hud.closedLines();
+      // An official warning already listed above is not repeated.
+      const official = officialLines().map((l) => l.text);
+      if (
+        !official.some((t) => closed.hazards && t.startsWith(closed.hazards))
+      ) {
+        add('tt-kicker', 'HAZARDS');
+        add('tt-wall-line', closed.hazards || 'Nothing reported');
+      }
+      if (closed.safety) {
+        add(
+          'tt-kicker',
+          `SAFETY & PATHS${closed.safetyCount ? ` · ${closed.safetyCount}` : ''}`,
+        );
+        add('tt-wall-line', closed.safety);
+      }
       try {
         const c = city.anchors?.inside || city.center;
         const today = new Date().toISOString().slice(0, 10);

@@ -2988,3 +2988,66 @@ body.tt-wall-sheet-open.tt-idle-cursor .tt-wall-sheet * {
     column-count: 2;
   }
 }
+
+/* ---------- walls-live W3 (24 Oct 2026): lists never fade out silently ----
+   S3 is two equal columns: Needs attention on the left, everything else
+   (Hazards, Safety & paths included) on the right. A wall list keeps the
+   rows that fit and ends with "+n more". S2's rows are one line each. */
+body[data-view='screen'][data-role='incident'] .tt-sec-hazards,
+body[data-view='screen'][data-role='incident'] .tt-sec-safety,
+body[data-view='screen'][data-role='incident'] .tt-sec-sources,
+body[data-view='screen'][data-role='travelers']:not([data-merged~='incident'])
+  .tt-sec-hazards,
+body[data-view='screen'][data-role='travelers']:not([data-merged~='incident'])
+  .tt-sec-safety,
+body[data-view='screen'][data-role='travelers']:not([data-merged~='incident'])
+  .tt-sec-sources {
+  display: none !important;
+}
+/* S2: the headcounts tighten so the attention list gets its room. */
+body[data-view='screen'][data-role='travelers'] .tt-roster .cnt,
+body[data-view='screen'][data-role='travelers'] .tt-roster .lbl {
+  line-height: 30px;
+}
+.tt-wall-more {
+  padding: 8px 0 4px 11px;
+  font: 500 13px/18px var(--tt-mono);
+  letter-spacing: 0.06em;
+  color: var(--tt-attention);
+}
+body[data-view='screen'][data-role='travelers'] .tt-rowbtn {
+  min-height: 0;
+  padding: 3px 8px;
+  grid-template-columns: 26px 1fr;
+}
+body[data-view='screen'][data-role='travelers'] .tt-rowbtn .ini {
+  width: 24px;
+  height: 24px;
+  font-size: 9px;
+  letter-spacing: -0.02em;
+}
+body[data-view='screen'][data-role='travelers'] .tt-rowbtn > span:not(.ini) {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+body[data-view='screen'][data-role='travelers'] .tt-rowbtn .who {
+  flex: 0 0 auto;
+}
+body[data-view='screen'][data-role='travelers'] .tt-rowbtn .why {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* W2: a report at another site of this trip heads S3's board in red. */
+body[data-view='screen'] .tt-wall-panel .tt-kicker.tt-wall-inc {
+  color: var(--tt-hazard-text);
+}
+/* S2 and S3 lists end with "+n more", never a fade (W3). */
+body[data-view='screen'][data-role='travelers'] .tt-rail-scroll,
+body[data-view='screen'][data-role='incident'] .tt-rail-scroll {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
