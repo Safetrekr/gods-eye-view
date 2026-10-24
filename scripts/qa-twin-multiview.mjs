@@ -364,6 +364,40 @@ const LIVE_WOULD_REFUSE = path.join(
   'trip-twin',
   'would-refuse.jsonl',
 );
+/** The live audit folder (K6); only ever stat'ed, never created. */
+const LIVE_AUDIT_DIR = path.dirname(LIVE_WOULD_REFUSE);
+/** Every audit line in the QA server's folder (K6), oldest file first. */
+function auditLines(server) {
+  const out = [];
+  let names = [];
+  try {
+    names = fs.readdirSync(server.auditDir);
+  } catch {
+    return out;
+  }
+  for (const n of names.filter((x) => /^audit-.*\.jsonl$/.test(x)).sort())
+    for (const l of fs
+      .readFileSync(path.join(server.auditDir, n), 'utf8')
+      .split('\n')
+      .filter(Boolean))
+      try {
+        out.push(JSON.parse(l));
+      } catch {
+        out.push({ torn: true });
+      }
+  return out;
+}
+/** All the bytes in the QA audit folder (the K6 canary greps them). */
+function auditFolderText(server) {
+  let text = '';
+  try {
+    for (const n of fs.readdirSync(server.auditDir))
+      text += fs.readFileSync(path.join(server.auditDir, n), 'utf8');
+  } catch {
+    /* no folder */
+  }
+  return text;
+}
 function statOf(f) {
   try {
     const s = fs.statSync(f);
@@ -501,6 +535,7 @@ async function smoke(server, browser) {
   );
   const live0 = liveStoreStat();
   const liveRefuse0 = statOf(LIVE_WOULD_REFUSE);
+  const liveAudit0 = statOf(LIVE_AUDIT_DIR);
   let setup = null;
   let launcher = null;
   const walls = [];
@@ -1117,6 +1152,132 @@ async function smoke(server, browser) {
       );
       return {
         detail: `0 lines before the probes; then ${lines.length}: ${kinds.join(', ')}; file 0600; live audit file ${live1.exists ? 'unchanged' : 'absent'}`,
+      };
+    },
+  );
+
+  await step(
+    'K6-S1',
+    'audit log: 0600 files in a 0700 folder; envelope v1, seq rising across the restarts and the revert drill; the smoke’s events are there; no setup token, token, pairing code, device id, thumbnail or wall text in the folder',
+    async () => {
+      if (server.external) return { notRun: true, ok: true };
+      const dir = server.auditDir;
+      must(modeOf(dir) === '700', `audit folder mode ${modeOf(dir)}`);
+      const files = fs
+        .readdirSync(dir)
+        .filter((n) => /^audit-.*\.jsonl$/.test(n));
+      must(files.length >= 1, 'no audit file');
+      for (const f of files)
+        must(
+          modeOf(path.join(dir, f)) === '600',
+          `${f} mode ${modeOf(path.join(dir, f))}`,
+        );
+      const lines = auditLines(server);
+      must(!lines.some((l) => l.torn), 'a line is not JSON');
+      let seq = 0;
+      for (const l of lines) {
+        must(l.v === 1 && typeof l.type === 'string', `envelope ${l.type}`);
+        must(l.seq > seq, `seq ${l.seq} after ${seq}`);
+        seq = l.seq;
+      }
+      const types = new Map();
+      for (const l of lines) types.set(l.type, (types.get(l.type) || 0) + 1);
+      for (const t of [
+        'relay.boot',
+        'session.setup',
+        'device.hello',
+        'device.paired',
+        'cmd.applied',
+        'undo.applied',
+        'upgrade.refused',
+        'http.refused',
+      ])
+        must(types.get(t) > 0, `no ${t} line`);
+      const boots = new Set(lines.map((l) => l.boot));
+      must(
+        boots.size >= 2,
+        `${boots.size} boot(s): the restarts are not in it`,
+      );
+      for (const l of lines.filter((x) => x.type === 'upgrade.refused'))
+        must(l.peer?.ip, 'upgrade.refused without its peer');
+      for (const l of lines.filter((x) =>
+        ['cmd.applied', 'device.paired', 'undo.applied'].includes(x.type),
+      ))
+        must(!('peer' in l), `${l.type} has a peer`);
+      // The canary: every secret this run held (never printed).
+      const s6 = await page
+        ?.evaluate(() =>
+          JSON.parse(localStorage.getItem('tripTwin.soc.slot.6') || 'null'),
+        )
+        .catch(() => null);
+      const secrets = [
+        setup,
+        remote?.token,
+        remote?.id,
+        ...walls.flatMap((d) => [d.token, d.id]),
+        s6?.token,
+        s6?.id,
+        page?.__code && `"${page.__code}"`,
+        'data:image',
+        'hands-on',
+        'shows:',
+      ].filter(Boolean);
+      const text = auditFolderText(server);
+      const hits = secrets.filter((x) => text.includes(x));
+      must(
+        hits.length === 0,
+        `${hits.length} secret(s) in the audit folder (kinds: ${hits.map((h) => (h.startsWith('"') ? 'code' : h.length > 20 ? 'id or token' : h)).join(', ')})`,
+      );
+      return {
+        detail: `${files.length} file(s), ${lines.length} lines, seq 1…${seq}, ${boots.size} boots; ${[...types].map(([t, n]) => `${t} ${n}`).join(', ')}; ${secrets.length} secrets searched: 0 hits`,
+      };
+    },
+  );
+
+  await step(
+    'K6-S2',
+    'health and log: this computer gets /api/twin-sync/health (audit, store, host check, confirmBypass 0) and /log (no peer); a LAN Host gets 403 for both; the audit file is not served',
+    async () => {
+      if (server.external) return { notRun: true, ok: true };
+      const port = server.port;
+      const own = { host: `localhost:${port}` };
+      const h = await rawGet(port, '/api/twin-sync/health', own);
+      must(h.status === 200, `health ${h.status}`);
+      const j = JSON.parse(h.body);
+      must(j.audit?.ok === true, `audit not ok: ${j.audit?.lastError}`);
+      must(j.store?.ok === true, `store not ok: ${j.store?.lastError}`);
+      must(j.hostCheck?.mode === 'report', `host check ${j.hostCheck?.mode}`);
+      must(j.counters?.confirmBypass === 0, 'confirmBypass is not 0');
+      must(j.proto === PROTO, `proto ${j.proto}`);
+      const lg = await rawGet(port, '/api/twin-sync/log?limit=200', own);
+      must(lg.status === 200, `log ${lg.status}`);
+      const events = JSON.parse(lg.body).events || [];
+      must(events.length > 0, 'log: no events');
+      must(
+        events.every((e) => !('peer' in e)),
+        'log: an event carries a peer',
+      );
+      for (const p of ['/api/twin-sync/health', '/api/twin-sync/log']) {
+        const lan = await rawGet(port, p, { host: `192.168.1.3:${port}` });
+        must(lan.status === 403, `${p} with a LAN Host: ${lan.status}`);
+      }
+      const file = fs
+        .readdirSync(server.auditDir)
+        .filter((n) => /^audit-.*\.jsonl$/.test(n))
+        .map((n) => path.join(server.auditDir, n))[0];
+      const served = await rawGet(port, `/@fs${file}`, own);
+      must(
+        !(served.status === 200 && served.body.includes('"seq"')),
+        `the audit file is served (${served.status})`,
+      );
+      const live = statOf(LIVE_AUDIT_DIR);
+      must(
+        live.exists === liveAudit0.exists &&
+          live.mtimeMs === liveAudit0.mtimeMs,
+        'the live ~/Library/Logs/trip-twin/ changed',
+      );
+      return {
+        detail: `health ${h.status}: audit ok (seq ${j.audit.seq}), store ok, host check report, confirmBypass 0, apply→broadcast p95 ${j.timings?.applyToBroadcastMsP95} ms; log ${events.length} events, no peer; LAN Host 403 ×2; /@fs audit file ${served.status}; live audit folder ${live.exists ? 'unchanged' : 'absent'}`,
       };
     },
   );

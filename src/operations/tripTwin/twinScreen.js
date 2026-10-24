@@ -7,10 +7,13 @@
 // Phase CF K5 (S-15): a wall the relay calls out of date (RELOAD) reloads
 // itself at most once per 2 minutes and otherwise keeps what it shows
 // (K8 adds the card). Non-visual.
+// Phase CF K6 (BE-6, ET-5): the `local` message also says `drift` and
+// `driftReason` (twinProtocol.js DRIFT_REASONS), so the relay logs drift
+// and hands-on from fields, never from the text. Non-visual.
 import { toJpeg } from 'html-to-image';
 import { ROLES, wallName } from './twinScreenRoles.js';
 import { connectSync } from './twinSync.js';
-import { DENY, reloadGuard } from './twinProtocol.js';
+import { DENY, driftState, reloadGuard } from './twinProtocol.js';
 import { setNameStyle } from './twinHud.js';
 import { createWallSheet } from './twinWallSheet.js';
 
@@ -97,6 +100,8 @@ export function createScreenMode({ api, slot = null, setup = null }) {
   const DRIFT_AFTER_MS = 60000;
   let pendingCamera = [];
   let sentLocal = '';
+  // What last reset the idle clock: 'input' or 'command' (K6 driftReason).
+  let stopCause = 'input';
   let remoteGoneAt = null; // when the controlling remote went away
   let restoredAt = null; // a cached state shown before the link connects
   // Assigned below; the client reports status while it is being created.
@@ -104,8 +109,9 @@ export function createScreenMode({ api, slot = null, setup = null }) {
 
   const me = () => (state && mySlot ? state.screens[mySlot] : null);
   /** Stop the idle drift at once and restart its 60 s clock (F2). */
-  const stopDrift = () => {
+  const stopDrift = (cause = 'command') => {
     lastActivity = Date.now();
+    stopCause = cause;
     if (!drifting) return;
     drifting = false;
     api.drift?.(false);
@@ -482,7 +488,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     if (e.type === 'pointermove') return;
     if (e.type === 'pointerdown') dragging = true;
     lastInput = Date.now();
-    stopDrift();
+    stopDrift('input');
     if (!b.classList.contains('tt-hands-on')) {
       b.classList.add('tt-hands-on');
       paint();
@@ -530,22 +536,23 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     // Idle drift (Cinematic tier, Jesse 16 Oct): only the Site wall, only
     // after 60 s with no hands on, never during an incident, never while a
     // camera change is pending. The wall says so in its chip.
+    // The same conditions, in the same order, named (K6 driftReason).
     const s = me();
-    const wantDrift = Boolean(
-      s &&
-      s.role === 'site' &&
-      s.motion?.cine !== false &&
-      api.motionOn?.('cine') &&
-      !handsOn() &&
-      !dragging &&
-      !pendingCamera.length &&
-      now - lastActivity > DRIFT_AFTER_MS &&
-      !api.incidentOpen() &&
-      !api.anyIncidentOpen?.() &&
-      !linkLost() &&
-      // Phase 11 F2: no drift while the controlling remote is offline.
-      Boolean(presence?.remotes?.some((r) => r.controller)),
-    );
+    const why = driftState([
+      ['role', Boolean(s && s.role === 'site')],
+      ['tier', s?.motion?.cine !== false && Boolean(api.motionOn?.('cine'))],
+      ['input', !handsOn() && !dragging],
+      ['camera', !pendingCamera.length],
+      [stopCause, now - lastActivity > DRIFT_AFTER_MS],
+      ['incident', !api.incidentOpen() && !api.anyIncidentOpen?.()],
+      [
+        'link',
+        !linkLost() &&
+          // Phase 11 F2: no drift while the controlling remote is offline.
+          Boolean(presence?.remotes?.some((r) => r.controller)),
+      ],
+    ]);
+    const wantDrift = why.drift;
     if (wantDrift !== drifting) {
       drifting = wantDrift;
       api.drift?.(drifting);
@@ -560,9 +567,16 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         : api.selectionText?.()
           ? `shows: ${api.selectionText()}`
           : '';
-    if (text !== sentLocal && sync?.online && mySlot) {
-      sentLocal = text;
-      sync.send({ t: 'local', on: handsOn(), text });
+    const said = `${drifting ? 1 : 0}${text}`;
+    if (said !== sentLocal && sync?.online && mySlot) {
+      sentLocal = said;
+      sync.send({
+        t: 'local',
+        on: handsOn(),
+        text,
+        drift: drifting,
+        driftReason: why.reason,
+      });
     }
   }
 

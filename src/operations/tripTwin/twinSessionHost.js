@@ -16,6 +16,11 @@
 // with its name, so a change still names a device that is gone. Setup and
 // pairing write as the host (D0, "Trip Twin computer", via 'system').
 // Command refusals carry a code (twinProtocol.js CODE).
+// Phase CF K6 (BE-5, D32): every operation emits one audit event,
+// synchronously, so the log's order is the order things happened:
+// `emit(type, {actor, rev, data})` (and listeners added with onEvent).
+// Refs only, never a device id, a token, a code or a page's own name; the
+// relay adds the socket's context and auditLog.js keeps named fields only.
 // Prototype only — production needs TLS, device enrolment, operator SSO,
 // signed commands and an audit log (07-production-delta).
 import { applyCommand, applyUndo, createSession } from './twinSession.js';
@@ -101,11 +106,67 @@ export function refsInState(session) {
   return out;
 }
 
+/** Slots 1–6 a value names, or null. */
+const slotOr = (v) => (Number(v) >= 1 && Number(v) <= 6 ? Number(v) : null);
+
+/**
+ * What one command changed, field by field, for the audit (`cmd.applied`
+ * diffs): raw values here; auditLog.js keeps only what each field allows.
+ */
+export function commandDiffs(before, after, cmd, changed = []) {
+  const out = [];
+  const patch = cmd?.patch && typeof cmd.patch === 'object' ? cmd.patch : {};
+  const same = (a, b) =>
+    JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  if (cmd?.type === 'session') {
+    const keys = new Set(Object.keys(patch));
+    if (keys.has('report')) keys.add('incidentAck');
+    for (const k of keys)
+      if (
+        k in (after.session || {}) &&
+        !same(before.session?.[k], after.session[k])
+      )
+        out.push({
+          scope: 'session',
+          field: k,
+          from: before.session?.[k] ?? null,
+          to: after.session[k] ?? null,
+        });
+  }
+  if (cmd?.type === 'screens')
+    for (const slot of changed)
+      for (const k of Object.keys(patch)) {
+        const b = after.screens?.[slot];
+        if (!b || !(k in b)) continue;
+        const a = before.screens?.[slot]?.[k];
+        if (same(a, b[k])) continue;
+        out.push({
+          scope: `S${slot}`,
+          field: k,
+          from: a ?? null,
+          to: b[k] ?? null,
+        });
+      }
+  return out;
+}
+
 export function createSessionHost({
   now = () => Date.now(),
   random = Math.random,
   restore = null,
+  emit = null,
 } = {}) {
+  // Audit listeners (K6): called synchronously, in order; a listener that
+  // throws never stops the operation.
+  const listeners = emit ? [emit] : [];
+  const say = (type, ev) => {
+    for (const fn of listeners)
+      try {
+        fn(type, ev);
+      } catch {
+        /* the log never stops the wall */
+      }
+  };
   let session = restore?.session || createSession({ epochMs: now() });
   // id → {kind, slot, token, name, ref, lastSeen, online}
   const devices = new Map(
@@ -238,6 +299,13 @@ export function createSessionHost({
     return [...out.values()].sort((a, b) => refNo(a.ref) - refNo(b.ref));
   }
 
+  /** The actor of a device id for an event, or null (no ref yet). */
+  const actorOfId = (id, via = VIA.TOUCH) => {
+    const r = refOfId(id);
+    return r ? actor(r, via) : null;
+  };
+  const refsOf = (ids = []) => ids.map(refOfId).filter(Boolean);
+
   const token = () =>
     Array.from({ length: 24 }, () =>
       Math.floor(random() * 36).toString(36),
@@ -314,12 +382,18 @@ export function createSessionHost({
     };
   };
 
-  return {
+  const api = {
     get state() {
       return session;
     },
     presence,
     actor,
+    /** Add an audit listener `(type, {actor, rev, data})` (K6). */
+    onEvent(fn) {
+      if (typeof fn === 'function') listeners.push(fn);
+    },
+    /** The ref of a device id, or null (K6: for the relay's own events). */
+    refOf: refOfId,
     /** The actor for a device id (the relay's socket), or null. */
     actorOf(id, via = VIA.TOUCH) {
       const r = refOfId(id);
@@ -349,6 +423,11 @@ export function createSessionHost({
       session.session.epochMs = t;
       const tk = token();
       setups.set(tk, { expires: t + SETUP_TTL_MS });
+      say('session.setup', {
+        actor: actor(HOST_REF),
+        rev: { before: prevRev, after: session.rev },
+        data: { ok: true, count: session.count, tripId, siteKey },
+      });
       return { setup: tk, expires: t + SETUP_TTL_MS, count: session.count };
     },
     /**
@@ -492,17 +571,24 @@ export function createSessionHost({
     /** The remote enters a screen's code and gives it a slot (1–6). */
     pair({ by, code, slot }) {
       const t = now();
+      const failed = (reason, r) => {
+        say('pair.failed', {
+          actor: actorOfId(by),
+          data: { reason, tries, locked: t < lockedUntil },
+        });
+        return r;
+      };
       if (lease.holder !== by || !leaseLive())
-        return {
+        return failed('lease', {
           ok: false,
           code: CODE.LEASE_NOT_CONTROLLER,
           error: 'Only the remote in control can pair',
-        };
+        });
       if (t < lockedUntil)
-        return {
+        return failed('locked', {
           ok: false,
           error: 'Pairing locked for a minute after 5 wrong codes',
-        };
+        });
       const c = codes.get(String(code));
       if (!c || c.expires < t) {
         tries += 1;
@@ -510,12 +596,16 @@ export function createSessionHost({
           lockedUntil = t + 60000;
           tries = 0;
         }
-        return { ok: false, error: 'Code not recognised or expired' };
+        return failed('code', {
+          ok: false,
+          error: 'Code not recognised or expired',
+        });
       }
       tries = 0;
       codes.delete(String(code)); // single use
       const s = Number(slot);
-      if (!(s >= 1 && s <= 6)) return { ok: false, error: 'Slot must be 1–6' };
+      if (!(s >= 1 && s <= 6))
+        return failed('slot', { ok: false, error: 'Slot must be 1–6' });
       const unpaired = freeSlot(s, c.deviceId);
       const d = devices.get(c.deviceId) || { kind: 'screen' };
       d.slot = s;
@@ -523,6 +613,7 @@ export function createSessionHost({
       d.lastSeen = t;
       devices.set(c.deviceId, d);
       screenRef(c.deviceId, d);
+      const revBefore = session.rev;
       // The wall grows to fit as part of pairing: written by the host.
       if (!session.screens[s])
         session = applyCommand(
@@ -530,6 +621,19 @@ export function createSessionHost({
           { type: 'count', n: Math.max(s, session.count) },
           { by: HOST_REF, at: t },
         ).state;
+      say('device.paired', {
+        actor: actorOfId(by),
+        rev:
+          session.rev !== revBefore
+            ? { before: revBefore, after: session.rev }
+            : null,
+        data: {
+          slot: s,
+          screenRef: refOfId(c.deviceId),
+          method: 'code',
+          unpairedRefs: refsOf(unpaired),
+        },
+      });
       return {
         ok: true,
         deviceId: c.deviceId,
@@ -559,44 +663,70 @@ export function createSessionHost({
      */
     requestControl(id) {
       if (!holderOnline() || lease.holder === id) {
+        const how = lease.holder === id ? 'renewed' : 'request';
         grant(id);
         handover = null;
+        say('lease.granted', { actor: actorOfId(id), data: { how } });
         return { granted: true };
       }
       handover = { from: id, at: now() };
+      say('handover.requested', {
+        actor: actorOfId(id),
+        data: { toRef: refOfId(lease.holder) },
+      });
       return { granted: false, pending: true };
     },
     answerHandover(by, accept) {
-      if (by !== lease.holder || !handover) return false;
-      if (accept) grant(handover.from);
-      handover = null;
-      return true;
+      const from = handover?.from ?? null;
+      const ok = by === lease.holder && Boolean(handover);
+      if (ok && accept) grant(handover.from);
+      if (ok) handover = null;
+      say('handover.answered', {
+        actor: actorOfId(by),
+        data: { ok, accept: Boolean(accept), fromRef: refOfId(from) },
+      });
+      return ok;
     },
     isController(id) {
       return lease.holder === id && leaseLive();
     },
     /** Run a command from the controlling remote. */
     command({ by, cmd }) {
+      const refused = (r, field = null) => {
+        say('cmd.refused', {
+          actor: actorOfId(by),
+          data: { type: cmd?.type, code: r.code, field },
+        });
+        return r;
+      };
       if (!(lease.holder === by && leaseLive()))
-        return {
+        return refused({
           ok: false,
           code: CODE.LEASE_NOT_CONTROLLER,
           error: 'This remote is not in control',
-        };
+        });
       // Attribution is the socket's, never the message's (S-18, F-0009).
       const claimed =
         cmd && typeof cmd === 'object'
           ? ACTOR_KEYS.find((k) => Object.hasOwn(cmd, k))
           : null;
       if (claimed)
-        return {
-          ok: false,
-          code: CODE.VALIDATION_COMMAND,
-          error: `Not applied: ${claimed} is not valid`,
-        };
+        return refused(
+          {
+            ok: false,
+            code: CODE.VALIDATION_COMMAND,
+            error: `Not applied: ${claimed} is not valid`,
+          },
+          claimed,
+        );
       const r = applyCommand(session, cmd, { by: refOfId(by), at: now() });
       if (r.error)
-        return { ok: false, code: CODE.UNKNOWN_COMMAND, error: r.error };
+        return refused({
+          ok: false,
+          code: CODE.UNKNOWN_COMMAND,
+          error: r.error,
+        });
+      const before = session;
       session = r.state;
       lease.at = now();
       const undoId = `u${++undoSeq}`;
@@ -606,6 +736,19 @@ export function createSessionHost({
         of: session.rev,
       });
       for (const [k, v] of undos) if (v.expires < now()) undos.delete(k);
+      say('cmd.applied', {
+        actor: actorOfId(by),
+        rev: { before: before.rev, after: session.rev },
+        corr: { undoId },
+        data: {
+          type: cmd.type,
+          target: cmd.target ?? null,
+          fields: Object.keys(cmd.patch || {}),
+          diffs: commandDiffs(before, session, cmd, r.changed),
+          changed: r.changed,
+          skipped: r.skipped,
+        },
+      });
       return {
         ok: true,
         rev: session.rev,
@@ -663,23 +806,34 @@ export function createSessionHost({
     },
     undo({ by, undoId }) {
       const u = undos.get(undoId);
+      const refused = (r) => {
+        say('undo.refused', { actor: actorOfId(by), data: { code: r.code } });
+        return r;
+      };
       if (!(lease.holder === by && leaseLive()))
-        return {
+        return refused({
           ok: false,
           code: CODE.LEASE_NOT_CONTROLLER,
           error: 'This remote is not in control',
-        };
+        });
       if (!u || u.expires < now())
-        return {
+        return refused({
           ok: false,
           code: CODE.UNDO_EXPIRED,
           error: 'Undo is no longer available',
-        };
+        });
       undos.delete(undoId);
+      const before = session.rev;
       session = applyUndo(session, u.undo, {
         by: refOfId(by),
         at: now(),
         of: u.of,
+      });
+      say('undo.applied', {
+        actor: actorOfId(by),
+        rev: { before, after: session.rev },
+        corr: { undoId },
+        data: { of: u.of },
       });
       return { ok: true, rev: session.rev, of: u.of };
     },
@@ -691,4 +845,33 @@ export function createSessionHost({
       return devices.get(id)?.kind ?? null;
     },
   };
+
+  // One `device.hello` per hello, whatever the outcome (K6; CF-D11: the
+  // fields that tell the next lost pairing apart). Never the id, the
+  // token, the setup link or the page's own name.
+  const helloOf = api.hello;
+  api.hello = (args = {}) => {
+    const id = typeof args.id === 'string' ? args.id : '';
+    const before = (id && devices.get(id)?.token) || null;
+    const r = helloOf(args);
+    const accepted = r.type !== 'denied';
+    say('device.hello', {
+      actor: accepted && args.kind !== 'launcher' ? actorOfId(id) : null,
+      data: {
+        outcome: r.type,
+        code: r.code ?? null,
+        kind: args.kind,
+        slotAsked: slotOr(args.slot),
+        slotGiven: r.slot ?? null,
+        viaSetup: Boolean(args.setup),
+        viaToken: Boolean(args.token),
+        token: !r.token ? 'none' : r.token === before ? 'kept' : 'issued',
+        replaces: accepted && Boolean(args.live),
+        unpairedRefs: refsOf(r.unpaired),
+        controller: r.type === 'remote' ? Boolean(r.controller) : null,
+      },
+    });
+    return r;
+  };
+  return api;
 }

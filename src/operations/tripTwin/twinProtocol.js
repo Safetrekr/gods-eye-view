@@ -1,8 +1,9 @@
-// Trip Twin multi-view wire names and codes (Phase CF K4, K5;
+// Trip Twin multi-view wire names and codes (Phase CF K4, K5, K6;
 // PHASE-CF-PLAN S-8, S-15, S-16, S-18, §4.4, C16). One list for the relay,
 // the session host, the walls and the remote: hello deny codes, command
-// codes, the protocol version, actor refs and kind names, and the message
-// shape used by the schema-hash test. Pure: constants and small helpers.
+// codes, the protocol version, actor refs and kind names, the wall's drift
+// reasons, and the message shape used by the schema-hash test. Pure:
+// constants and small helpers.
 
 /** Hello deny codes: `{t:'welcome', type:'denied', code, error}`. */
 export const DENY = Object.freeze({
@@ -209,6 +210,34 @@ export function mergeShape(a, b) {
     ...(obj ? [obj] : []),
   ];
   return alts.length === 1 ? alts[0] : { '|': alts };
+}
+
+// ---------------------------------------------------------------- K6
+// Wall session flags (cf/02-backend.md BE-6, cf/07-reasoning.md ET-5): a
+// wall says `{t:'local', on, text, drift, driftReason}`, so the relay logs
+// hands-on and drift from structured fields and never parses `text`.
+
+/** Why a wall drifts (`idle`) or not (the first condition that failed). */
+export const DRIFT_REASONS = Object.freeze([
+  'idle', // drifting: the Site wall, 60 s with no input
+  'input', // hands on the wall, a drag, or input reset the idle clock
+  'camera', // a framing or scale change is waiting
+  'incident', // an incident is open
+  'link', // the link is stale or no remote is in control
+  'role', // not the Site wall
+  'tier', // Cinematic is off (or the wall's motion says no)
+  'command', // a pushed change stopped it and reset the idle clock
+]);
+
+/**
+ * Drift from ordered conditions `[[reason, ok], …]` (in the order the wall
+ * tests them): drifting when every condition holds, with reason `idle`;
+ * otherwise the reason of the first that fails. Pure.
+ */
+export function driftState(conditions) {
+  for (const [reason, ok] of conditions)
+    if (!ok) return { drift: false, reason };
+  return { drift: true, reason: 'idle' };
 }
 
 /**
