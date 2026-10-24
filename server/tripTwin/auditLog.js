@@ -40,9 +40,11 @@ import {
   DENY,
   DRIFT_REASONS,
   HOST_NAME,
+  MSG_TYPES,
   REMOTE_NAMES,
   isRef,
 } from '../../src/operations/tripTwin/twinProtocol.js';
+import { LIMIT_NAMES } from './twinLimits.js';
 import { ROLES } from '../../src/operations/tripTwin/twinScreenRoles.js';
 
 export const AUDIT_VERSION = 1;
@@ -539,6 +541,20 @@ export const AUDIT_EVENTS = Object.freeze({
     data: { slot, on: bool, reason: oneOf(DRIFT_REASONS) },
   },
   'wall.identify': { peer: false, data: { ok: bool, screens: int } },
+  // Limits (K7, S-16): one line per limit per 10 s; `dropped` counts the
+  // lines left out since. Wrong tokens are a signal here, never a lockout.
+  'limit.hit': {
+    peer: 'always',
+    data: {
+      limit: oneOf(LIMIT_NAMES),
+      kind: oneOf(['screen', 'remote', 'launcher']),
+      retryAfterMs: int,
+      count: int,
+      dropped: int,
+    },
+  },
+  // One message the relay could not handle (K7, SEC-8): its type only.
+  'msg.error': { peer: 'always', data: { type: oneOf(MSG_TYPES) } },
 });
 
 export const AUDIT_EVENT_TYPES = Object.freeze(Object.keys(AUDIT_EVENTS));

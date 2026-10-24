@@ -5,9 +5,11 @@
 //    with node:test and prints counts per file, plus every name on --names.
 // 2. Prints the Node version (the shared runner skips its allocation probes
 //    off Node 24; Trip Twin tests do not depend on that).
-// 3. Wiring checks: no `/api/route` in Trip Twin source; no `Math.random` in
-//    the relay, the session host or the client identity (twinSync.js,
-//    twinIdentity.js; K4). Warnings until K7, failures after.
+// 3. Wiring checks: no `/api/route` in Trip Twin source (a warning until
+//    CF-later L1 moves routing to /api/twin-route); no `Math.random` in the
+//    relay, its limits, the session host or the client identity
+//    (twinSync.js, twinIdentity.js; K4, K7). The Math.random rule is a
+//    failure from K7 on (S-4, S-7).
 // 4. Shared-file guard: no CF commit (on top of the CF base) touches one of
 //    Justin's seven shared paths, and neither does the working tree.
 // 4b. Audit canary (K6, §6.2 rule 8): the canary tests generated from the
@@ -35,9 +37,10 @@ const rel = (p) => path.relative(ROOT, p).split(path.sep).join('/');
  * K4 adds twenty-three identity tests (twinIdentity.test.mjs); K5 adds
  * thirteen attribution tests (twinAttribution.test.mjs) and eight protocol
  * tests (twinProtocol.test.mjs); K6 adds seventeen audit and health tests
- * (twinAudit.test.mjs). Raise per slice.
+ * (twinAudit.test.mjs); K7 adds twenty-three limits, pending-socket and
+ * crypto-id tests (twinLimits.test.mjs). Raise per slice.
  */
-export const BASELINE = 251;
+export const BASELINE = 274;
 /**
  * From K6 every gate re-runs the audit canary (PHASE-CF-PLAN §6.2 rule 8):
  * these tests must be found and pass, or the gate fails.
@@ -56,8 +59,14 @@ export const REQUIRED_TESTS = Object.freeze([
 export const CF_BASE = process.env.TRIP_TWIN_CF_BASE || '3431392';
 /** CF slice commits say so in their subject ("Trip Twin CF K1: …"). */
 export const CF_SUBJECT = /^Trip Twin CF\b/;
-/** Wiring findings fail the gate from K7 on (S-4, S-7); warnings until. */
-export const WIRING_ENFORCED = false;
+/**
+ * Wiring rules that fail the gate (S-4, S-7): Math.random from K7 on. The
+ * /api/route rule stays a warning until CF-later L1 (RT-7).
+ */
+export const WIRING_ENFORCED = Object.freeze({
+  'math-random': true,
+  'api-route': false,
+});
 
 /** Justin's shared files (PHASE-CF-PLAN §1): no CF commit may touch them. */
 export const SHARED_PATHS = Object.freeze([
@@ -163,6 +172,7 @@ export function wiringFindings() {
     text.split('\n').forEach((line, i) => {
       if (/\/api\/route(?![\w-])/.test(line))
         found.push({
+          id: 'api-route',
           rule: 'no shared /api/route in Trip Twin source (RT-7: use /api/twin-route)',
           at: `${rel(f)}:${i + 1}`,
         });
@@ -170,6 +180,7 @@ export function wiringFindings() {
   }
   for (const f of [
     'server/tripTwin/syncRelay.js',
+    'server/tripTwin/twinLimits.js',
     'src/operations/tripTwin/twinSessionHost.js',
     'src/operations/tripTwin/twinSync.js',
     'src/operations/tripTwin/twinIdentity.js',
@@ -183,6 +194,7 @@ export function wiringFindings() {
     text.split('\n').forEach((line, i) => {
       if (/\bMath\.random\b/.test(line))
         found.push({
+          id: 'math-random',
           rule: 'no Math.random in the relay, the session host or the client identity (S-7: crypto ids)',
           at: `${f}:${i + 1}`,
         });
@@ -319,12 +331,16 @@ async function main() {
 
   const wiring = wiringFindings();
   console.log(
-    `\nWiring checks · ${WIRING_ENFORCED ? 'ENFORCED' : 'WARNINGS ONLY until K7 (not a failure yet)'}`,
+    '\nWiring checks · Math.random ENFORCED (K7) · /api/route warnings until L1',
   );
-  if (!wiring.length) console.log('  clean');
-  for (const w of wiring)
-    console.log(`  ${WIRING_ENFORCED ? 'FAIL' : 'WARN'} ${w.at} — ${w.rule}`);
-  if (WIRING_ENFORCED && wiring.length) failed = true;
+  for (const [id, on] of Object.entries(WIRING_ENFORCED))
+    if (!wiring.some((w) => w.id === id))
+      console.log(`  clean ${id}${on ? ' (enforced)' : ''}`);
+  for (const w of wiring) {
+    const on = WIRING_ENFORCED[w.id] === true;
+    console.log(`  ${on ? 'FAIL' : 'WARN'} ${w.at} — ${w.rule}`);
+    if (on) failed = true;
+  }
 
   const guard = sharedGuard();
   console.log(

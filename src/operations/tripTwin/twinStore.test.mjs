@@ -443,9 +443,14 @@ test('store: the last change is flushed when the server closes', async () => {
     { t: 'hello', id: 'L', kind: 'launcher' },
     { t: 'setup', count: 2 },
   ]);
-  const rev = frames.filter((m) => m.t === 'state').pop().state.rev;
+  assert.equal(frames.find((m) => m.t === 'setup')?.ok, true);
+  // K7: the launcher sees presence only, so the rev is read from the file.
+  // A setup issues no device token, so it waits for the debounce.
+  const before = fs.existsSync(p.store) ? readJson(p.store).session.count : 0;
+  assert.notEqual(before, 2, 'not written yet (debounced)');
   v.close(); // well inside the 300 ms debounce
-  assert.equal(readJson(p.store).session.rev, rev, 'saved at close');
+  const rev = readJson(p.store).session.rev;
+  assert.equal(readJson(p.store).session.count, 2, 'saved at close');
   assert.equal(readJson(p.legacy).session.rev, rev, 'tmp copy too');
   await tick(400); // the debounce timer must not write again after close
   assert.equal(readJson(p.store).session.rev, rev);

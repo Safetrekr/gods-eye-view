@@ -515,6 +515,9 @@ async function startServer() {
     force: true,
   });
   fs.rmSync(path.join(QA_DIR, 'data'), { recursive: true, force: true });
+  // And a fresh audit folder (K7): a second run in the same QA folder
+  // would otherwise read the first run's would-refuse probes in K3-S1.
+  fs.rmSync(path.join(QA_DIR, 'audit'), { recursive: true, force: true });
   return startQaServer({ dir: QA_DIR, ref: REF, log });
 }
 async function importBase(server, rel) {
@@ -1156,6 +1159,290 @@ async function smoke(server, browser) {
     },
   );
 
+  // ---- K7: crypto ids, no state before pairing, loopback-aware limits ----
+  // Secrets K7's steps hold (searched by the K6 canary below; never printed).
+  const k7Secrets = [];
+  /** A raw relay socket from this computer, as a page opens it. */
+  const rawSock = () =>
+    new Promise((resolve) => {
+      const ws = new WebSocket(`${base.replace(/^http/, 'ws')}/api/twin-sync`, {
+        headers: { Origin: base },
+      });
+      ws.got = [];
+      ws.closedWith = null;
+      ws.on('message', (raw) => {
+        try {
+          ws.got.push(JSON.parse(String(raw)));
+        } catch {
+          /* ignore */
+        }
+      });
+      ws.on('close', (code) => (ws.closedWith = code));
+      ws.once('open', () => resolve({ ws, ok: true }));
+      ws.once('unexpected-response', (req, res) => {
+        ws.terminate();
+        resolve({ ws, ok: false, status: res.statusCode });
+      });
+      ws.once('error', () => resolve({ ws, ok: false, status: null }));
+    });
+  const until = async (fn, ms = 8000) => {
+    const end = Date.now() + ms;
+    while (!fn() && Date.now() < end) await sleep(50);
+    return fn();
+  };
+  let pend = null;
+  await step(
+    'K7-S1',
+    'no state before pairing: a screen waiting for a code hears only {pair-code, code, ttlMs}, across a command, an identify and a presence tick; the launcher heard presence only; presence says health {audit, store}',
+    async () => {
+      pend = await device(base, { id: 'screen-qa-k7-pending', kind: 'screen' });
+      const w = await pend.hello();
+      must(w.type === 'pair-code' && /^\d{4}$/.test(w.code), `got ${w.type}`);
+      const keys = Object.keys(w).sort().join(',');
+      must(keys === 'code,proto,t,ttlMs,type', `welcome keys ${keys}`);
+      k7Secrets.push(`"${w.code}"`);
+      const ack = remote.c.next(
+        (m) => m.t === 'ack' && m.reqId === 71,
+        8000,
+        'ack',
+      );
+      remote.c.say({
+        t: 'cmd',
+        reqId: 71,
+        cmd: { type: 'screens', target: 3, patch: { textScale: 2 } },
+      });
+      must((await ack).ok, 'command refused');
+      remote.c.say({ t: 'identify' });
+      await sleep(5600); // one presence tick
+      const heard = pend.c.out.map((m) => m.t);
+      must(heard.join() === 'welcome', `the waiting screen heard ${heard}`);
+      const lState = launcher.all('state').length;
+      const lPresence = launcher.all('presence').length;
+      must(lState === 0, `the launcher heard ${lState} state message(s)`);
+      must(lPresence > 0, 'the launcher heard no presence');
+      const h = presenceOf(remote.c)?.health;
+      must(
+        h && h.audit === true && h.store === true,
+        `presence health ${JSON.stringify(h)}`,
+      );
+      return {
+        detail: `waiting screen heard [${heard}] only; launcher: ${lPresence} presence, 0 state; presence health {audit: true, store: true}`,
+      };
+    },
+  );
+
+  await step(
+    'K7-S2',
+    'crypto ids: the setup link and every token are 256-bit base64url; a token issued by pairing is in the store at once (no 300 ms debounce); the wall paired back into its slot',
+    async () => {
+      if (server.external) return { notRun: true, ok: true };
+      const b64 = /^[A-Za-z0-9_-]{43}$/;
+      must(b64.test(setup), 'setup link is not 256-bit base64url');
+      for (const d of [...walls, remote])
+        must(b64.test(d.token || ''), `${d.kind} token shape`);
+      // Pair the waiting screen into S5 (the Node S5 is told unpaired), read
+      // the store at once, then pair S5 back by its new code.
+      const paired = pend.c.next('paired', 8000, 'paired');
+      const res = remote.c.next('pair-result', 8000, 'pair-result');
+      remote.c.say({ t: 'pair', reqId: 72, code: pend.c.out[0].code, slot: 5 });
+      must((await res).ok, 'pair refused');
+      const p = await paired;
+      const t0 = Date.now();
+      const inStore = await until(() => {
+        try {
+          return fs.readFileSync(server.storeFile, 'utf8').includes(p.token);
+        } catch {
+          return false;
+        }
+      }, 2000);
+      const ms = Date.now() - t0;
+      must(inStore, 'the new token is not in the store');
+      must(ms < 250, `in the store after ${ms} ms (debounce is 300)`);
+      must(b64.test(p.token), 'paired token shape');
+      k7Secrets.push(p.token, pend.id);
+      const s5 = walls[4];
+      await until(() => s5.c.last('unpaired'), 4000);
+      await s5.c.close();
+      const back = await s5.hello();
+      must(back.type === 'pair-code', `S5 got ${back.type}`);
+      const p5 = s5.c.next('paired', 8000, 'S5 paired');
+      const r5 = remote.c.next(
+        (m) => m.t === 'pair-result' && m.reqId === 73,
+        8000,
+        'pair-result',
+      );
+      remote.c.say({ t: 'pair', reqId: 73, code: back.code, slot: 5 });
+      must((await r5).ok, 'S5 pair refused');
+      s5.token = (await p5).token;
+      await pend.c.close();
+      return {
+        detail: `setup link, ${walls.length + 1} tokens and the new one are 43-character base64url; the new token was in the store after ${ms} ms; S5 paired back by code`,
+      };
+    },
+  );
+
+  await step(
+    'K7-S3',
+    'stale page: a page from K5/K6 (proto 2) is told RELOAD with readable text, and its socket is closed at the 5 s hello deadline (4004)',
+    async () => {
+      const { ws, ok } = await rawSock();
+      must(ok, 'no socket');
+      ws.send(
+        JSON.stringify({
+          t: 'hello',
+          proto: 2,
+          id: 'screen-qa-k6-page',
+          kind: 'screen',
+        }),
+      );
+      await until(() => ws.got.length > 0, 4000);
+      const w = ws.got[0];
+      must(
+        w?.code === 'RELOAD' && w.proto === PROTO && !w.state && !w.presence,
+        `got ${JSON.stringify(w && { code: w.code, proto: w.proto })}`,
+      );
+      const t0 = Date.now();
+      await until(() => ws.closedWith != null, 8000);
+      must(ws.closedWith === 4004, `closed with ${ws.closedWith}`);
+      return {
+        detail: `RELOAD "${w.error}"; closed 4004 after ${((Date.now() - t0) / 1000).toFixed(1)} s more`,
+      };
+    },
+  );
+
+  await step(
+    'K7-S4',
+    '64 sockets that never say hello, then S1–S5 and the remote reconnect: all rejoin at once; the oldest idle sockets give way (1013) and the rest are closed at the 5 s hello deadline (4004)',
+    async () => {
+      const idle = [];
+      for (let i = 0; i < 64; i += 1) idle.push(await rawSock());
+      const opened = idle.filter((x) => x.ok).length;
+      const refused = idle.filter((x) => !x.ok);
+      must(
+        refused.every((x) => x.status === 503 || x.status === 429),
+        `refused with ${[...new Set(refused.map((x) => x.status))]}`,
+      );
+      const t0 = Date.now();
+      await rejoinAll();
+      const rejoinMs = Date.now() - t0;
+      await until(
+        () => idle.every((x) => !x.ok || x.ws.closedWith != null),
+        7000,
+      );
+      const left = idle.filter((x) => x.ok && x.ws.closedWith == null).length;
+      must(left === 0, `${left} idle socket(s) still open`);
+      const codes = [
+        ...new Set(idle.filter((x) => x.ok).map((x) => x.ws.closedWith)),
+      ];
+      return {
+        detail: `${opened} opened, ${refused.length} refused (${[...new Set(refused.map((x) => x.status))].join('/') || '—'}); S1–S5 and the remote rejoined in ${rejoinMs} ms; idle closed with ${codes.join('/')}`,
+      };
+    },
+  );
+
+  await step(
+    'K7-S5',
+    'a 2 MiB frame closes only its own socket (1009); the walls beside it hear the next change',
+    async () => {
+      const { ws, ok } = await rawSock();
+      must(ok, 'no socket');
+      ws.send(
+        JSON.stringify({
+          t: 'thumb',
+          data: `data:image/jpeg;base64,${'A'.repeat(2 * 1024 * 1024)}`,
+        }),
+      );
+      await until(() => ws.closedWith != null, 5000);
+      must(ws.closedWith === 1009, `closed with ${ws.closedWith}`);
+      const st = walls[0].c.next(
+        (m) => m.t === 'state' && m.cause === 'cmd',
+        8000,
+        'S1 state',
+      );
+      remote.c.say({
+        t: 'cmd',
+        reqId: 74,
+        cmd: { type: 'screens', target: 3, patch: { textScale: 1 } },
+      });
+      await st;
+      must(
+        walls.every((d) => d.c.open) && remote.c.open,
+        'a wall or the remote lost its socket',
+      );
+      return {
+        detail:
+          'closed 1009; S1–S5 and the remote still open; S1 heard the change',
+      };
+    },
+  );
+
+  await step(
+    'K7-S6',
+    'thumbnails: JPEG only, at most one per screen per 2 s; the largest from S6 at 5K (2560×1440 @2x) is under 1 MiB',
+    async () => {
+      if (!page) return { notRun: true, ok: true, detail: 'no S6 page' };
+      const before = remote.c.all('thumb').length;
+      await page.setViewport({
+        width: 2560,
+        height: 1440,
+        deviceScaleFactor: 2,
+      });
+      await until(
+        () => remote.c.all('thumb').filter((m) => m.slot === 6).length >= 2,
+        30000,
+      );
+      await page.setViewport({ width: 1280, height: 760 });
+      const thumbs = remote.c.all('thumb');
+      must(thumbs.length > before, 'no thumbnail at 5K');
+      const max = Math.max(...thumbs.map((m) => m.data.length));
+      must(
+        thumbs.every((m) => /^data:image\/jpeg;base64,/.test(m.data)),
+        'a thumbnail that is not JPEG',
+      );
+      must(max < 1024 * 1024, `largest thumbnail ${max} characters`);
+      const six = thumbs.filter((m) => m.slot === 6).map((m) => m.at);
+      const gaps = six.slice(1).map((t, i) => t - six[i]);
+      must(
+        gaps.every((g) => g >= 1990),
+        `thumb gaps ${gaps.join(', ')} ms`,
+      );
+      return {
+        detail: `${thumbs.length} thumbnails heard; largest ${(max / 1024).toFixed(1)} KiB (limit 1024 KiB); S6 gaps ≥ ${Math.min(...gaps, Infinity)} ms`,
+      };
+    },
+  );
+
+  await step(
+    'K7-S7',
+    'health: codes, sockets waiting and the limits hit are counted; no message made the relay throw; limit.hit lines carry the peer',
+    async () => {
+      if (server.external) return { notRun: true, ok: true };
+      const h = await rawGet(server.port, '/api/twin-sync/health', {
+        host: `localhost:${server.port}`,
+      });
+      must(h.status === 200, `health ${h.status}`);
+      const j = JSON.parse(h.body);
+      must(j.codes != null && j.codes <= 20, `codes ${j.codes}`);
+      must(j.socketsUnpaired <= 16, `unpaired sockets ${j.socketsUnpaired}`);
+      const lim = j.counters?.limits || {};
+      must(lim['hello-deadline'] > 0, 'no hello-deadline counted');
+      must(j.counters.msgError === 0, `msgError ${j.counters.msgError}`);
+      const lines = auditLines(server).filter((l) => l.type === 'limit.hit');
+      must(lines.length > 0, 'no limit.hit line');
+      must(
+        lines.every((l) => l.peer && typeof l.peer.local === 'boolean'),
+        'a limit.hit line without its peer',
+      );
+      return {
+        detail: `codes ${j.codes}; sockets waiting ${j.socketsUnpaired}; limits ${Object.entries(
+          lim,
+        )
+          .map(([k, v]) => `${k} ${v}`)
+          .join(', ')}; ${lines.length} limit.hit line(s), each with its peer`,
+      };
+    },
+  );
+
   await step(
     'K6-S1',
     'audit log: 0600 files in a 0700 folder; envelope v1, seq rising across the restarts and the revert drill; the smoke’s events are there; no setup token, token, pairing code, device id, thumbnail or wall text in the folder',
@@ -1218,6 +1505,7 @@ async function smoke(server, browser) {
         s6?.token,
         s6?.id,
         page?.__code && `"${page.__code}"`,
+        ...k7Secrets,
         'data:image',
         'hands-on',
         'shows:',
@@ -1772,7 +2060,7 @@ async function reproPairing(server, browser) {
 
   await step(
     'R-H4',
-    'live: close S4, wait past the setup expiry, Open S4 again from the launcher',
+    'live: close S4, wait past the setup expiry while a stuck remote retries a forgotten token on loopback every second (K7, review B4), Open S4 again from the launcher',
     async () => {
       if (!has('wait-expiry'))
         return {
@@ -1797,9 +2085,39 @@ async function reproPairing(server, browser) {
       await waitWall(w4, (x) => joined(x, 4), 120000, 'S4');
       await w4.close();
       log(
-        `          waiting ${Math.round((SETUP_TTL_MS + 30000) / 60000)} min for the setup link to expire…`,
+        `          waiting ${Math.round((SETUP_TTL_MS + 30000) / 60000)} min for the setup link to expire (a stuck remote retries meanwhile)…`,
       );
+      // K7 gate (B4): one stuck remote on loopback, a forgotten token, a new
+      // socket every second for the whole wait: faster than twinSync.js
+      // retries. Wrong tokens never lock anyone out, so S4 must rejoin.
+      let stop = false;
+      const stuck = { told: 0, other: 0 };
+      const stuckLoop = (async () => {
+        while (!stop) {
+          const c = await client(base).catch(() => null);
+          if (!c) {
+            stuck.other += 1;
+            await sleep(1000);
+            continue;
+          }
+          const w = c.next('welcome', 4000, 'stuck welcome');
+          c.say({
+            t: 'hello',
+            proto: PROTO,
+            id: 'remote-qa-stuck',
+            kind: 'remote',
+            token: 'k7-stuck-remote-token-forgotten-0000000000',
+          });
+          const m = await w.catch(() => null);
+          if (m?.code === 'FORGOTTEN') stuck.told += 1;
+          else stuck.other += 1;
+          await c.close();
+          await sleep(1000);
+        }
+      })();
       await sleep(SETUP_TTL_MS + 30000);
+      stop = true;
+      await stuckLoop;
       pop = nextPopup(ctx, 'S4');
       must(await clickOpen(p, 4), 'no Open S4 button');
       w4 = await pop;
@@ -1817,10 +2135,12 @@ async function reproPairing(server, browser) {
       await ctx.close();
       await l.close();
       return verdict(
-        x.pairShown || !s4?.online,
-        x.pairShown
-          ? 'the reopened S4 shows a PAIR CODE'
-          : `rejoined: "${x.chip}"; presence S4 ${s4?.online ? 'online' : 'NOT online'}`,
+        x.pairShown || !s4?.online || stuck.other > 0 || stuck.told < 300,
+        `${
+          x.pairShown
+            ? 'the reopened S4 shows a PAIR CODE'
+            : `rejoined: "${x.chip}"; presence S4 ${s4?.online ? 'online' : 'NOT online'}`
+        }; stuck remote: ${stuck.told} hellos told FORGOTTEN, ${stuck.other} other`,
       );
     },
     meta(

@@ -311,7 +311,8 @@ test('upgrade today: only a loopback peer can start a setup through the real han
     const said = (u) => serverFrames(u.socket.written).find((m) => m.t);
     assert.equal(said(lan).ok, false);
     assert.equal(said(local).ok, true);
-    assert.match(said(local).setup, /^[0-9a-z]{24}$/);
+    // K7 (SEC-4): 256 bits from node:crypto, base64url.
+    assert.match(said(local).setup, /^[A-Za-z0-9_-]{43}$/);
   } finally {
     v.close();
   }

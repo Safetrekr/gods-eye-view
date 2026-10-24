@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fakeSocket, liveTwinServer } from './twinTestKit.mjs';
 import { createSessionHost } from './twinSessionHost.js';
-import { DRIFT_REASONS, driftState } from './twinProtocol.js';
+import { DRIFT_REASONS, PROTO, driftState } from './twinProtocol.js';
 import { fileURLToPath } from 'node:url';
 
 const REPO_DOCS = path.resolve(
@@ -609,6 +609,23 @@ const FIXTURES = {
     data: { slot: 1, on: true, reason: 'idle', text: 'drifting · idle camera' },
   },
   'wall.identify': { data: { ok: true, screens: 6 } },
+  // K7: a limit (with what a flood would carry) and a message that threw.
+  'limit.hit': {
+    data: {
+      limit: 'wrong-token',
+      kind: 'remote',
+      count: 10,
+      retryAfterMs: 1000,
+      dropped: 3,
+      token: TOKEN,
+      id: DEVICE_ID,
+      code: '4827',
+      ua: UA,
+    },
+  },
+  'msg.error': {
+    data: { type: 'cmd', error: `TypeError: ${PLANTED}`, raw: THUMB },
+  },
 };
 
 test('K6 canary (catalogue): every event type has a fixture; with generated poison in every field, no secret, id, code, thumbnail, user agent or planted name reaches the folder', async () => {
@@ -1094,7 +1111,7 @@ test('K6 health (BE-10): GET /api/twin-sync/health on this computer says store, 
     assert.equal(h.hostCheck.mode, 'report');
     assert.equal(h.counters.confirmBypass, 0);
     assert.equal(h.confirm, 'remote');
-    assert.equal(h.proto, 2);
+    assert.equal(h.proto, PROTO);
     assert.ok('applyToBroadcastMsP95' in h.timings);
     assert.equal(r.headers['cache-control'], 'no-store');
     // The relay booted into the log.
@@ -1301,5 +1318,5 @@ test('K6 relay boot and stop: relay.boot then relay.stop through the Vite plugin
   const boot = lines.find((l) => l.type === 'relay.boot');
   assert.equal(boot.data.store, 'memory');
   assert.equal(boot.data.hostCheck, 'report');
-  assert.equal(boot.data.proto, 2);
+  assert.equal(boot.data.proto, PROTO);
 });

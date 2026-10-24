@@ -21,8 +21,21 @@
 // `emit(type, {actor, rev, data})` (and listeners added with onEvent).
 // Refs only, never a device id, a token, a code or a page's own name; the
 // relay adds the socket's context and auditLog.js keeps named fields only.
+// Phase CF K7 (SEC-4, SEC-7, SEC-8, ET-7 R6a–R6c, S-7, S-16): tokens are
+// 256 bits from the platform CSPRNG (crypto.getRandomValues, as
+// randomBytes(32), base64url), codes are uniform 0000–9999 (as randomInt),
+// undo ids are 128-bit hex; no node: import, since src/ is also built for
+// the browser (browserModuleBoundary.test.mjs). A test passes `random` for
+// deterministic values, never Math.random. Existing tokens stay valid
+// (nobody re-pairs). A screen waiting for a code is not a device record:
+// its code lives in the code map only, so it is never saved. Codes are
+// purged on every hello and by the relay's sweep; at most 20 are
+// outstanding and 6 per IP (loopback exempt, review B4); a free code takes
+// at most 50 draws, then BUSY with retryAfterMs (never a spin). A good code
+// with a wrong slot counts against that code (burnt after 3).
 // Prototype only — production needs TLS, device enrolment, operator SSO,
 // signed commands and an audit log (07-production-delta).
+import { LIMITS } from '../../../server/tripTwin/twinLimits.js';
 import { applyCommand, applyUndo, createSession } from './twinSession.js';
 import {
   ACTOR_FIELDS as ACTOR_KEYS,
@@ -47,6 +60,72 @@ export const LEASE_MS = 30 * 1000;
 export const UNDO_MS = 10 * 1000;
 export const MAX_TRIES = 5;
 export const SETUP_TTL_MS = 10 * 60 * 1000;
+/** Pair code caps (S-16): in all, per IP (loopback exempt), draws. */
+export const CODES_TOTAL = LIMITS.codesTotal;
+export const CODES_PER_IP = LIMITS.codesPerIp;
+export const CODE_DRAWS = LIMITS.codeDraws;
+export const CODE_TRIES = LIMITS.codeTries;
+/** BUSY text (Appendix D 6d; the card itself is K8). */
+export const BUSY_TEXT =
+  'Too many screens are waiting to pair · trying again in 1 min';
+
+/** `n` bytes from the CSPRNG. */
+const bytesOf = (cryptoObj, n) => cryptoObj.getRandomValues(new Uint8Array(n));
+/** Bytes as base64url, no padding (as Buffer's 'base64url'). */
+const B64URL =
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+export function base64url(bytes) {
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const n =
+      (bytes[i] << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0);
+    const left = bytes.length - i;
+    out += B64URL[(n >> 18) & 63] + B64URL[(n >> 12) & 63];
+    if (left > 1) out += B64URL[(n >> 6) & 63];
+    if (left > 2) out += B64URL[n & 63];
+  }
+  return out;
+}
+/** A uniform integer in [0, n) from the CSPRNG (rejection, no bias). */
+function uniformInt(cryptoObj, n) {
+  const limit = Math.floor(0x1_0000_0000 / n) * n;
+  const buf = new Uint32Array(1);
+  for (;;) {
+    cryptoObj.getRandomValues(buf);
+    if (buf[0] < limit) return buf[0] % n;
+  }
+}
+
+/**
+ * Random values (S-7, SEC-4). From the CSPRNG (`crypto.getRandomValues`,
+ * in Node and in every browser, secure context or not) unless a test
+ * passes `random` (a function → [0, 1)), which keeps the old shapes so
+ * seeded tests stay deterministic. Never Math.random.
+ */
+export function randomSource(random = null, cryptoObj = globalThis.crypto) {
+  if (typeof random === 'function')
+    return {
+      token: () =>
+        Array.from({ length: 24 }, () =>
+          Math.floor(random() * 36).toString(36),
+        ).join(''),
+      code: () => Math.floor(random() * 10000),
+      id: () =>
+        Array.from({ length: 16 }, () =>
+          Math.floor(random() * 256)
+            .toString(16)
+            .padStart(2, '0'),
+        ).join(''),
+    };
+  return {
+    token: () => base64url(bytesOf(cryptoObj, 32)),
+    code: () => uniformInt(cryptoObj, 10000),
+    id: () =>
+      Array.from(bytesOf(cryptoObj, 16), (x) =>
+        x.toString(16).padStart(2, '0'),
+      ).join(''),
+  };
+}
 
 const refNo = (ref) => (isRef(ref) ? Number(ref.slice(1)) : 0);
 const HOST_ENTRY = Object.freeze({ kind: 'host', name: HOST_NAME, slot: null });
@@ -152,7 +231,7 @@ export function commandDiffs(before, after, cmd, changed = []) {
 
 export function createSessionHost({
   now = () => Date.now(),
-  random = Math.random,
+  random = null,
   restore = null,
   emit = null,
 } = {}) {
@@ -207,7 +286,11 @@ export function createSessionHost({
     // build) is never issued again; the migration below clears it.
     ...[...refsInState(session)].map((r) => refNo(r) + 1),
   );
-  const codes = new Map(); // code → {deviceId, expires}
+  const rng = randomSource(random);
+  // code → {deviceId, expires, ip, local, tries}: a waiting screen's only
+  // record (K7: never saved).
+  const codes = new Map();
+  let tokensIssued = 0;
   let tries = 0;
   let lockedUntil = 0;
   let lease = restore?.lease || { holder: null, at: 0 };
@@ -216,7 +299,6 @@ export function createSessionHost({
   // windows and shows a QR for the remote; both carry this token.
   const setups = new Map(); // token → {expires}
   const undos = new Map(); // id → {undo, expires, of}
-  let undoSeq = 0;
 
   /** Names taken by devices on the wall now, for one kind. */
   const namesInUse = (kind, notId = null) => {
@@ -306,17 +388,73 @@ export function createSessionHost({
   };
   const refsOf = (ids = []) => ids.map(refOfId).filter(Boolean);
 
-  const token = () =>
-    Array.from({ length: 24 }, () =>
-      Math.floor(random() * 36).toString(36),
-    ).join('');
-  const newCode = () => {
-    let c;
-    do c = String(Math.floor(random() * 10000)).padStart(4, '0');
-    while (codes.has(c));
-    return c;
+  /** A setup token (not saved). */
+  const token = () => rng.token();
+  /** A device token: counted, so the relay writes the store at once. */
+  const deviceToken = () => {
+    tokensIssued += 1;
+    return rng.token();
   };
-  const deny = (code, error) => ({ type: 'denied', code, error });
+  /** A free code in at most CODE_DRAWS draws, else null (never a spin). */
+  const newCode = () => {
+    for (let i = 0; i < CODE_DRAWS; i += 1) {
+      const c = String(rng.code()).padStart(4, '0');
+      if (!codes.has(c)) return c;
+    }
+    return null;
+  };
+  /** Drop expired codes; the device ids they were for. */
+  const purge = (t) => {
+    const out = [];
+    for (const [c, v] of codes)
+      if (v.expires <= t) {
+        codes.delete(c);
+        out.push(v.deviceId);
+      }
+    return out;
+  };
+  const deny = (code, error, extra = {}) => ({
+    type: 'denied',
+    code,
+    error,
+    ...extra,
+  });
+  /** BUSY until the soonest code expires (1 s … 5 min). */
+  const busy = (t, limit) =>
+    deny(DENY.BUSY, BUSY_TEXT, {
+      limit,
+      retryAfterMs: Math.max(
+        1000,
+        Math.min(
+          CODE_TTL_MS,
+          Math.min(...[...codes.values()].map((v) => v.expires)) - t,
+        ) || CODE_TTL_MS,
+      ),
+    });
+  /**
+   * A code for a waiting screen, within the caps (S-16): 20 in all, 6 per
+   * IP unless on this computer. Returns {code, expires} or a BUSY refusal.
+   */
+  function issueCode(id, t, { ip = null, local = false } = {}) {
+    purge(t);
+    for (const [c, v] of codes) if (v.deviceId === id) codes.delete(c);
+    if (codes.size >= CODES_TOTAL) return busy(t, 'codes-total');
+    if (!local) {
+      let mine = 0;
+      for (const v of codes.values()) if (v.ip === ip) mine += 1;
+      if (mine >= CODES_PER_IP) return busy(t, 'codes-ip');
+    }
+    const code = newCode();
+    if (!code) return busy(t, 'code-draws');
+    codes.set(code, {
+      deviceId: id,
+      expires: t + CODE_TTL_MS,
+      ip,
+      local: Boolean(local),
+      tries: 0,
+    });
+    return { code, expires: t + CODE_TTL_MS };
+  }
   const leaseLive = () => lease.holder && now() - lease.at < LEASE_MS;
   const holderOnline = () =>
     leaseLive() && devices.get(lease.holder)?.online !== false;
@@ -451,6 +589,7 @@ export function createSessionHost({
       slot = null,
       live = null,
       local = false,
+      ip = null,
     }) {
       const t = now();
       if (!id || typeof id !== 'string')
@@ -489,7 +628,7 @@ export function createSessionHost({
           const d = {
             kind: 'screen',
             slot: s,
-            token: token(),
+            token: deviceToken(),
             ref: known?.ref,
             lastSeen: t,
             online: true,
@@ -516,17 +655,23 @@ export function createSessionHost({
             DENY.TICKET_EXPIRED,
             'This screen link has expired · open the screen from the launcher again, or pair it with a code',
           );
-        for (const [c, v] of codes) if (v.deviceId === id) codes.delete(c);
-        const code = newCode();
-        codes.set(code, { deviceId: id, expires: t + CODE_TTL_MS });
-        // A screen waiting for a code keeps a ref it had (it may pair back).
-        devices.set(id, {
-          kind,
-          ...(known?.ref ? { ref: known.ref } : {}),
-          lastSeen: t,
-          online: true,
-        });
-        return { type: 'pair-code', code, expires: t + CODE_TTL_MS };
+        const got = issueCode(id, t, { ip, local });
+        if (got.type === 'denied') return got;
+        // A screen this host knew keeps its ref (it may pair back); a new
+        // one is not a device until it is paired (K7: nothing saved).
+        if (known)
+          devices.set(id, {
+            kind,
+            ...(known.ref ? { ref: known.ref } : {}),
+            lastSeen: t,
+            online: true,
+          });
+        return {
+          type: 'pair-code',
+          code: got.code,
+          expires: got.expires,
+          ttlMs: CODE_TTL_MS,
+        };
       }
       // Remotes need the setup QR or their own token from an earlier pairing.
       const trusted = setupOk || (known?.kind === 'remote' && known.token);
@@ -547,7 +692,7 @@ export function createSessionHost({
           'Scan the QR on the Trip Twin computer to pair this remote',
         );
       }
-      const rt = known?.token || token();
+      const rt = known?.token || deviceToken();
       // The host names a remote once, at pairing; later hellos keep it.
       const d = {
         kind: 'remote',
@@ -589,8 +734,9 @@ export function createSessionHost({
           ok: false,
           error: 'Pairing locked for a minute after 5 wrong codes',
         });
+      purge(t);
       const c = codes.get(String(code));
-      if (!c || c.expires < t) {
+      if (!c) {
         tries += 1;
         if (tries >= MAX_TRIES) {
           lockedUntil = t + 60000;
@@ -602,14 +748,18 @@ export function createSessionHost({
         });
       }
       tries = 0;
-      codes.delete(String(code)); // single use
       const s = Number(slot);
-      if (!(s >= 1 && s <= 6))
+      // A wrong slot is a slip, not a guess: the code stays for 3 tries.
+      if (!(s >= 1 && s <= 6)) {
+        c.tries += 1;
+        if (c.tries >= CODE_TRIES) codes.delete(String(code));
         return failed('slot', { ok: false, error: 'Slot must be 1–6' });
+      }
+      codes.delete(String(code)); // single use
       const unpaired = freeSlot(s, c.deviceId);
       const d = devices.get(c.deviceId) || { kind: 'screen' };
       d.slot = s;
-      d.token = token();
+      d.token = deviceToken();
       d.lastSeen = t;
       devices.set(c.deviceId, d);
       screenRef(c.deviceId, d);
@@ -729,7 +879,7 @@ export function createSessionHost({
       const before = session;
       session = r.state;
       lease.at = now();
-      const undoId = `u${++undoSeq}`;
+      const undoId = rng.id();
       undos.set(undoId, {
         undo: r.undo,
         expires: now() + UNDO_MS,
@@ -843,6 +993,40 @@ export function createSessionHost({
     },
     kindOf(id) {
       return devices.get(id)?.kind ?? null;
+    },
+    /**
+     * The relay's sweep (K7, SUP-5): expired codes go; the device ids they
+     * were for, so a screen still waiting is given a new one.
+     */
+    purgeCodes() {
+      return purge(now());
+    },
+    /** A new code for a screen still waiting (its old one expired). */
+    reissueCode(id, { ip = null, local = false } = {}) {
+      const got = issueCode(String(id), now(), { ip, local });
+      return got.type === 'denied'
+        ? got
+        : { type: 'pair-code', ...got, ttlMs: CODE_TTL_MS };
+    },
+    /** True when this device has a code that has not expired. */
+    hasCode(id) {
+      const t = now();
+      for (const v of codes.values())
+        if (v.deviceId === id && v.expires > t) return true;
+      return false;
+    },
+    /** A waiting screen closed: its code goes with it. */
+    dropCode(id) {
+      for (const [c, v] of codes) if (v.deviceId === id) codes.delete(c);
+    },
+    /** Outstanding codes (tests, health). */
+    codesOut() {
+      purge(now());
+      return codes.size;
+    },
+    /** Device tokens minted so far: a change means write the store now. */
+    get tokensIssued() {
+      return tokensIssued;
     },
   };
 

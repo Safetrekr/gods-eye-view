@@ -614,7 +614,8 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         if (m.type === 'denied' && m.code === DENY.RELOAD)
           return reloadOutOfDate();
         welcomeAt = Date.now();
-        presence = m.presence;
+        // A wall waiting for a code gets no presence or state (K7).
+        if (m.presence) presence = m.presence;
         if (m.type === 'paired') {
           mySlot = m.slot;
           pair.hidden = true;
