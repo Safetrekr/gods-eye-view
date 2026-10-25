@@ -15,7 +15,7 @@ export const ROLE_ORDER = Object.freeze([
 export const ROLES = Object.freeze({
   site: {
     key: 'site',
-    textScale: 1.5,
+    textScale: 1.75,
     label: 'Site',
     kicker: 'SITE',
     sub: '3D site picture',
@@ -33,7 +33,7 @@ export const ROLES = Object.freeze({
   },
   incident: {
     key: 'incident',
-    textScale: 2,
+    textScale: 1.75,
     label: 'Incident & attention',
     kicker: 'INCIDENT & ATTENTION',
     sub: 'Needs attention · incident board',
@@ -61,7 +61,7 @@ export const ROLES = Object.freeze({
   },
   trips: {
     key: 'trips',
-    textScale: 2,
+    textScale: 1.75,
     label: 'Trips on watch',
     kicker: 'TRIPS ON WATCH',
     sub: 'Every active trip',
@@ -196,3 +196,85 @@ export function layerValue(screen = {}, key) {
     for (const L of g.layers) if (L.key === key) return L.def;
   return false;
 }
+
+/**
+ * The cards each role shows in its left column, which a wall's Layout may
+ * hide one by one (screens/05-S1-PLAN §13). lock: never hidden — the
+ * summary, needs attention and the incident board carry the safety story.
+ */
+export const CARD_CATALOG = Object.freeze({
+  site: [{ key: 'hotel', label: 'Group hotel · floors' }],
+  travelers: [
+    { key: 'summary', label: 'Summary', lock: true },
+    { key: 'people', label: 'People' },
+    { key: 'attention', label: 'Needs attention', lock: true },
+  ],
+  incident: [
+    { key: 'attention', label: 'Needs attention', lock: true },
+    { key: 'board', label: 'Incident board', lock: true },
+  ],
+  weather: [
+    { key: 'weather', label: 'Weather & alerts', lock: true },
+    { key: 'timeline', label: 'Timeline' },
+  ],
+  day: [
+    { key: 'brief', label: 'Site brief' },
+    { key: 'schedule', label: 'Schedule' },
+  ],
+  trips: [{ key: 'trips', label: 'Trips on watch', lock: true }],
+});
+
+/** Layout values a wall may hold (the relay rebuilds `layout` from these). */
+export const LAYOUT_CARDS = Object.freeze(['shown', 'map']);
+export const LAYOUT_WIDTHS = Object.freeze(['standard', 'wide']);
+
+/**
+ * A screen's layout with every default filled in: {cards, width, off}.
+ * cards 'map' = map only (the left column steps away); off = hidden card
+ * keys of this role, locked cards never among them.
+ */
+export function layoutValue(screen = {}) {
+  const l = screen.layout || {};
+  const keys = new Set(
+    (CARD_CATALOG[screen.role] || []).filter((c) => !c.lock).map((c) => c.key),
+  );
+  return {
+    cards: LAYOUT_CARDS.includes(l.cards) ? l.cards : 'shown',
+    width: LAYOUT_WIDTHS.includes(l.width) ? l.width : 'standard',
+    off: Array.isArray(l.off) ? l.off.filter((k) => keys.has(k)) : [],
+  };
+}
+
+/** True when a screen's layout differs from its role's default. */
+export function layoutChanged(screen = {}) {
+  const v = layoutValue(screen);
+  return v.cards !== 'shown' || v.width !== 'standard' || v.off.length > 0;
+}
+
+/**
+ * Layers a wall cannot turn off while a report is open (screens/03-spec-aia
+ * §3); while any is off the map bar says so. Floors count on the Site wall.
+ */
+export const SAFETY_LAYERS = Object.freeze([
+  'alertAreas',
+  'fires',
+  'safety',
+  'avoidAreas',
+  'floors',
+]);
+
+/**
+ * Roles already in the new wall frame (screens/05-S1-PLAN): their layout
+ * options do something. One role at a time (Jesse); S1 Site first. A
+ * one-screen wall (merged roles) keeps its old layout until S2's turn.
+ */
+export const WALL_LAYOUT_ROLES = new Set(['site']);
+export const wallShellOn = (screen = {}) =>
+  WALL_LAYOUT_ROLES.has(screen.role) && !(screen.merged || []).length;
+
+/**
+ * Text size on a wall (screens/20-S1-FIX-LIST F12): inside this range the
+ * type rule holds (Manrope ≥ 26 px, Inter ≤ 28 px after the wall scale).
+ */
+export const WALL_TEXT_MIN = 1.5;
+export const WALL_TEXT_MAX = 2.25;

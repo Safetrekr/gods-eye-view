@@ -18,6 +18,9 @@ const SESSION_FIELDS = new Set([
   'spotlight', // {kind: 'person'|'place', id} or null
   'visitor', // visitor mode: walls show initials and counts only
   'simStorm', // demo: start (ms) of the simulated storm, or null (phase 12)
+  // false = every wall view only: no menu or sheets, nothing saved at a
+  // wall (Jesse, 25 Oct 2026: screens/20-S1-FIX-LIST Q2). Missing = on.
+  'wallControls',
 ]);
 /** Per screen: the target picker decides which screens. */
 const SCREEN_FIELDS = new Set([
@@ -30,6 +33,7 @@ const SCREEN_FIELDS = new Set([
   'layers', // {[layer]: bool}, merged
   'frame', // one-shot camera intent {subject, nonce}; never a copied camera
   'motion', // {live, event, cine}: this wall's motion tiers (phase 11)
+  'layout', // {cards, width, off}: this wall's layout (screens/05-S1-PLAN)
 ]);
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
@@ -46,6 +50,7 @@ export function screenDefaults(role) {
     layers: {},
     frame: null,
     motion: { live: true, event: true, cine: true },
+    layout: {},
     meta: {},
   };
 }
@@ -67,6 +72,7 @@ export function createSession({ count = 4, tripId = null, epochMs = 0 } = {}) {
       spotlight: null,
       visitor: false,
       simStorm: null,
+      wallControls: true,
       epochMs,
     },
     screens,
@@ -84,7 +90,8 @@ const slotsFor = (state, target) =>
  * cmd:
  *   {type: 'session', patch}
  *   {type: 'screens', target: 1..6 | 'all', patch}
- *   {type: 'reset', target}            role defaults (keeps role and pin)
+ *   {type: 'reset', target, keep?}     role defaults (keeps role and pin;
+ *                                      keep: ['mode', 'day'] from a wall)
  *   {type: 'count', n}                 number of screens
  *   {type: 'returnLive'}               every screen Live, now, role
  *                                      defaults — pins included (the wall
@@ -146,7 +153,7 @@ export function applyCommand(state, cmd, { by = null, at = Date.now() } = {}) {
             s.merged = [];
           } else {
             keepField(slot, k);
-            if (k === 'layers' || k === 'motion')
+            if (k === 'layers' || k === 'motion' || k === 'layout')
               s[k] = { ...(s[k] || {}), ...v };
             else s[k] = v;
           }
@@ -165,6 +172,9 @@ export function applyCommand(state, cmd, { by = null, at = Date.now() } = {}) {
           pinned: s.pinned,
           merged: s.merged || [],
         };
+        // A wall's own Reset keeps what the remote decides (mode, day).
+        for (const k of Array.isArray(cmd.keep) ? cmd.keep : [])
+          if (k === 'mode' || k === 'day') next.screens[slot][k] = s[k];
         changed.push(slot);
       }
       break;

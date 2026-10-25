@@ -20,13 +20,25 @@
 // date, rejoining paused (RATE_LIMITED), too many waiting (BUSY), refused.
 // The band under the chip stays free for the V1 voice strip.
 import { toJpeg } from 'html-to-image';
-import { ROLES, wallName } from './twinScreenRoles.js';
+import {
+  ROLES,
+  SAFETY_LAYERS,
+  WALL_TEXT_MAX,
+  WALL_TEXT_MIN,
+  layerValue,
+  wallShellOn,
+  layoutValue,
+  wallName,
+} from './twinScreenRoles.js';
 import { connectSync } from './twinSync.js';
 import { DENY, UNPAIRED, driftState, reloadGuard } from './twinProtocol.js';
 import { setNameStyle } from './twinHud.js';
 import { createWallSheet } from './twinWallSheet.js';
+import { createWallRail } from './twinWallRail.js';
+import { MAP_ROLES, wallPage } from './twinWallPages.js';
 import {
   CHIP_RECENT_MS,
+  agoText,
   byText,
   chipText,
   describeChange,
@@ -54,41 +66,64 @@ const mmss = (s) =>
  */
 export function createScreenMode({ api, slot = null, setup = null }) {
   document.body.dataset.view = 'screen';
-  const head = el('header', 'tt-wall-head');
+  // The All-in-one's top bar on every wall (screens/05-S1-PLAN §2): the
+  // SafeTrekr lockup with this screen's number and role · trip › site │
+  // LIVE, another trip's report, data age and the trip's clock │ who is in
+  // control (short) and the HANDS-ON / SET AT WALL / VISITOR tags.
+  const head = el('header', 'tt-bar tt-wall-bar');
   head.id = 'tt-wall-head';
-  const left = el('div', 'tt-wall-left');
-  const kicker = el('div', 'tt-wall-kicker');
-  const where = el('div', 'tt-wall-where');
-  left.append(kicker, where);
+  head.dataset.ttBar = 'wall';
+  const left = el('div', 'tt-bar-place tt-wall-left');
+  const brand = el('span', 'tt-brand');
+  const clip = el('span', 'tt-brand-clip');
+  const mark = el('img', 'tt-brand-mark');
+  mark.src = '/safetrekr-logo.svg';
+  mark.alt = 'SafeTrekr';
+  clip.append(mark);
+  const sep = el('span', 'tt-brand-sep');
+  sep.setAttribute('aria-hidden', 'true');
+  // "S1" small mono + the role in Manrope (walls-live D2).
+  const kicker = el('span', 'tt-wall-slot');
+  const roleName = el('span', 'tt-brand-name tt-wall-role');
+  brand.append(clip, sep, kicker, roleName);
+  const where = el('nav', 'tt-crumbs tt-wall-where');
+  where.setAttribute('aria-label', 'Trip and site');
+  left.append(brand, where);
+  const status = el('div', 'tt-bar-status tt-wall-status');
   const badge = el('div', 'tt-wall-badge');
+  // This trip's state, as the All-in-one's pill (F1): red INCIDENT · THIS
+  // TRIP while a report is open, WATCH in amber; nothing when calm.
+  const modePill = el('span', 'tt-mode tt-wall-mode');
+  modePill.hidden = true;
+  modePill.setAttribute('role', 'status');
   // Another trip's report, on every wall (walls-live W1, D1): red, points
   // to the Trips wall, never switches this one.
-  const other = el('div', 'tt-wall-other');
+  const other = el('div', 'tt-other-alert tt-wall-other');
   other.hidden = true;
   other.setAttribute('role', 'status');
-  const right = el('div', 'tt-wall-right');
-  // Row 1: the trip's clock and the data age, one place on every wall (W11).
-  const clockRow = el('div', 'tt-wall-clockrow');
-  const time = el('span', 'tt-wall-time');
-  const data = el('span', 'tt-wall-data');
-  clockRow.append(time, data);
+  // The trip's clock and the data age, one place on every wall (W11).
+  const clockRow = el('span', 'tt-bar-read tt-wall-clockrow');
+  const data = el('span', 'tt-age tt-wall-data');
+  const time = el('span', 'tt-clock tt-wall-time');
+  clockRow.append(data, time);
+  status.append(badge, modePill, other, clockRow);
+  const right = el('div', 'tt-bar-cond tt-wall-right');
   const chip = el('div', 'tt-wall-chip');
   chip.setAttribute('role', 'status');
-  // Row 3: tags. Hands-on is a tag, not a frame round the wall (W4).
+  // Tags. Hands-on is a tag, not a frame round the wall (W4).
   const tags = el('div', 'tt-wall-tags');
   const handsTag = el('span', 'tt-wall-tag tt-wall-hands', 'HANDS-ON');
   handsTag.hidden = true;
+  // Set here, not on the remote (screens/03-spec-aia §4).
+  const wallTag = el('span', 'tt-wall-tag tt-wall-set', 'SET AT WALL');
+  wallTag.hidden = true;
   // Visitor mode is visible on every wall (review/phase10 R6).
-  const visitorMark = el(
-    'span',
-    'tt-wall-visitor',
-    'VISITOR MODE · INITIALS ONLY',
-  );
+  const visitorMark = el('span', 'tt-wall-visitor', 'VISITOR MODE');
+  visitorMark.title = 'Visitor mode · initials and counts only';
   visitorMark.hidden = true;
-  const sample = el('span', 'tt-wall-sample', 'SAMPLE TRIP · FICTIONAL PEOPLE');
-  tags.append(handsTag, visitorMark, sample);
-  right.append(clockRow, chip, tags);
-  head.append(left, other, badge, right);
+  tags.append(handsTag, wallTag, visitorMark);
+  right.append(chip, tags);
+  head.append(left, status, right);
   // Phase 12: the approach line and the lens line, under the header.
   const wxStrip = el('div', 'tt-wall-wx');
   wxStrip.hidden = true;
@@ -125,10 +160,12 @@ export function createScreenMode({ api, slot = null, setup = null }) {
   let change = null;
   let seen = null;
   let lastCtl = null;
+  let myRef = null; // this wall's attribution ref, once it has made a change
   // Why the next pair card asks again: {kind, at} (lost, link, slot).
   let pairNote = null;
   let cardOn = null; // the card shown, or null
   let sheet = null; // this screen's L / D / K sheets (D5), made below
+  let rail = null; // this screen's own menu (screens/05-S1-PLAN), made below
   // Hands-on (Jesse): reach in with the mouse on any wall — rotate, zoom,
   // select. Settings stay on the remote. 20 s after the last input the
   // wall is display-only again; the camera stays where it was left.
@@ -196,8 +233,9 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     node.replaceChildren(box);
     node.hidden = false;
     cardOn = c.kind;
-    // A card replaces the scene: no wall sheet stays open behind it.
+    // A card replaces the scene: no wall sheet or menu stays open behind it.
     sheet?.close();
+    if (rail) setRail(false, { focus: false });
     const b = document.body;
     b.classList.add('tt-unpaired');
     b.dataset.ttCard = c.kind;
@@ -252,13 +290,43 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       api.applyRoleDefaults?.(role.key);
     }
     b.dataset.merged = (s.merged || []).join(' ');
-    const ws = String(s.textScale || 2);
+    // The new frame, role by role (05-S1-PLAN): S1 first; a one-screen
+    // (merged) wall keeps its old layout until S2's turn (F21).
+    b.classList.toggle('tt-wall-shell', wallShellOn(s));
+    setWallScale(s.textScale);
+    applyLayout(s);
+    renderPanel();
+  }
+
+  /**
+   * Text size follows the display, not the role (walls-live D4, W6): the
+   * session's text size times the display's height against a 1440 px LG
+   * 5K, clamped. The menu reads at arm's length: it follows the display
+   * only (screens/02-spec-ux §2–3).
+   */
+  function setWallScale(ts) {
+    const disp = Math.max(0.85, Math.min(1.35, innerHeight / 1440));
+    const t = Math.max(
+      WALL_TEXT_MIN,
+      Math.min(WALL_TEXT_MAX, Number(ts) || 1.75),
+    );
+    const ws = String(+(t * disp).toFixed(3));
+    const b = document.body;
+    b.style.setProperty('--wall-disp', String(+disp.toFixed(3)));
     if (b.style.getPropertyValue('--wall-scale') !== ws) {
       b.style.setProperty('--wall-scale', ws);
       // New text size: the lists fit again (W3).
       requestAnimationFrame(() => api.refitRail?.());
     }
-    renderPanel();
+  }
+
+  /** This wall's layout (cards or map only, column width, hidden cards). */
+  function applyLayout(s) {
+    const l = layoutValue(s);
+    const b = document.body;
+    b.dataset.wallCards = l.cards;
+    b.dataset.wallWidth = l.width;
+    b.dataset.wallOff = l.off.join(' ');
   }
 
   function renderPanel() {
@@ -395,6 +463,11 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       ss.visitor ? (n) => wallName(n, { visitor: true }) : (n) => wallName(n),
     );
     document.body.classList.toggle('tt-visitor', Boolean(ss.visitor));
+    // View only: the toggle steps away too (screens Q2).
+    document.body.classList.toggle(
+      'tt-wall-viewonly',
+      ss.wallControls === false,
+    );
     if (s) {
       applyRole(s);
       // Live / Advance and the day are this screen's own (review R2).
@@ -415,11 +488,27 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       // Camera changes never yank a view someone is dragging: they wait
       // for the mouse to be released.
       const camera = (fn) => (dragging ? pendingCamera.push(fn) : fn());
-      if (s.meta?.scale && s.scale && s.meta.scale.rev !== applied.scaleRev) {
-        const sc = s.scale;
-        camera(() => api.scale(sc));
-        applied.scaleRev = s.meta.scale.rev;
-        stopDrift();
+      // The saved scale: flown when its value or its rev changes (a Reset
+      // clears the rev), and only recorded once the twin can fly (F20).
+      const scaleKey = s.scale
+        ? `${s.scale}|${s.meta?.scale?.rev ?? 'role'}`
+        : '';
+      if (scaleKey && scaleKey !== applied.scaleKey) {
+        const saved = Boolean(s.meta?.scale);
+        // No record: the role's own scale, which applyRole set with its
+        // defaults (People looks straight down). Fly only back from a saved
+        // scale (a Reset), never over those defaults (round 2 N2).
+        const fromSaved =
+          applied.scaleKey && !applied.scaleKey.endsWith('|role');
+        if (saved || fromSaved) {
+          const sc = s.scale;
+          camera(() => api.scale(sc));
+          // Back to the role's own view: its defaults too (People looks
+          // straight down; round 3).
+          if (!saved) camera(() => api.applyRoleDefaults?.(s.role));
+        }
+        if (api.twinReady?.() !== false) applied.scaleKey = scaleKey;
+        if (saved) stopDrift();
       }
       // Camera intent: only an operator's explicit request, once.
       if (s.frame?.nonce && s.frame.nonce !== applied.frameNonce) {
@@ -450,6 +539,30 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       wxAt: ss.wxAt,
       simStorm: ss.simStorm || null,
     };
+    // This wall's own ref, from a change it made (SET AT WALL, aia §4).
+    if (info.by?.kind === 'screen' && Number(info.by.slot) === mySlot)
+      myRef = info.by.ref;
+    // An Undo never overwrites a newer decision made elsewhere (F5): a
+    // field changed by anyone else since, or whose record is gone (a
+    // remote Reset, Return all or role change rebuilds the screen).
+    if (railNote?.guard && s) {
+      const g = railNote.guard;
+      const moved =
+        s.role !== g.role ||
+        g.fields.some((f) => {
+          const m = s.meta?.[f];
+          // A wall's own Reset clears the records itself (round 3).
+          return (!m && !g.reset) || (m && m.rev > g.rev && m.by !== myRef);
+        });
+      if (moved)
+        railNote = {
+          id: ++noteSeq,
+          text: 'Changed since on the remote · nothing to undo',
+          level: '',
+          undo: null,
+          until: Date.now() + 6000,
+        };
+    }
     // Who changed this wall, in the chip's words (SUP-4, CL-11).
     if (prev && info.by) {
       const at = Date.now();
@@ -465,7 +578,22 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         change = { summary, byName, at };
         seen = { rev: next.rev, at, byName };
       }
+      // A remote Reset of this screen or Return all puts the wall back to
+      // display: the menu and any sheet close (F25).
+      const mine =
+        info.by?.kind === 'screen' && Number(info.by.slot) === mySlot;
+      if (
+        !mine &&
+        (c?.returnAll ||
+          c?.parts?.some(
+            (x) => x.field === 'whole' && Number(x.scope) === mySlot,
+          ))
+      ) {
+        if (railNote?.undo) railNote = null;
+        closeMenus();
+      }
     }
+    if (rail) railGuards();
     try {
       localStorage.setItem(
         `tripTwin.soc.lastState.${mySlot}`,
@@ -482,8 +610,22 @@ export function createScreenMode({ api, slot = null, setup = null }) {
   function paint() {
     const s = me();
     const role = ROLES[s?.role] || ROLES.site;
-    kicker.textContent = mySlot ? `S${mySlot} · ${role.kicker}` : role.kicker;
-    where.textContent = api.siteLabel();
+    kicker.textContent = mySlot ? `S${mySlot}` : '';
+    kicker.hidden = !mySlot;
+    roleName.textContent = role.label;
+    // Trip › site, as the All-in-one's crumbs (the trip gives way first).
+    const label = api.siteLabel();
+    if (where.dataset.text !== label) {
+      where.dataset.text = label;
+      const i = label.indexOf(' · ');
+      const parts = i < 0 ? [label] : [label.slice(0, i), label.slice(i + 3)];
+      where.replaceChildren(
+        ...parts.flatMap((t, n) => [
+          ...(n ? [el('span', 'tt-crumb-sep', '›')] : []),
+          el('span', n ? 'tt-bar-hotel' : 'tt-crumb-trip', t),
+        ]),
+      );
+    }
     const ss = state?.session || {};
     const advance = s?.mode === 'advance';
     const dayPlan = s?.role === 'day';
@@ -495,6 +637,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         : ss.simStorm
           ? 'LIVE · DEMO STORM'
           : 'LIVE';
+    badgeNow = badgeText;
     if (badge.dataset.text !== badgeText) {
       badge.dataset.text = badgeText;
       // The live dot breathes under the Live tier (phase 11).
@@ -509,6 +652,17 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     );
     badge.classList.toggle('adv', advance || dayPlan);
     document.body.classList.toggle('tt-dayplan-live', dayPlan && !advance);
+    const m = api.modeChip?.();
+    const showMode =
+      Boolean(m) && m.mode !== 'monitoring' && !advance && !dayPlan;
+    modePill.hidden = !showMode;
+    if (showMode) {
+      modePill.textContent =
+        m.mode === 'incident'
+          ? 'INCIDENT · THIS TRIP'
+          : m.chip || m.mode.toUpperCase();
+      modePill.className = `tt-mode tt-wall-mode ${m.mode}`;
+    }
     time.textContent = api.clockText();
     // Data age as an age, never a clock time (W5, W11). Amber past 2 min,
     // the threshold the trip tiles use.
@@ -516,13 +670,15 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     data.hidden = !Number.isFinite(ageS);
     if (!data.hidden) {
       const late = ageS > 120;
+      // One readout form on the wall and in its menu (F28).
       data.textContent = late
-        ? `DATA DELAYED · ${mmss(ageS)}`
-        : `DATA ${Math.max(0, Math.round(ageS))} s`;
+        ? `data delayed · ${mmss(ageS)}`
+        : `data ${Math.max(0, Math.round(ageS))} s`;
       data.classList.toggle('late', late);
     }
     visitorMark.hidden = !ss.visitor;
     handsTag.hidden = !handsOn();
+    wallTag.hidden = !setAtWall(s);
     // Another trip's report (W1): "› S6" names the Trips wall when there is
     // one and it is not this wall.
     const rep = api.otherTripReport?.();
@@ -551,13 +707,28 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       seen && (!meta || seen.rev >= meta.rev)
         ? seen
         : meta && { at: meta.at, byName: byText(meta.ref, presence?.actors) };
-    chip.textContent = chipText({
+    renderChip(
+      chipText({
+        slot: mySlot,
+        online,
+        controller: ctl ? ctl.name || 'a remote' : null,
+        lastController: lastCtl,
+        remoteGoneAt,
+        change: recent ? change : null,
+        last,
+        now,
+        suffix: '',
+        ages: true,
+        short: true,
+      }),
+    );
+    chip.title = chipText({
       slot: mySlot,
       online,
       controller: ctl ? ctl.name || 'a remote' : null,
       lastController: lastCtl,
       remoteGoneAt,
-      change: recent ? change : null,
+      change: null,
       last,
       now,
       suffix: `${s?.pinned ? ' · pinned' : ''}${hands}`,
@@ -565,6 +736,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     });
     // Steel only (C65): the words carry the state, not a colour.
     chip.className = `tt-wall-chip${!online || !ctl ? ' warn' : ''}${recent ? ' changed' : ''}`;
+    fitChip();
     // Link age, separate from data age (supervision spec).
     const link = sync?.linkAgeS ?? null;
     const lost = !sync?.online || (link != null && link > 15);
@@ -628,9 +800,154 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         Boolean(ss.incidentAck) && ss.incidentAck === api.incidentKey(),
       );
     }
+    const repOpen = api.incidentOpen();
+    if (document.body.classList.contains('tt-report-open') !== repOpen) {
+      document.body.classList.toggle('tt-report-open', repOpen);
+      requestAnimationFrame(() => api.refitRail?.());
+    }
+    measureZones();
+    paintSafetyNote(s);
+    fitChips();
+    paintRail();
   }
 
-  const handsOn = () => Date.now() - lastInput < HANDS_MS;
+  /**
+   * The alert zone (top bar, STALE band, weather strip, incident banner)
+   * is never covered (screens/02-spec-ux §1): everything else is placed
+   * between --w-top and --w-bot, real pixels from the window's edges.
+   */
+  function measureZones() {
+    let top = head.getBoundingClientRect().bottom;
+    for (const n of [stale, wxStrip])
+      if (!n.hidden) top = Math.max(top, n.getBoundingClientRect().bottom);
+    const credits = 26;
+    const bot = banner.hidden
+      ? credits
+      : Math.max(credits, innerHeight - banner.getBoundingClientRect().top);
+    const b = document.body;
+    const t = `${Math.round(top)}px`;
+    const u = `${Math.round(bot)}px`;
+    if (b.style.getPropertyValue('--w-top') !== t)
+      b.style.setProperty('--w-top', t);
+    if (b.style.getPropertyValue('--w-bot') !== u)
+      b.style.setProperty('--w-bot', u);
+  }
+
+  /**
+   * The chip in the bar (F7): the slot prefix is read aloud but not shown
+   * (the lockup says S1), and "by S1 at the wall" never truncates — the
+   * summary does. textContent stays the whole sentence.
+   */
+  function renderChip(text) {
+    if (chip.dataset.text === text) return;
+    chip.dataset.text = text;
+    const pre = mySlot ? `S${mySlot} · ` : '';
+    const body = pre && text.startsWith(pre) ? text.slice(pre.length) : text;
+    const parts = [];
+    if (body !== text) parts.push(el('span', 'tt-sr', pre));
+    // The actor ("· by …", "· push by …") or the remote's name is kept;
+    // the words before it give way (round 2 N3).
+    const by = Math.max(
+      body.lastIndexOf(' · by '),
+      body.lastIndexOf(' · push by '),
+    );
+    const rm = body.startsWith('Remote: ') ? 'Remote:'.length : -1;
+    const i = by > 0 ? by : rm;
+    if (i > 0)
+      parts.push(
+        el('span', 'tt-chip-sum', body.slice(0, i)),
+        el('span', 'tt-chip-by', body.slice(i)),
+      );
+    else parts.push(el('span', 'tt-chip-sum', body));
+    chip.replaceChildren(...parts);
+    fitChip();
+  }
+  /** Too long for the bar: the words before the name step out whole. */
+  function fitChip() {
+    chip.classList.remove('tight');
+    if (
+      chip.querySelector('.tt-chip-by') &&
+      chip.scrollWidth > chip.clientWidth + 1
+    )
+      chip.classList.add('tight');
+  }
+
+  /**
+   * The map bar's chips stay on one row (ux §2, F8): the caption steps out
+   * first, then chips hide — places that matter (approved sites, hazards,
+   * weather) last — and one "+n more" says how many. Never a second row.
+   */
+  let chipsWatch = null;
+  function fitChips() {
+    const box = document.getElementById('tt-chips');
+    const bar = document.getElementById('tt-mapbar');
+    if (!box || !bar) return;
+    const shell = getComputedStyle(bar).display !== 'contents';
+    if (!chipsWatch) {
+      chipsWatch = new MutationObserver(() => requestAnimationFrame(fitChips));
+      new ResizeObserver(() => fitChips()).observe(bar);
+    }
+    chipsWatch.disconnect();
+    box.querySelector('.tt-chip-more')?.remove();
+    const chips = [...box.children];
+    for (const c of chips) c.classList.remove('tt-chip-fit');
+    // The page's own "+n more" (it shows four) joins the count.
+    const pageMore = chips.find((c) => /^\+\d+ more$/.test(c.textContent));
+    if (pageMore) {
+      pageMore.dataset.n ??= pageMore.textContent.match(/\d+/)[0];
+      pageMore.textContent = `+${pageMore.dataset.n} more`;
+    }
+    bar.classList.remove('tight');
+    const over = () =>
+      box.scrollWidth > box.clientWidth + 1 ||
+      bar.scrollWidth > bar.clientWidth + 1;
+    if (shell && over()) {
+      bar.classList.add('tight');
+      const keep = (c) =>
+        c.classList.contains('hazard') || c.classList.contains('wx')
+          ? 2
+          : c.classList.contains('site')
+            ? 1
+            : 0;
+      const items = chips.filter((c) => c !== pageMore);
+      const order = items
+        .map((c, i) => ({ c, i }))
+        .sort((a, b) => keep(a.c) - keep(b.c) || b.i - a.i)
+        .map((x) => x.c);
+      const more = pageMore || el('span', 'tt-chip tt-chip-more');
+      const base = pageMore ? Number(pageMore.dataset.n) : 0;
+      if (!pageMore) box.append(more);
+      let hidden = 0;
+      for (const c of order) {
+        if (!over()) break;
+        c.classList.add('tt-chip-fit');
+        hidden += 1;
+        more.textContent = `+${base + hidden} more`;
+      }
+      if (!hidden && !pageMore) more.remove();
+    }
+    chipsWatch.observe(box, { childList: true });
+  }
+
+  /** "2 safety layers off" in the map bar while any is off (aia §3). */
+  let safetyNote = null;
+  function paintSafetyNote(s) {
+    const bar = document.getElementById('tt-mapbar');
+    if (!bar || !s) return;
+    if (!safetyNote) {
+      safetyNote = el('span', 'tt-mapbar-note');
+      safetyNote.setAttribute('role', 'status');
+    }
+    if (safetyNote.parentNode !== bar) bar.prepend(safetyNote);
+    const n = SAFETY_LAYERS.filter((k) => !layerValue(s, k)).length;
+    safetyNote.hidden = n === 0;
+    safetyNote.textContent = n
+      ? `${n} safety layer${n > 1 ? 's' : ''} off`
+      : '';
+  }
+
+  // The menu open counts as hands on the wall (screens/05-S1-PLAN §12).
+  const handsOn = () => railOpen || Date.now() - lastInput < HANDS_MS;
   let lastMove = 0;
   function onInput(e) {
     const b = document.body;
@@ -645,6 +962,8 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     if (!b.classList.contains('tt-hands-on')) {
       b.classList.add('tt-hands-on');
       paint();
+      // A hand shows the card's controls: fit the report card again.
+      requestAnimationFrame(() => api.refitRail?.());
     }
     b.classList.remove('tt-idle-cursor');
   }
@@ -655,11 +974,405 @@ export function createScreenMode({ api, slot = null, setup = null }) {
   sheet = createWallSheet({
     screen: me,
     slot: () => mySlot,
-    online: () => Boolean(sync?.online && mySlot),
-    // Not while a card replaces the scene (K8): nothing to change yet.
-    blocked: () => Boolean(cardOn),
-    write: (cmd, label) => sync.request({ t: 'screen-cmd', cmd, label }),
+    online: () => canSave().ok,
+    offText: () => canSave().why,
+    // Not while a card replaces the scene (K8), nor on a view-only wall.
+    blocked: () => Boolean(cardOn) || viewOnly(),
+    write: (cmd, label) => save(cmd, label),
   });
+
+  // ---- the wall's own menu (screens/05-S1-PLAN §6–§12) ----
+  const RAIL_IDLE_MS = 30000;
+  let railOpen = false;
+  let railInput = 0; // the menu's own idle clock
+  let railNote = null; // {text, level, undo, until}
+  let saving = false;
+  let badgeNow = ''; // the top bar's mode words, for the menu (F17)
+  let noteSeq = 0; // each note is its own (a repeated action, its own Undo)
+
+  /** Whether this wall may save now, and why not (aia §2): never queued. */
+  function canSave() {
+    const s = me();
+    if (!mySlot || cardOn || !s)
+      return { ok: false, why: 'This screen is not on the wall yet' };
+    // Amber only for link health; pinned and visitor are steel (F22).
+    if (linkLost())
+      return {
+        ok: false,
+        level: 'warn',
+        why: 'Not connected to the Trip Twin computer · changes cannot be saved now',
+      };
+    if (s.pinned)
+      return {
+        ok: false,
+        level: '',
+        why: `S${mySlot} is pinned on the remote · unpin it there`,
+      };
+    if (state?.session?.visitor)
+      return {
+        ok: false,
+        level: '',
+        why: 'Visitor mode · settings are read-only at the wall',
+      };
+    if (viewOnly())
+      return {
+        ok: false,
+        level: '',
+        why: 'View only · wall controls are off on the remote',
+      };
+    return { ok: true, why: '' };
+  }
+
+  /** The values a command will change, for its Undo (fields it names). */
+  function before(cmd) {
+    const s = me() || {};
+    if (cmd.type === 'reset')
+      return {
+        layers: Object.fromEntries(
+          Object.entries(s.layers || {}).filter(
+            // A safety layer that is off would get the whole Undo refused
+            // while a report is open (F39).
+            ([k, v]) => v || !api.incidentOpen() || !SAFETY_LAYERS.includes(k),
+          ),
+        ),
+        motion: { ...(s.motion || {}) },
+        scale: s.scale,
+        textScale: s.textScale,
+        layout: layoutValue(s),
+      };
+    const out = {};
+    for (const [k, v] of Object.entries(cmd.patch || {})) {
+      if (k === 'layers')
+        out.layers = Object.fromEntries(
+          Object.keys(v).map((x) => [x, layerValue(s, x)]),
+        );
+      else if (k === 'motion')
+        out.motion = Object.fromEntries(
+          Object.keys(v).map((x) => [x, s.motion?.[x] !== false]),
+        );
+      else if (k === 'layout') {
+        const l = layoutValue(s);
+        out.layout = Object.fromEntries(Object.keys(v).map((x) => [x, l[x]]));
+      } else out[k] = s[k] ?? null;
+    }
+    return out;
+  }
+
+  /**
+   * Every saved change at this wall (the menu and the L / D sheets): the
+   * guard first, then `screen-cmd`; a 10 s Undo that sends the old values
+   * back the same way (aia §4). Refusals say why, in amber.
+   */
+  async function save(cmd, label, { undo = true } = {}) {
+    const g = canSave();
+    if (!g.ok) {
+      note(g.why, g.level);
+      return { ok: false, error: g.why };
+    }
+    if (saving) return { ok: false, error: 'Saving…' };
+    // A report from any source, the trip's own data too, keeps the safety
+    // layers on at the wall (F6; the relay refuses session reports too).
+    const offs = Object.entries(cmd.patch?.layers || {}).filter(
+      ([k, v]) => v === false && SAFETY_LAYERS.includes(k),
+    );
+    if (offs.length && api.incidentOpen()) {
+      const why = 'A report is open · safety layers stay on at the wall';
+      note(why, '');
+      return { ok: false, error: why };
+    }
+    if (cmd.type === 'screens') cmd = { ...cmd, target: mySlot };
+    const old = undo ? before(cmd) : null;
+    saving = true;
+    paintRail();
+    const r = await sync
+      .request({ t: 'screen-cmd', cmd, label })
+      .catch(() => ({ ok: false }));
+    saving = false;
+    if (!r?.ok)
+      note(
+        r?.error === 'No answer'
+          ? 'No answer · check the remote to see if it was saved'
+          : `Not saved · ${r?.error || 'try again'}`,
+        linkLost() ? 'warn' : '',
+      );
+    else if (old && Object.keys(old).length)
+      note(
+        `${label} · saved`,
+        'ok',
+        () =>
+          save(
+            { type: 'screens', target: mySlot, patch: old },
+            `Undo · ${label}`,
+            { undo: false },
+          ),
+        // What this Undo may restore, and from which revision (F5).
+        {
+          fields: Object.keys(old),
+          rev: r.rev ?? state?.rev ?? 0,
+          role: me()?.role,
+          reset: cmd.type === 'reset',
+        },
+      );
+    else note(`${label} · saved`, 'ok');
+    paintRail();
+    return r;
+  }
+  function note(text, level, undoFn = null, guard = null) {
+    railNote = {
+      id: ++noteSeq,
+      text,
+      level,
+      guard,
+      undo: undoFn
+        ? () => {
+            railNote = null;
+            undoFn();
+          }
+        : null,
+      until: Date.now() + 10000,
+    };
+    paintRail();
+  }
+
+  /** Any field of this screen last set from this wall (aia §4). */
+  function setAtWall(s) {
+    if (!s?.meta || !mySlot) return false;
+    const mine =
+      myRef ||
+      presence?.actors?.find(
+        (a) => a.kind === 'screen' && Number(a.slot) === mySlot,
+      )?.ref;
+    return Boolean(
+      mine &&
+      Object.values(s.meta).some(
+        (m) => m?.by === mine && m.source === 'override',
+      ),
+    );
+  }
+
+  /** The remote set every wall to view only (screens Q2). */
+  function viewOnly() {
+    return state?.session?.wallControls === false;
+  }
+  function setRail(on, { focus = true } = {}) {
+    if (on && (cardOn || !mySlot || viewOnly())) return;
+    if (on === railOpen) return;
+    railOpen = on;
+    railInput = Date.now();
+    // Opening is hands-on; closing restarts the 60 s drift count (F23).
+    stopDrift('input');
+    if (on) rail.sleep();
+    paintRail();
+    if (on) rail.scrollTop();
+    if (on && focus) rail.focusName();
+    else if (!on && rail.contains(document.activeElement))
+      document.activeElement.blur();
+    sentLocal = '';
+  }
+  /** The menu and any sheet, closed together (F2). */
+  function closeMenus() {
+    sheet?.close();
+    if (rail) setRail(false, { focus: false });
+  }
+
+  /** The aperture's signal: the All-in-one's list (shell X4, aia §3). */
+  function signal() {
+    // Incident first, as on the All-in-one; a lost link is an extra state
+    // shown with it, never instead of it (F24).
+    const lost = linkLost();
+    const why = (t) =>
+      [t, lost ? 'not connected' : ''].filter(Boolean).join(' · ');
+    if (api.incidentOpen()) return ['incident', why('Incident reported'), lost];
+    if (api.otherTripReport?.())
+      return ['other', why('Another trip has a report'), lost];
+    const ap = api.approachLine?.();
+    if (
+      ['arriving', 'near', 'over'].includes(ap?.status) &&
+      ap.level !== 'info'
+    )
+      return ['attention', why('Weather approaching'), lost];
+    return [lost ? 'stale' : 'calm', lost ? 'Not connected' : '', lost];
+  }
+
+  const viewApi = {
+    ...api,
+    faceNorth: () => api.faceNorth?.(),
+    restoreView: () => {
+      api.faceNorth?.();
+      api.scale(me()?.scale || ROLES[me()?.role]?.scale);
+    },
+  };
+
+  function paintRail() {
+    if (!rail) return;
+    const s = me();
+    const role = ROLES[s?.role] || ROLES.site;
+    const now = Date.now();
+    if (railNote && now > railNote.until) railNote = null;
+    const [sig, sigText, lost] = signal();
+    const g = canSave();
+    const page = s
+      ? wallPage(role.key, {
+          screen: s,
+          shell: document.body.classList.contains('tt-wall-shell'),
+          canSave: g,
+          save: (patch, label) =>
+            save({ type: 'screens', target: mySlot, patch }, label),
+          api: viewApi,
+          reportOpen: api.incidentOpen(),
+        })
+      : { groups: [], tiles: [] };
+    const ctl = presence?.remotes?.find((r) => r.controller);
+    const meta = lastChangeOf(state, mySlot);
+    const ageS = api.dataAgeS?.();
+    const advance = s?.mode === 'advance' || s?.role === 'day';
+    const link = sync?.linkAgeS;
+    // Who decides, in the Role pane where it is always seen (F10).
+    const who = [
+      ctl
+        ? `Remote: ${ctl.name || 'a remote'} · in control`
+        : sync?.online
+          ? `No remote in control${lastCtl ? ` (last: ${lastCtl})` : ''}`
+          : 'Not connected to the Trip Twin computer',
+      meta
+        ? `Last change ${agoText(now - meta.at)} ago · by ${byText(meta.ref, presence?.actors)}`
+        : 'No change yet in this session',
+      'Role, Live/Advance and pin: set on the remote.',
+    ];
+    const control = [
+      s?.pinned ? 'Pinned on the remote · keeps its state through All' : null,
+      link != null ? `Link ${Math.round(link)} s` : null,
+      drifting ? 'Drifting · idle camera (Cinematic)' : null,
+      setAtWall(s) ? 'Some settings were set at this wall' : null,
+    ].filter(Boolean);
+    rail.render({
+      open: railOpen,
+      slot: mySlot ?? '?',
+      role: role.label,
+      sub: role.sub,
+      headRight: '',
+      // The top bar's own words for the mode (F17).
+      statusText: lost
+        ? 'NOT CONNECTED'
+        : `${badgeNow || 'LIVE'}${Number.isFinite(ageS) ? ` · data ${Math.max(0, Math.round(ageS))} s` : ''}`,
+      statusLevel: lost ? 'stale' : advance ? 'advance' : 'live',
+      who,
+      groups: page.groups,
+      control,
+      // A refusal reason is always in view while it holds (round 3).
+      note:
+        !g.ok && mySlot
+          ? {
+              id: `why:${g.why}`,
+              text: g.why,
+              level: g.level,
+              undo: null,
+            }
+          : railNote,
+      // While the menu is closed, a save's note shows by the aperture (F14).
+      toast: railNote,
+      tiles: MAP_ROLES.has(role.key) ? page.tiles : [],
+      tilesTitle: page.tilesTitle,
+      stale: lost,
+      closingIn:
+        railOpen && !saving
+          ? (() => {
+              const left = Math.ceil((RAIL_IDLE_MS - (now - railInput)) / 1000);
+              return left <= 5 ? Math.max(0, left) : null;
+            })()
+          : null,
+      signal: sig,
+      signalText: sigText,
+    });
+  }
+
+  rail = createWallRail({
+    onToggle: (on) => setRail(on),
+    onKeep: () => {
+      railInput = Date.now();
+      paintRail();
+    },
+    menu: [
+      { label: 'Layers', key: 'L', action: () => sheet.open('layers') },
+      { label: 'Display', key: 'D', action: () => sheet.open('display') },
+      { label: 'Keys', key: 'K', action: () => sheet.open('keys') },
+    ],
+  });
+  // M opens and closes the menu; Esc closes it (a sheet first: the sheet
+  // owns the keyboard while it is open). Option+0 stays off walls.
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || sheet.kind) return;
+      if (e.target.closest?.('input, textarea, select')) return;
+      if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        e.stopPropagation();
+        setRail(!railOpen);
+      } else if (e.key === 'Escape' && railOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        setRail(false);
+      }
+    },
+    true,
+  );
+  // The menu's idle clock: a press, scroll or key anywhere, or the
+  // pointer moving over the menu (ux §4).
+  for (const t of ['pointerdown', 'wheel', 'keydown'])
+    window.addEventListener(t, () => (railInput = Date.now()), {
+      capture: true,
+      passive: true,
+    });
+  rail.rail.addEventListener('pointermove', () => (railInput = Date.now()), {
+    passive: true,
+  });
+  window.addEventListener('pointermove', () => rail.wake(), { passive: true });
+
+  /**
+   * Close the menu and any sheet at once when the room's state asks for
+   * the display (aia §3) — when a state *starts*, not while it lasts: a
+   * pinned, visitor or stale wall may open its menu again, see why it
+   * cannot save, and still move the view (F4). A report from any source,
+   * this trip's data too, or a new report on another trip (by id) closes
+   * them (F6, F38); so does a role or mode change from the remote (F25).
+   */
+  let prevGuard = null;
+  function railGuards() {
+    const s = me();
+    const g = {
+      report: api.incidentOpen() ? String(api.incidentKey?.() || 'open') : '',
+      others: (api.otherTripIds?.() || []).join(','),
+      lost: linkLost(),
+      pinned: Boolean(s?.pinned),
+      visitor: Boolean(state?.session?.visitor),
+      viewOnly: viewOnly(),
+      role: s?.role || '',
+      mode: s?.mode || '',
+    };
+    const p = prevGuard;
+    prevGuard = g;
+    const open = railOpen || Boolean(sheet?.kind);
+    if (!p || !open) return;
+    const newOther = g.others
+      .split(',')
+      .some((id) => id && !p.others.split(',').includes(id));
+    const started = (k) => g[k] && !p[k];
+    if (
+      (g.report && g.report !== p.report) ||
+      newOther ||
+      started('lost') ||
+      started('pinned') ||
+      started('visitor') ||
+      started('viewOnly') ||
+      (p.role && g.role !== p.role) ||
+      (p.mode && g.mode !== p.mode) ||
+      cardOn
+    )
+      return closeMenus();
+    // The menu and the sheets share one 30 s idle (ux §4, F2).
+    if (!saving && Date.now() - railInput > RAIL_IDLE_MS) closeMenus();
+  }
   // A resized wall (another display, full screen) fits its lists again.
   let refitTimer = 0;
   window.addEventListener('resize', () => {
@@ -687,6 +1400,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     if (!handsOn() && b.classList.contains('tt-hands-on')) {
       b.classList.remove('tt-hands-on');
       paint();
+      requestAnimationFrame(() => api.refitRail?.());
     }
     // Idle drift (Cinematic tier, Jesse 16 Oct): only the Site wall, only
     // after 60 s with no hands on, never during an incident, never while a
@@ -696,6 +1410,8 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     const why = driftState([
       ['role', Boolean(s && s.role === 'site')],
       ['tier', s?.motion?.cine !== false && Boolean(api.motionOn?.('cine'))],
+      // An open menu is hands-on; the 60 s count starts when it closes.
+      ['rail', !railOpen],
       ['input', !handsOn() && !dragging],
       ['camera', !pendingCamera.length],
       [stopCause, now - lastActivity > DRIFT_AFTER_MS],
@@ -714,7 +1430,9 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       b.classList.toggle('tt-drifting', drifting);
     }
     const text = handsOn()
-      ? ['hands-on', api.selectionText?.()].filter(Boolean).join(' · ')
+      ? ['hands-on', railOpen ? 'menu open' : '', api.selectionText?.()]
+          .filter(Boolean)
+          .join(' · ')
       : drifting
         ? ['drifting · idle camera', api.selectionText?.()]
             .filter(Boolean)
@@ -956,6 +1674,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     /* ignore */
   }
   const tick = setInterval(() => {
+    railGuards();
     syncLocal();
     paint();
   }, 1000);
@@ -967,6 +1686,38 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     get slot() {
       return mySlot;
     },
+    /**
+     * A scale picked by hand at this wall (map bar, keys 1–3): saved
+     * through the session so the remote stays the truth; the echo flies.
+     * Not savable now: the camera moves anyway and the menu says why.
+     */
+    requestScale(k) {
+      const label = {
+        building: 'Building',
+        neighborhood: 'Neighborhood',
+        city: 'City',
+      }[k];
+      if (!label) return;
+      stopDrift('input');
+      const g = canSave();
+      if (!g.ok) {
+        api.scale(k);
+        note(`${label} · this view only, not saved · ${g.why}`, g.level);
+        return;
+      }
+      // Not saved after all (a refusal, no answer, a save in flight): the
+      // camera moves anyway and the note says so (F14, round 2 N7).
+      save(
+        { type: 'screens', target: mySlot, patch: { scale: k } },
+        `Scale · ${label}`,
+      ).then((r) => {
+        if (r?.ok) return;
+        api.scale(k);
+        // The camera moved anyway; the save's own note (refused, no
+        // answer) stays as it is.
+        if (!railNote) note(`${label} · this view only, not saved`, '');
+      });
+    },
     refresh() {
       renderPanel();
       paint();
@@ -975,6 +1726,8 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     reapply() {
       document.body.dataset.role = '';
       applied.modeKey = null;
+      // The twin is open now: fly to the saved scale (F20).
+      applied.scaleKey = null;
       if (state) applyState(state, { force: true });
       renderPanel();
       paint();

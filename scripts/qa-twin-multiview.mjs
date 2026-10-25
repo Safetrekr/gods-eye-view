@@ -1128,7 +1128,7 @@ async function smoke(server, browser) {
   // ---- K8: the chip names the device; the remote page (T1–T3, T5) -----
   await step(
     'K8-S2',
-    'E8.1: the S6 wall names the device within 2 s of its change ("S6 · Scale grid off · by …", no clock time: walls-live W5), then "last change m:ss ago" after 3 s',
+    'E8.1: the S6 wall names the device within 2 s of its change ("S6 · Scale grid off · by …", no clock time: walls-live W5), then the short chip "S6 · Remote: …" after 3 s, with "last change m:ss ago" in its title (the menu says it: screens/05-S1-PLAN §2)',
     async () => {
       await sleep(3500); // past any earlier 3 s window
       const ack = remote.c.next(
@@ -1159,11 +1159,14 @@ async function smoke(server, browser) {
       const idle = await pageUntil(
         page,
         () => {
-          const t = document.querySelector('[data-tt-chip]')?.textContent || '';
+          const c = document.querySelector('[data-tt-chip]');
+          const t = c?.textContent || '';
           return (
+            /^S6 · Remote: Trip Twin computer$/.test(t) &&
             /^S6 · Remote: Trip Twin computer · last change 0:0\d ago$/.test(
-              t,
-            ) && t
+              c.title,
+            ) &&
+            `${t} (title "${c.title}")`
           );
         },
         null,
@@ -1178,7 +1181,7 @@ async function smoke(server, browser) {
   // ---- Shell D5 (CF contract): a wall's own L sheet --------------------
   await step(
     'D5-S1',
-    'shell D5 under CF: the S6 wall opens its own L sheet and turns the grid back on; the remote hears a CMD state by S6 via keyboard (no label, no raw id) and the chip says "S6 · Scale grid on · by S6 keyboard · HH:MM"',
+    'shell D5 under CF: the S6 wall opens its own L sheet and turns the grid back on; the remote hears a CMD state by S6 via keyboard (no label, no raw id) and the chip says "S6 · Scale grid on · by S6 at the wall · HH:MM"',
     async () => {
       await sleep(3500); // past the K8-S2 chip window
       const heard = remote.c.next(
@@ -1208,9 +1211,9 @@ async function smoke(server, browser) {
         },
         // A wall chip carries no clock time (walls-live W5); hands-on is a
         // tag in the header, not in the chip (W4).
-        '^S6 · Scale grid on · by S6 keyboard$',
+        '^S6 · Scale grid on · by S6 at the wall$',
         3000,
-        'the S6 chip to name its keyboard',
+        'the S6 chip to name the wall',
       ).catch(async (e) => {
         const now = await page.evaluate(
           () => document.querySelector('[data-tt-chip]')?.textContent || '',

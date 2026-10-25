@@ -1,0 +1,1136 @@
+/* Trip Twin · walls in the All-in-one's frame (Jesse, 25 Oct 2026: "the
+   main screen … has a great layout top/left/right(nav) and the maps are
+   full screen - can we please use that same type of layout for all the
+   other screens"). plans/trip-twin/review/screens/05-S1-PLAN.md.
+
+   One scale for the whole wall shell: --wall-scale = the session's text
+   size × the display's height against a 1440 px LG 5K (twinScreen.js
+   setWallScale; walls-live D4). Elements carry `zoom: var(--wall-scale)`;
+   their offsets are real pixels divided by it here and nowhere else.
+   The menu reads at arm's length: --w-rz = 1.4 × the display factor.
+   Real-pixel edges: --w-top (under the top bar, STALE band and weather
+   strip) and --w-bot (above the credits and the incident banner), both
+   measured by twinScreen.js, so nothing covers the alert zone.
+
+   Screens convert one at a time (S1 first). A role not yet converted
+   keeps its old layout: its map bar is `display: contents`, so the chips
+   and the compass stay where they were. */
+
+body.tt-body[data-view='screen'] {
+  --w-g: 24px;
+  /* Widths follow the display, so the content area never shrinks on a
+     larger wall (screens/20-S1-FIX-LIST F35). */
+  --w-col: calc(560px * var(--wall-disp, 1));
+  --w-st: calc(560px * var(--wall-disp, 1));
+  --w-bar: 44px; /* before the zoom */
+  --w-top: calc(var(--w-bar) * var(--wall-scale));
+  --w-bot: 26px;
+  --w-rz: calc(1.4 * var(--wall-disp, 1));
+  /* The old layout tokens, from the new edges (S2–S6 until their turn). */
+  --g: calc(var(--w-g) / var(--wall-scale));
+  --bar: calc(var(--w-top) / var(--wall-scale));
+  --foot: calc(var(--w-bot) / var(--wall-scale));
+  --wall-top: var(--w-top);
+}
+body.tt-body[data-view='screen'].tt-banner-on,
+body.tt-body[data-view='screen'].tt-wx-strip-on {
+  --bar: calc(var(--w-top) / var(--wall-scale));
+  --foot: calc(var(--w-bot) / var(--wall-scale));
+  --wall-top: var(--w-top);
+}
+body.tt-body[data-view='screen'][data-wall-width='wide'] {
+  --w-col: calc(760px * var(--wall-disp, 1));
+}
+
+/* ---------- top bar: the All-in-one's three zones, every wall ---------- */
+body.tt-body[data-view='screen'] .tt-wall-bar {
+  zoom: var(--wall-scale);
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: var(--w-bar);
+  z-index: 20;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 14px;
+  padding: 0 calc(var(--w-g) / var(--wall-scale));
+  background: var(--tt-glass);
+  border-bottom: 1px solid var(--tt-border);
+  backdrop-filter: blur(var(--tt-blur)) saturate(1.15);
+  -webkit-backdrop-filter: blur(var(--tt-blur)) saturate(1.15);
+}
+.tt-wall-bar .tt-bar-place {
+  gap: 12px;
+  overflow: hidden;
+}
+.tt-wall-bar .tt-brand {
+  gap: 10px;
+}
+/* "S1" small mono, then the role in Manrope (walls-live D2, D3). */
+.tt-wall-bar .tt-wall-slot {
+  font: 500 12px/1 var(--tt-mono);
+  letter-spacing: 0.14em;
+  color: var(--tt-text-dim);
+}
+.tt-wall-bar .tt-wall-role {
+  font: 300 17px/1 var(--tt-display);
+  letter-spacing: 0;
+}
+body.tt-body[data-view='screen'] .tt-wall-bar .tt-wall-where {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font: 400 14px/1.2 var(--tt-font);
+  color: var(--tt-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.tt-wall-bar .tt-crumb-trip {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 3em;
+}
+.tt-wall-bar .tt-bar-hotel {
+  font: 500 16px/1.2 var(--tt-font);
+  color: var(--tt-text);
+  flex: none;
+}
+.tt-wall-bar .tt-bar-status {
+  gap: 10px;
+  justify-content: center;
+}
+body.tt-body[data-view='screen'] .tt-wall-bar .tt-wall-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: 600 13px/1 var(--tt-mono);
+  letter-spacing: 0.14em;
+  padding: 4px 9px;
+  border: 1px solid rgba(238, 245, 243, 0.6);
+  border-radius: 4px;
+  color: var(--tt-text);
+}
+body.tt-body[data-view='screen'] .tt-wall-bar .tt-wall-badge.adv {
+  border-style: dashed;
+  color: var(--tt-text-2);
+}
+body.tt-body[data-view='screen'] .tt-wall-bar .tt-wall-badge .tt-livedot {
+  width: 6px;
+  height: 6px;
+}
+body.tt-body[data-view='screen'] .tt-wall-bar .tt-wall-other {
+  font: 600 12px/1 var(--tt-mono);
+  letter-spacing: 0.04em;
+  padding: 4px 8px;
+  cursor: default;
+}
+body.tt-body[data-view='screen'] .tt-wall-bar .tt-wall-clockrow {
+  display: inline-flex;
+  gap: 6px;
+  align-items: baseline;
+  font: 500 12px/1 var(--tt-mono);
+  color: var(--tt-text-2);
+}
+body.tt-body[data-view='screen'] .tt-wall-bar .tt-wall-data,
+body.tt-body[data-view='screen'] .tt-wall-bar .tt-wall-time {
+  font: inherit;
+  color: inherit;
+}
+body.tt-body[data-view='screen'] .tt-wall-bar .tt-wall-data::before {
+  content: none;
+}
+body.tt-body[data-view='screen'] .tt-wall-bar .tt-wall-data.late {
+  color: var(--tt-attention);
+}
+body.tt-body[data-view='screen'] .tt-wall-bar .tt-wall-right {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  font: 500 13px/1 var(--tt-mono);
+}
+body.tt-body[data-view='screen'] .tt-wall-bar .tt-wall-chip {
+  font: 500 12px/1 var(--tt-mono);
+  color: var(--tt-text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+body.tt-body[data-view='screen'] .tt-wall-bar .tt-wall-chip.changed {
+  color: var(--tt-text);
+}
+.tt-wall-bar .tt-wall-tags {
+  display: inline-flex;
+  gap: 8px;
+  flex: none;
+}
+body.tt-body[data-view='screen'] .tt-wall-bar .tt-wall-tag,
+body.tt-body[data-view='screen'] .tt-wall-bar .tt-wall-visitor {
+  font: 700 11px/1 var(--tt-mono);
+  letter-spacing: 0.12em;
+  padding: 4px 7px;
+  border-radius: 3px;
+  color: var(--tt-field);
+  background: var(--tt-text);
+}
+.tt-wall-bar .tt-wall-set {
+  background: transparent !important;
+  color: var(--tt-text) !important;
+  box-shadow: inset 0 0 0 1px rgba(238, 245, 243, 0.6);
+}
+.tt-wall-bar [hidden] {
+  display: none !important;
+}
+
+/* The STALE band and the weather strip sit right under the bar. */
+body.tt-body[data-view='screen'] .tt-wall-stale,
+body.tt-body[data-view='screen'] .tt-wall-wx {
+  top: calc(var(--w-bar) * var(--wall-scale));
+}
+
+/* ---------- the wall's menu: closed on load, the aperture far right ---------- */
+body.tt-body[data-view='screen'] .tt-wst-ap {
+  display: block;
+  zoom: var(--w-rz);
+  right: calc(var(--w-g) / var(--w-rz));
+  bottom: calc((var(--w-bot) + var(--w-g)) / var(--w-rz));
+  pointer-events: auto;
+  cursor: pointer;
+  transition: opacity 0.3s;
+}
+/* At rest a calm toggle is quiet; a signal always shows at full strength. */
+body.tt-body[data-view='screen']:not(.tt-wst-open)
+  .tt-wst-ap[data-signal='calm']:not(.awake):not(:hover):not(:focus-visible) {
+  opacity: 0.55;
+}
+.tt-wst-ap[data-signal='other'] .tt-ap-bead {
+  fill: var(--tt-hazard);
+}
+.tt-wst-ap[data-signal='stale'] .tt-ap-ring {
+  stroke: var(--tt-attention);
+  stroke-dasharray: 3 3;
+}
+.tt-wst-hint {
+  position: fixed;
+  zoom: var(--w-rz);
+  right: calc((var(--w-g) + 52px * var(--w-rz) + 12px) / var(--w-rz));
+  bottom: calc((var(--w-bot) + var(--w-g) + 14px * var(--w-rz)) / var(--w-rz));
+  z-index: 21;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(4, 12, 18, 0.78);
+  font: 500 12px/1 var(--tt-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tt-text-2);
+  pointer-events: none;
+}
+.tt-wst-hint[hidden] {
+  display: none;
+}
+body.tt-body[data-view='screen'] .tt-wst:not([hidden]) {
+  display: flex;
+}
+body.tt-body[data-view='screen'] .tt-wst {
+  zoom: var(--w-rz);
+  --rcol: calc(var(--w-st) / var(--w-rz));
+  top: calc((var(--w-top) + var(--w-g)) / var(--w-rz));
+  right: calc(var(--w-g) / var(--w-rz));
+  bottom: calc((var(--w-bot) + var(--w-g) * 2) / var(--w-rz) + var(--ap));
+  width: var(--rcol);
+  pointer-events: auto;
+  cursor: default;
+  z-index: 19;
+  box-shadow:
+    var(--tt-depth-2),
+    inset 0 1px 0 var(--tt-light);
+}
+body.tt-body[data-view='screen'].tt-unpaired .tt-wst,
+body.tt-body[data-view='screen'].tt-unpaired .tt-wst-ap,
+body.tt-body[data-view='screen'].tt-unpaired .tt-wst-hint {
+  display: none !important;
+}
+/* The menu's tiles are shorter than the All-in-one's: the options and
+   the control detail need the room. */
+body.tt-body[data-view='screen'] .tt-wst {
+  --st-tile: 64px;
+}
+.tt-wst .tt-st-name:focus {
+  outline: none;
+}
+.tt-wst .tt-wst-count {
+  color: var(--tt-text-dim);
+}
+.tt-wst-who {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--tt-text-dim);
+}
+.tt-wst .tt-st-middle {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  margin-top: 12px;
+}
+.tt-wst-panel {
+  display: grid;
+  gap: 14px;
+}
+.tt-wst-group {
+  display: grid;
+  gap: 8px;
+}
+.tt-wst-group .tt-kicker {
+  margin: 0;
+}
+.tt-wst-gnote,
+.tt-wst-ro,
+.tt-wst-why {
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--tt-text-dim);
+}
+.tt-wst-why {
+  color: var(--tt-attention);
+}
+.tt-wst-opt {
+  display: grid;
+  gap: 6px;
+}
+.tt-wst-optk {
+  font: 500 12px/16px var(--tt-font);
+  color: var(--tt-text-2);
+}
+.tt-wst .tt-wall-seg {
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+.tt-wst .tt-wall-seg button {
+  min-height: 34px;
+  padding: 0 12px;
+  gap: 8px;
+  font: 500 13px/1 var(--tt-font);
+}
+.tt-wst .tt-wall-seg button.pending {
+  border-style: dashed;
+}
+.tt-wst-line {
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--tt-text-2);
+}
+.tt-wst-ctl {
+  padding-top: 10px;
+  border-top: 1px solid var(--tt-hair);
+}
+.tt-wst-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-radius: var(--tt-radius);
+  border: 1px solid var(--tt-hair);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--tt-text);
+}
+.tt-wst-note.warn {
+  border-color: var(--tt-attention);
+  color: var(--tt-attention);
+}
+.tt-wst-note[hidden] {
+  display: none;
+}
+.tt-wst-undo {
+  all: unset;
+  cursor: pointer;
+  flex: none;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--tt-edge-ctl);
+  font: 600 12px/1 var(--tt-font);
+  color: var(--tt-text);
+}
+.tt-wst-undo:focus-visible {
+  outline: 2px solid var(--tt-focus);
+  outline-offset: 2px;
+}
+.tt-wst-gridk {
+  margin-bottom: 8px;
+  font: 500 10px/14px var(--tt-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--tt-text-dim);
+}
+.tt-wst .tt-st-tile .num {
+  font: 500 10px/1 var(--tt-mono);
+  letter-spacing: 0.1em;
+  color: var(--tt-text-dim);
+}
+.tt-wst-closing {
+  min-height: 14px;
+  margin-top: 6px;
+  font: 500 10px/14px var(--tt-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tt-text-2);
+  text-align: right;
+}
+/* The cursor shows over the menu even when the wall hides it. */
+body.tt-body[data-view='screen'].tt-idle-cursor .tt-wst,
+body.tt-body[data-view='screen'].tt-idle-cursor .tt-wst * {
+  cursor: default !important;
+}
+
+/* ---------- the map bar (converted map walls) ---------- */
+body.tt-body[data-view='screen'] .tt-mapbar {
+  display: contents;
+}
+body.tt-body[data-view='screen'] .tt-mapbar-note {
+  display: none;
+}
+
+/* ====================== S1 · Site ====================== */
+/* The map is the whole screen; the card floats over it on the left. */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'] {
+  --wall-left: 0px;
+  --wall-right: 0px;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'] .tt-mapbar {
+  display: flex;
+  zoom: var(--wall-scale);
+  top: calc((var(--w-top) + var(--w-g)) / var(--wall-scale));
+  left: calc((var(--w-g) * 2 + var(--w-col)) / var(--wall-scale));
+  right: calc(var(--w-g) / var(--wall-scale));
+  min-height: 56px;
+  padding: 6px 8px 6px 10px;
+  gap: 14px;
+  border-radius: var(--tt-radius-lg);
+  box-shadow:
+    var(--tt-depth-1),
+    inset 0 1px 0 var(--tt-light);
+  pointer-events: none;
+  transition: right 0.32s var(--fog-in, ease);
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'].tt-wst-open
+  .tt-mapbar {
+  right: calc((var(--w-g) * 2 + var(--w-st)) / var(--wall-scale));
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'][data-wall-cards='map']:not(
+    .tt-report-open
+  )
+  .tt-mapbar {
+  left: calc(var(--w-g) / var(--wall-scale));
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'].tt-hands-on
+  .tt-mapbar {
+  pointer-events: auto;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+  .tt-mapbar
+  .tt-chips {
+  position: static;
+  zoom: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  /* One row; what does not fit becomes "+n" (twinScreen.js fitChips). */
+  flex-wrap: nowrap;
+  overflow: hidden;
+  align-content: center;
+  gap: 6px;
+  inset: auto;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+  .tt-mapbar
+  .tt-scale {
+  display: block;
+  position: static;
+  zoom: 1;
+  flex: none;
+  transform: none;
+  padding: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+  .tt-mapbar
+  .tt-scale
+  .tt-tb {
+  font-size: 13px;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+  .tt-mapbar
+  .tt-compass {
+  position: relative;
+  inset: auto;
+  top: auto;
+  bottom: auto;
+  right: auto;
+  flex: none;
+  width: 84px;
+  height: 84px;
+  zoom: 0.68;
+  margin-left: calc(176px / 0.68);
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+  .tt-mapbar
+  .tt-compass-caption {
+  top: 50%;
+  left: auto;
+  right: calc(100% + 10px);
+  transform: translateY(-50%);
+  background: none;
+  padding: 0;
+  font-size: calc(13px / 0.68);
+  line-height: calc(16px / 0.68);
+  color: var(--tt-text-2);
+  white-space: nowrap;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+  .tt-mapbar-note {
+  display: inline-block;
+  flex: none;
+  order: 2;
+  font: 600 12px/1 var(--tt-mono);
+  letter-spacing: 0.08em;
+  color: var(--tt-attention);
+  border: 1px solid var(--tt-attention);
+  border-radius: 3px;
+  padding: 4px 7px;
+}
+body.tt-body[data-view='screen'] .tt-mapbar-note[hidden] {
+  display: none;
+}
+
+/* The Group hotel · floors card moves from the right to the left. */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'] .tt-rcol {
+  left: calc(var(--w-g) / var(--wall-scale));
+  right: auto;
+  top: calc((var(--w-top) + var(--w-g)) / var(--wall-scale));
+  bottom: auto;
+  width: calc(var(--w-col) / var(--wall-scale));
+  max-height: calc(
+    (100vh - var(--w-top) - var(--w-bot) - var(--w-g) * 2) / var(--wall-scale)
+  );
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+  .tt-rcol
+  > .tt-panel,
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+  .tt-rcol
+  > .tt-incident {
+  background: var(--tt-glass);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  box-shadow:
+    var(--tt-depth-1),
+    inset 0 1px 0 var(--tt-light);
+}
+/* Map only: the card steps away, unless this trip has an open report. */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'][data-wall-cards='map']:not(
+    .tt-report-open
+  )
+  .tt-rcol,
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'][data-wall-off~='hotel']:not(
+    .tt-report-open
+  )
+  .tt-rcol {
+  display: none !important;
+}
+/* A hand on the screen sees the floor hint; a wall across the room not. */
+body.tt-body[data-view='screen']:not(.tt-hands-on) .tt-cut-plate.hint {
+  display: none;
+}
+
+/* The chips that do not fit in the map bar's one row. */
+.tt-chip.tt-chip-more {
+  flex: none;
+  color: var(--tt-text-2);
+}
+.tt-chip.tt-chip-fit {
+  display: none !important;
+}
+
+/* The menu's middle fades only where there is more (shell R2-1). */
+.tt-wst .tt-st-middle.more-below {
+  -webkit-mask-image: linear-gradient(#000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(#000 calc(100% - 28px), transparent);
+}
+.tt-wst .tt-st-middle.more-above {
+  -webkit-mask-image: linear-gradient(transparent, #000 28px);
+  mask-image: linear-gradient(transparent, #000 28px);
+}
+.tt-wst .tt-st-middle.more-above.more-below {
+  -webkit-mask-image: linear-gradient(
+    transparent,
+    #000 28px,
+    #000 calc(100% - 28px),
+    transparent
+  );
+  mask-image: linear-gradient(
+    transparent,
+    #000 28px,
+    #000 calc(100% - 28px),
+    transparent
+  );
+}
+
+/* A tight map bar: the caption steps out; the compass stays. */
+body.tt-body[data-view='screen'] .tt-mapbar.tight .tt-compass-caption {
+  display: none;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+  .tt-mapbar.tight
+  .tt-compass {
+  margin-left: 0;
+}
+
+/* ================= S1 round 1 (screens/20-S1-FIX-LIST) ================= */
+/* F9: the place zone gets the room; the trip shows whole or not at all. */
+body.tt-body[data-view='screen'] .tt-wall-bar {
+  grid-template-columns: minmax(0, 1.3fr) auto minmax(0, 0.7fr);
+}
+body.tt-body[data-view='screen'] .tt-wall-bar .tt-wall-where {
+  flex: 1 1 auto;
+  container-type: inline-size;
+}
+.tt-wall-bar .tt-crumb-trip {
+  flex: 0 0 auto;
+  max-width: 16ch;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-decoration: none;
+  border: 0;
+  cursor: default;
+}
+.tt-wall-bar .tt-bar-hotel {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: none;
+  border: 0;
+}
+@container (max-width: 170px) {
+  .tt-wall-bar .tt-crumb-trip,
+  .tt-wall-bar .tt-crumb-sep {
+    display: none;
+  }
+}
+/* F12: the type rule at the ends of the text-size range. */
+.tt-wall-bar .tt-wall-role {
+  font-size: max(17px, calc(26px / var(--wall-scale)));
+}
+.tt-wall-bar .tt-bar-hotel {
+  font-size: min(16px, calc(28px / var(--wall-scale)));
+}
+/* F26: the desk breakpoint never hides the wall's role name. */
+@media (max-width: 1599px) {
+  body.tt-body[data-view='screen'] .tt-wall-bar .tt-brand-sep,
+  body.tt-body[data-view='screen'] .tt-wall-bar .tt-brand-name {
+    display: inline-block;
+  }
+}
+/* F1: this trip's state pill (the All-in-one's .tt-mode, wall-sized). */
+body.tt-body[data-view='screen'] .tt-wall-bar .tt-wall-mode {
+  font: 600 13px/1 var(--tt-mono);
+  letter-spacing: 0.1em;
+  padding: 4px 9px;
+  white-space: nowrap;
+}
+body.tt-body[data-view='screen'] .tt-wall-bar .tt-wall-mode.incident,
+body.tt-body[data-view='screen'] .tt-wall-bar .tt-wall-mode.incident_elsewhere {
+  border-color: var(--tt-hazard);
+  color: var(--tt-hazard-text);
+  background: rgba(238, 119, 137, 0.16);
+}
+/* F1: another trip's chip is a pointer, as on the All-in-one: no fill,
+   dashed; cut before it can push the tags off the bar. */
+body.tt-body[data-view='screen'] .tt-wall-bar .tt-wall-other {
+  background: transparent;
+  border: 1px dashed var(--tt-hazard);
+  border-radius: 3px;
+  max-width: 34vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+/* F7: the slot is read aloud, not shown; the actor never truncates. */
+.tt-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+body.tt-body[data-view='screen'] .tt-wall-bar .tt-wall-chip {
+  display: flex;
+  min-width: 0;
+}
+.tt-wall-chip .tt-chip-sum {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tt-wall-chip .tt-chip-by {
+  flex: none;
+  white-space: pre;
+}
+/* F2: a sheet never covers the top bar, the STALE band or the banner. */
+body.tt-body[data-view='screen'] .tt-wall-sheet {
+  inset: auto var(--w-g);
+  top: calc(var(--w-top) + var(--w-g));
+  bottom: calc(var(--w-bot) + var(--w-g));
+  z-index: 19;
+}
+/* F3: during a report the report card leads and fits; the hotel card
+   folds to its kicker and name. Map only keeps the report card. */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'].tt-report-open
+  .tt-rcol {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'].tt-report-open
+  .tt-rcol
+  > .tt-incident {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'].tt-report-open
+  .tt-rcol
+  > .tt-card {
+  flex: none;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'].tt-report-open
+  .tt-rcol
+  > .tt-card
+  > :not(.tt-kicker):not(.tt-card-name):not(.tt-card-head) {
+  display: none;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'][data-wall-cards='map'].tt-report-open
+  .tt-rcol
+  > .tt-card {
+  display: none !important;
+}
+/* F1: the report card keeps its hazard edge and outline (Jesse, 23 Oct). */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+  .tt-rcol
+  > .tt-incident:not([hidden]) {
+  border-color: var(--tt-hazard);
+  border-top: 2px solid var(--tt-hazard);
+  box-shadow:
+    0 0 0 1px rgba(238, 119, 137, 0.25),
+    0 0 22px rgba(238, 119, 137, 0.24),
+    var(--tt-depth-1),
+    inset 0 1px 0 var(--tt-light);
+}
+/* F13: the floor rows are S1's main content, not its smallest type. */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'] .tt-cut-floor {
+  min-height: 20px;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+  .tt-cut-floor
+  .t {
+  font-size: 14px;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+  .tt-cut-floor
+  .g {
+  font-size: 13px;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'] .tt-cut-head,
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+  .tt-rcol
+  .tt-kicker {
+  font-size: 14px;
+}
+/* F27: controls a wall at rest does not offer. */
+body.tt-body[data-view='screen']:not(.tt-hands-on) .tt-caret {
+  display: none;
+}
+body.tt-body[data-view='screen'] .tt-rcol u,
+body.tt-body[data-view='screen'] .tt-rcol .tt-link-ish {
+  text-decoration: none;
+}
+/* F8, F29: the bar takes clicks whenever the cursor shows; "+n" is never
+   cut; the bar's type at 14 px. */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'] .tt-mapbar {
+  pointer-events: auto;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'].tt-idle-cursor
+  .tt-mapbar {
+  pointer-events: none;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+  .tt-mapbar
+  .tt-chips {
+  min-width: 6.5em;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+  .tt-mapbar
+  .tt-chip,
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+  .tt-mapbar
+  .tt-scale
+  .tt-tb {
+  font-size: 14px;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+  .tt-mapbar
+  .tt-compass-caption {
+  font-size: calc(14px / 0.68);
+}
+body.tt-body[data-view='screen'] .tt-chip.tt-chip-fit {
+  display: none !important;
+}
+body.tt-body[data-view='screen'] .tt-mapbar .tt-chip-more {
+  flex: none;
+}
+/* F10, F11: the menu at arm's length — one mask, label and buttons on one
+   row, bigger type, 3 × 2 tiles. Sizes are before its 1.4 zoom. */
+.tt-wst .tt-st-panel {
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+  padding-bottom: 4px;
+}
+.tt-wst .tt-st-middle.more-below {
+  -webkit-mask-image: linear-gradient(#000 calc(100% - 40px), transparent);
+  mask-image: linear-gradient(#000 calc(100% - 40px), transparent);
+}
+.tt-wst-opt {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+}
+.tt-wst-opt .tt-wst-why {
+  grid-column: 1 / -1;
+}
+.tt-wst-optk {
+  font-size: 15px;
+  line-height: 20px;
+}
+.tt-wst .tt-wall-seg button {
+  min-height: 36px;
+  font-size: 14px;
+}
+.tt-wst-wline,
+.tt-wst-line {
+  font-size: 14px;
+  line-height: 19px;
+  color: var(--tt-text-2);
+}
+.tt-wst-who {
+  display: grid;
+  gap: 2px;
+  margin-top: 8px;
+}
+.tt-wst-ro,
+.tt-wst-gnote,
+.tt-wst-why {
+  font-size: 13px;
+  line-height: 17px;
+  color: var(--tt-text-dim);
+}
+/* F22: amber only for link health. */
+.tt-wst-note {
+  font-size: 14px;
+  line-height: 19px;
+  margin: 12px 0 0;
+}
+.tt-wst-note:not(.warn) {
+  border-color: var(--tt-hair);
+  color: var(--tt-text);
+}
+.tt-wst-undo {
+  min-height: 34px;
+  padding: 0 14px;
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+}
+.tt-wst-gridk {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--tt-hair);
+  font-size: 11px;
+}
+.tt-wst-footk {
+  margin-top: 10px;
+  margin-bottom: 4px;
+}
+body.tt-body[data-view='screen'] .tt-wst {
+  --st-tile: 80px;
+}
+body.tt-body[data-view='screen'] .tt-wst .tt-st-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.tt-wst .tt-st-tile .lab {
+  font-size: 11px;
+  line-height: 13px;
+  white-space: normal;
+}
+.tt-wst [hidden] {
+  display: none !important;
+}
+.tt-wst-count {
+  font: 600 13px/1 var(--tt-mono);
+  letter-spacing: 0.08em;
+  color: var(--tt-text);
+  text-transform: none;
+}
+.tt-wst-keep {
+  all: unset;
+  cursor: pointer;
+  margin-left: 10px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--tt-edge-ctl);
+  font: 600 12px/1 var(--tt-font);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--tt-text);
+}
+.tt-wst-keep:focus-visible {
+  outline: 2px solid var(--tt-focus);
+  outline-offset: 2px;
+}
+.tt-wst .tt-st-head {
+  align-items: center;
+}
+/* F14: a save's note by the aperture while the menu is closed. */
+.tt-wst-toast {
+  position: fixed;
+  zoom: var(--w-rz);
+  right: calc((var(--w-g) + 52px * var(--w-rz) + 14px) / var(--w-rz));
+  bottom: calc((var(--w-bot) + var(--w-g)) / var(--w-rz));
+  z-index: 21;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 420px;
+  padding: 8px 12px;
+  border-radius: var(--tt-radius);
+  border: 1px solid var(--tt-hair);
+  background: rgba(4, 12, 18, 0.9);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  font-size: 14px;
+  line-height: 19px;
+  color: var(--tt-text);
+}
+.tt-wst-toast.warn {
+  border-color: var(--tt-attention);
+  color: var(--tt-attention);
+}
+.tt-wst-toast[hidden] {
+  display: none;
+}
+body.tt-body[data-view='screen'].tt-unpaired .tt-wst-toast {
+  display: none !important;
+}
+/* F24: a lost link shows with a signal, never instead of it. */
+.tt-wst-ap[data-stale='1']:not([data-signal='stale']) .tt-ap-ring {
+  stroke-dasharray: 3 3;
+}
+
+/* F3: during a report the report card holds the floors; the hotel card
+   would only repeat the hotel. Hand-only controls stay out at rest. */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'].tt-report-open
+  .tt-rcol
+  > .tt-card {
+  display: none !important;
+}
+body.tt-body[data-view='screen']:not(.tt-hands-on) .tt-incident .tt-ways-btn,
+body.tt-body[data-view='screen']:not(.tt-hands-on)
+  .tt-incident
+  .tt-cut-kicker
+  + .tt-note {
+  display: none;
+}
+.tt-incident .tt-cut-floor[hidden] {
+  display: none !important;
+}
+/* F3: on a wall a report's names are one line each (name · reason), as
+   the People wall's rows, so more of them fit beside the floors. */
+body.tt-body[data-view='screen'] .tt-incident .tt-inc-names li > button {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+body.tt-body[data-view='screen']
+  .tt-incident
+  .tt-inc-names
+  li
+  > button
+  > span:first-child {
+  flex: none;
+}
+body.tt-body[data-view='screen'] .tt-incident .tt-inc-names li > button .band {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ================= S1 round 2 (reviews 11–16, round 2) ================= */
+/* The trip gives way before the hotel: it shortens to a few letters, and
+   only on a very narrow bar goes. */
+.tt-wall-bar .tt-crumb-trip {
+  flex: 0 1 auto;
+  min-width: 6ch;
+}
+.tt-wall-bar .tt-bar-hotel {
+  flex: 0 0 auto;
+  max-width: 100%;
+}
+/* The safety-layers note hides when it says nothing (brand N1). */
+body.tt-body[data-view='screen'] .tt-mapbar .tt-mapbar-note[hidden] {
+  display: none !important;
+}
+/* Overflow lines inside the red report card: steel, one face (brand N2). */
+body.tt-body[data-view='screen'] .tt-incident .tt-floors-more,
+body.tt-body[data-view='screen'] .tt-incident .tt-inc-names li.more {
+  font: 400 13px/18px var(--tt-font);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--tt-text-2);
+}
+/* The reported floor's row reads whole: it may wrap (ui N1). */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+  .tt-cut-floor
+  .t {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'] .tt-cut-floor {
+  /* The row grows with its words (its JS height is a desk size). */
+  height: auto !important;
+  min-height: 20px;
+  align-items: center;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+  .tt-cut-floor
+  .t {
+  line-height: 1.25;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+/* Tiles grow with their label: icon on top, label under it (N3). */
+body.tt-body[data-view='screen'] .tt-wst .tt-st-tile {
+  height: auto;
+  min-height: var(--st-tile);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 6px;
+}
+body.tt-body[data-view='screen'] .tt-wst .tt-st-tile svg {
+  position: static;
+  flex: none;
+}
+body.tt-body[data-view='screen'] .tt-wst .tt-st-tile .num {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+body.tt-body[data-view='screen'] .tt-wst .tt-st-tile .lab {
+  position: static;
+}
+/* A short wall (1728 × 1117, a 1440 Mac): the tiles step down so the
+   options keep their room (N2). */
+@media (max-height: 1200px) {
+  body.tt-body[data-view='screen'] .tt-wst {
+    --st-tile: 60px;
+  }
+  .tt-wst .tt-st-active {
+    padding: 10px 12px;
+  }
+  .tt-wst-panel {
+    gap: 10px;
+  }
+}
+/* Keep open is a real button (ux P1-3). */
+.tt-wst-keep {
+  min-height: 34px;
+  padding: 0 14px;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ================= S1 round 3 (12-S1-ui, 16-S1-every-time) ================= */
+/* Floor rows never shrink below their words: the card overflows and the
+   report card's fit sees it (ui R3-1). */
+body.tt-body[data-view='screen'] .tt-cut-floor {
+  flex-shrink: 0;
+}
+/* The chip's label steps out whole when the bar is tight; the remote's
+   name stays (ui R3-2; twinScreen.js renderChip sets .tight). */
+body.tt-body[data-view='screen'] .tt-wall-chip.tight .tt-chip-sum {
+  display: none;
+}
+body.tt-body[data-view='screen'] .tt-wall-chip .tt-chip-sum {
+  flex: 0 0 auto;
+}
+/* A link inside a card is a control: no underline at rest. */
+body.tt-body[data-view='screen']:not(.tt-hands-on) .tt-inline-link {
+  text-decoration: none;
+  cursor: default;
+}
+/* A short wall: the menu's notes step out and the tiles get compact, so
+   the options and CONTROL keep their room (ui R3-3). */
+@media (max-height: 1200px) {
+  .tt-wst-gnote {
+    display: none;
+  }
+  body.tt-body[data-view='screen'] .tt-wst .tt-st-tile {
+    padding: 8px 10px;
+    gap: 4px;
+  }
+  body.tt-body[data-view='screen'] .tt-wst .tt-st-tile svg {
+    width: 16px;
+    height: 16px;
+  }
+  .tt-wst .tt-st-grid {
+    gap: 6px;
+  }
+  .tt-wst-gridk {
+    margin-top: 8px;
+    padding-top: 8px;
+  }
+}
+
+/* The remote set every wall to view only (screens Q2): no toggle, no menu,
+   no sheets — the display-only walls of 16 Oct, one press away. */
+body.tt-body[data-view='screen'].tt-wall-viewonly .tt-wst,
+body.tt-body[data-view='screen'].tt-wall-viewonly .tt-wst-ap,
+body.tt-body[data-view='screen'].tt-wall-viewonly .tt-wst-hint {
+  display: none !important;
+}

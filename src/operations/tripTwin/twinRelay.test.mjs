@@ -248,7 +248,8 @@ test('a wall changes its own layers and display, nothing else (D5)', () => {
     reqId: 3,
     cmd: { type: 'screens', target: 2, patch: { textScale: 9 } },
   });
-  assert.equal(remote.last('state').state.screens[2].textScale, 3.5);
+  // A wall's text size stays where the type rule holds (screens F12).
+  assert.equal(remote.last('state').state.screens[2].textScale, 2.25);
   s2.say({ t: 'screen-cmd', reqId: 4, cmd: { type: 'reset', target: 2 } });
   assert.equal(s2.last('ack').ok, true);
   assert.deepEqual(remote.last('state').state.screens[2].layers, {});
@@ -262,7 +263,98 @@ test('a wall changes its own layers and display, nothing else (D5)', () => {
   assert.equal(remote.last('ack')?.reqId, undefined);
 });
 
-test('CF: a wall\'s keyboard changes share the per-device command limit (S-16) and carry no actor field from the page', () => {
+test("a wall's menu: layout from the allowlist; pinned, visitor and safety layers refused (screens/05-S1-PLAN)", () => {
+  const relay = createRelay();
+  const launcher = fakeSocket();
+  relay.attach(launcher);
+  launcher.say({ t: 'setup', count: 2 });
+  const { setup } = launcher.last('setup');
+  const s1 = fakeSocket();
+  relay.attach(s1);
+  s1.say({ t: 'hello', id: 'S1', kind: 'screen', setup, slot: 1 });
+  const s2 = fakeSocket();
+  relay.attach(s2);
+  s2.say({ t: 'hello', id: 'S2', kind: 'screen', setup, slot: 2 });
+  const remote = fakeSocket();
+  relay.attach(remote);
+  remote.say({ t: 'hello', id: 'R', kind: 'remote', setup, name: 'iPad' });
+  let req = 0;
+  const wall = (sock, slot, patch) => {
+    sock.say({
+      t: 'screen-cmd',
+      reqId: ++req,
+      cmd: { type: 'screens', target: slot, patch },
+    });
+    return sock.last('ack');
+  };
+  const cmd = (c) => {
+    remote.say({ t: 'cmd', reqId: ++req, cmd: c });
+    return remote.last('ack');
+  };
+  const screen = (n) => remote.last('state').state.screens[n];
+
+  // Layout: enums kept, junk and other roles' or locked cards dropped.
+  assert.equal(
+    wall(s1, 1, {
+      layout: { cards: 'map', width: 'huge', off: ['hotel', 'summary', 9] },
+    }).ok,
+    true,
+  );
+  assert.deepEqual(screen(1).layout, { cards: 'map', off: ['hotel'] });
+  // S2 People is not in the new frame yet (and is merged here): its
+  // layout is not accepted (screens/20-S1-FIX-LIST F18).
+  const s2Layout = wall(s2, 2, { layout: { off: ['people'] } });
+  assert.equal(s2Layout.ok, false);
+  assert.equal(s2Layout.code, 'VALIDATION_COMMAND');
+  // A merge, not a replace: width joins what the wall already set.
+  wall(s1, 1, { layout: { width: 'wide' } });
+  assert.deepEqual(screen(1).layout, {
+    cards: 'map',
+    off: ['hotel'],
+    width: 'wide',
+  });
+  // Reset brings the role's default layout back, and keeps Advance: the
+  // mode is the remote's (F19).
+  cmd({ type: 'screens', target: 1, patch: { mode: 'advance', day: 2 } });
+  s1.say({ t: 'screen-cmd', reqId: ++req, cmd: { type: 'reset', target: 1 } });
+  assert.deepEqual(screen(1).layout, {});
+  assert.equal(screen(1).mode, 'advance');
+  assert.equal(screen(1).day, 2);
+
+  // Safety layers stay on at the wall while a report is open; others not.
+  assert.equal(
+    cmd({ type: 'session', patch: { report: { floor: 9 } } }).ok,
+    true,
+  );
+  const refused = wall(s1, 1, { layers: { fires: false } });
+  assert.equal(refused.ok, false);
+  assert.equal(refused.code, 'SAFETY_LAYER');
+  assert.equal(wall(s1, 1, { layers: { grid: false } }).ok, true);
+
+  // A pinned wall keeps what the remote set.
+  assert.equal(
+    cmd({ type: 'screens', target: 1, patch: { pinned: true } }).ok,
+    true,
+  );
+  const pin = wall(s1, 1, { textScale: 2 });
+  assert.equal(pin.ok, false);
+  assert.equal(pin.code, 'PINNED');
+  // The remote's "every wall view only" (Q2): nothing saved at a wall;
+  // on again, the wall saves.
+  cmd({ type: 'session', patch: { wallControls: false } });
+  const vo = wall(s2, 2, { textScale: 2 });
+  assert.equal(vo.ok, false);
+  assert.equal(vo.code, 'VIEW_ONLY');
+  cmd({ type: 'session', patch: { wallControls: true } });
+  assert.equal(wall(s2, 2, { textScale: 2 }).ok, true);
+  // Visitor mode: read-only at every wall.
+  cmd({ type: 'session', patch: { visitor: true } });
+  const vis = wall(s2, 2, { textScale: 2 });
+  assert.equal(vis.ok, false);
+  assert.equal(vis.code, 'VISITOR');
+});
+
+test("CF: a wall's keyboard changes share the per-device command limit (S-16) and carry no actor field from the page", () => {
   const relay = createRelay();
   const launcher = fakeSocket();
   relay.attach(launcher);

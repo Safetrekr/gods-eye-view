@@ -3394,32 +3394,6 @@ body[data-view='screen'] .tt-rail,
 body[data-view='screen'] .tt-rcol {
   pointer-events: none;
 }
-.tt-wall-head {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 76px;
-  z-index: 20;
-  display: none;
-  align-items: center;
-  gap: 24px;
-  padding: 0 24px;
-  background: linear-gradient(rgba(4, 12, 18, 0.94), rgba(4, 12, 18, 0.7));
-  border-bottom: 1px solid var(--tt-border);
-}
-body[data-view='screen'] .tt-wall-head {
-  display: flex;
-}
-.tt-wall-left {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.tt-wall-kicker {
-  font: 600 24px var(--tt-mono);
-  letter-spacing: 0.1em;
-  color: var(--tt-text);
-}
 .tt-wall-where {
   font: 500 18px var(--tt-font);
   color: var(--tt-text-2);
@@ -3457,9 +3431,6 @@ body[data-view='screen'] .tt-wall-head {
 }
 .tt-wall-chip.warn {
   color: var(--tt-attention);
-}
-.tt-wall-chip.pinned::after {
-  content: ' · pinned';
 }
 .tt-wall-sample {
   font: 600 12px var(--tt-mono);
@@ -3766,9 +3737,6 @@ body[data-view='screen'].tt-banner-on .tt-wall-panel {
   bottom: calc((40px + 72px) / var(--wall-scale)) !important;
 }
 /* R6: readable at 3 m. */
-.tt-wall-kicker {
-  font-size: 28px;
-}
 .tt-wall-chip {
   font-size: 22px;
 }
@@ -3777,9 +3745,6 @@ body[data-view='screen'].tt-banner-on .tt-wall-panel {
 }
 .tt-wall-time {
   font-size: 20px;
-}
-.tt-wall-head {
-  height: 96px;
 }
 body[data-view='screen'] {
   --bar: calc(96px / var(--wall-scale));

@@ -4,6 +4,7 @@
 import * as Cesium from 'cesium';
 import './tripTwin.css';
 import './tripTwin.instrument.css';
+import './tripTwin.walls.css';
 import { createMotion, MOTION_DEFAULTS } from './twinMotion.js';
 import { createStandaloneScene } from '../../standalone/scene.js';
 import { createTripTwin, flightMs } from './tripTwin.js';
@@ -1225,7 +1226,14 @@ async function main() {
   cutHead.type = 'button';
   cutHead.className = 'tt-cut-head';
   function setCutHead() {
-    cutHead.textContent = `Floors ${cutawayOpen ? '▾' : '▸'}`;
+    // The caret is a control: a wall at rest hides it (screens F27).
+    cutHead.replaceChildren(
+      'Floors ',
+      Object.assign(document.createElement('span'), {
+        className: 'tt-caret',
+        textContent: cutawayOpen ? '▾' : '▸',
+      }),
+    );
     cutHead.setAttribute('aria-expanded', String(cutawayOpen));
     cutaway.el.hidden = !cutawayOpen;
     goFloor.hidden = !cutawayOpen;
@@ -4196,7 +4204,8 @@ async function main() {
   // All-in-one: the place chips, the scale and the compass share one glass
   // map bar across the top of the map, between the cards and the stations
   // rail (Jesse, 23 Oct: "put all this in a top bar, like the cards").
-  if (!['screen', 'launch'].includes(params.get('view'))) {
+  // The walls carry the same bar (screens/05-S1-PLAN §5).
+  if (params.get('view') !== 'launch') {
     const mapbar = document.createElement('div');
     mapbar.id = 'tt-mapbar';
     mapbar.className = 'tt-mapbar';
@@ -6492,15 +6501,20 @@ async function main() {
     $('tt-report-floor').value = '';
     closePops();
   });
+  // The wall module (twin.html?view=screen), made near the end of main().
+  let screen = null;
   const presets = {
     building: { range: 260, pitch: -25, fit: true },
     neighborhood: { range: 1300, pitch: -45 },
     city: { range: 4000, pitch: -55 },
   };
-  for (const btn of document.querySelectorAll('[data-scale]')) {
-    btn.addEventListener('click', () => {
-      if (twin.state !== 'ready') return;
-      const p = { ...presets[btn.dataset.scale] };
+  /** Fly to a scale preset (the button, key 1–3, a wall's session). */
+  function flyScale(key) {
+    const btn = document.querySelector(`[data-scale="${key}"]`);
+    if (!btn) return;
+    if (twin.state !== 'ready') return;
+    {
+      const p = { ...presets[key] };
       const c = twin.site.center;
       const s = twin.scene;
       if (p.fit)
@@ -6529,8 +6543,18 @@ async function main() {
       document
         .querySelectorAll('[data-scale]')
         .forEach((b) => b.classList.toggle('on', b === btn));
-    });
+    }
   }
+  /**
+   * A scale chosen by hand. On a wall it is saved through the session, so
+   * the remote stays the truth (screens/05-S1-PLAN §5); the echo flies.
+   */
+  function pickScale(key) {
+    if (screen?.requestScale) return screen.requestScale(key);
+    flyScale(key);
+  }
+  for (const btn of document.querySelectorAll('[data-scale]'))
+    btn.addEventListener('click', () => pickScale(btn.dataset.scale));
 
   // ---- prototype drawer behaviour ----
   // A pinned ?site= outranks ?city= (phase 3), so changing the city or the
@@ -6707,8 +6731,7 @@ async function main() {
       return renderSites();
     }
     const scale = { 1: 'building', 2: 'neighborhood', 3: 'city' }[k];
-    if (scale)
-      return document.querySelector(`[data-scale="${scale}"]`)?.click();
+    if (scale) return pickScale(scale);
     if (k === '/') {
       e.preventDefault();
       return hud.focusFind();
@@ -6921,8 +6944,36 @@ async function main() {
       if ((ms ?? null) !== (wx.at ?? null)) setWxTime(ms ?? null);
     },
     scale(key) {
-      document.querySelector(`[data-scale="${key}"]`)?.click();
+      flyScale(key);
     },
+    // The wall menu's view moves (screens/05-S1-PLAN): the camera only.
+    faceNorth: () => twin.viewFromSide(0),
+    planView: () => screenApi.frame({ kind: 'topdown' }),
+    viewFloors() {
+      if (twin.state !== 'ready') return;
+      if (!isHotelSel()) twin.select(hotelId());
+      if (!cutawayOpen) {
+        cutawayOpen = true;
+        save('cutawayOpen', 'true');
+        setCutHead();
+      }
+      (lastCtx?.dockedCutaway ? docked : cutaway).focus(
+        twin.floorFocus ?? lastCtx?.reportedLabel,
+      );
+    },
+    frameHotel() {
+      if (twin.state !== 'ready') return;
+      if (!isHotelSel()) twin.select(hotelId());
+      twin.frameSelection();
+    },
+    firstToCheck() {
+      const list = flatNeeds();
+      if (!list.length) return;
+      attentionIndex = 0;
+      twin.selectPerson(list[0].person.id, { frame: true });
+    },
+    floorsAvailable: () => Boolean(lastOcc?.available),
+    needsCount: () => flatNeeds().length,
     setLayer(key, on) {
       if (key in wx.layers) {
         wx.layers[key] = on;
@@ -7078,6 +7129,20 @@ async function main() {
      * Another trip on watch with a report (walls-live W1, D1): its title,
      * for the red chip in every wall header. Never switches the wall.
      */
+    /** Other trips' reports by trip and report id (a new one is news). */
+    otherTripIds: () =>
+      otherTripIncidents().map((o) => `${o.trip.id}:${o.inc?.id || ''}`),
+    /** This trip's state, as the All-in-one's pill (screens F1). */
+    modeChip: () =>
+      lastCtx?.mode
+        ? {
+            mode: lastCtx.mode.mode,
+            chip: lastCtx.mode.chip,
+            degraded: Boolean(lastCtx.mode.degraded),
+          }
+        : null,
+    /** The 3D view can fly now (a cached state arrives before it). */
+    twinReady: () => twin.state === 'ready',
     otherTripReport() {
       const o = otherTripIncidents()[0];
       return o
@@ -7413,7 +7478,6 @@ async function main() {
       node.append(k, grid);
     },
   };
-  let screen = null;
   let renderOff = false;
   if (VIEW === 'screen') {
     screen = createScreenMode({

@@ -86,7 +86,8 @@ export const MSG_TYPES = Object.freeze([
 // ---------------------------------------------------------------- K5
 // Protocol version (S-15, review U-B1, ET S1). Every slice that changes a
 // message shape raises PROTO and sets PROTO_MIN = PROTO: K5 → 2, K7 → 3,
-// wall keyboard commands (shell D5) → 4, then K9 → 5, K10 → 6, K11 → 7. A hello below PROTO_MIN (or with no `proto`:
+// wall keyboard commands (shell D5) → 4, the wall menu's layout
+// (screens/05-S1-PLAN) → 5, then K9 → 6, K10 → 7, K11 → 8. A hello below PROTO_MIN (or with no `proto`:
 // every page from before K5) is refused RELOAD with text an old page can
 // show. twinProtocol.test.mjs keeps one schema hash per PROTO: a shape
 // change without a bump fails it.
@@ -99,11 +100,14 @@ export const MSG_TYPES = Object.freeze([
  * RATE_LIMITED carry `retryAfterMs`. 4 (shell D5): a wall's own L / D
  * sheet sends `screen-cmd`; the CMD state it causes has `by` = the wall's
  * actor, whose `slot` is a number (a remote's is null) and `via`
- * 'keyboard'.
+ * 'keyboard'. 5 (wall menu, screens/05-S1-PLAN): every screen in the
+ * state carries `layout` {cards, width, off}; a wall's own command may set
+ * it, and is refused PINNED, VISITOR, SAFETY_LAYER or VIEW_ONLY; the
+ * session carries `wallControls` (false = every wall view only).
  */
-export const PROTO = 4;
+export const PROTO = 5;
 /** The oldest page the relay still talks to. */
-export const PROTO_MIN = 4;
+export const PROTO_MIN = 5;
 
 /** True when a page says a protocol this relay still talks to. */
 export const protoOk = (proto) => Number.isInteger(proto) && proto >= PROTO_MIN;
@@ -178,6 +182,12 @@ export const CODE = Object.freeze({
   CMDID_REUSED: 'CMDID_REUSED',
   RATE_LIMITED: 'RATE_LIMITED',
   RELOAD: 'RELOAD',
+  // A wall's own rail (screens/05-S1-PLAN §8, §11): refused at the wall.
+  PINNED: 'PINNED',
+  VISITOR: 'VISITOR',
+  SAFETY_LAYER: 'SAFETY_LAYER',
+  // The remote's "Wall controls: view only" (screens Q2).
+  VIEW_ONLY: 'VIEW_ONLY',
 });
 
 /** Why a state broadcast went out: `{t:'state', cause, by?}`. */
@@ -191,8 +201,9 @@ export const CAUSE = Object.freeze({
 
 /**
  * How an actor acted (§4.4). Set by the relay from the socket, never taken
- * from a message. 'keyboard': a paired wall's own L / D sheet (shell D5,
- * `screen-cmd`). V1 adds 'voice', relay-verified, never client-claimed.
+ * from a message. 'keyboard': a paired wall's own controls — its L / D
+ * sheets and rail, by key, mouse or touch (shell D5, screens/05-S1-PLAN;
+ * `screen-cmd`; read as "at the wall"). V1 adds 'voice', relay-verified, never client-claimed.
  */
 export const VIA = Object.freeze({
   TOUCH: 'touch',
@@ -301,6 +312,7 @@ export const DRIFT_REASONS = Object.freeze([
   'role', // not the Site wall
   'tier', // Cinematic is off (or the wall's motion says no)
   'command', // a pushed change stopped it and reset the idle clock
+  'rail', // the wall's own menu is open (screens/05-S1-PLAN §12)
 ]);
 
 /**

@@ -13,8 +13,14 @@ import {
   LAYER_CATALOG,
   ROLES,
   ROLE_ORDER,
+  CARD_CATALOG,
   layerValue,
+  WALL_TEXT_MAX,
+  WALL_TEXT_MIN,
+  layoutChanged,
+  layoutValue,
   screenSummary,
+  wallShellOn,
 } from '../twinScreenRoles.js';
 import { DEMO_TRIPS, tripById } from '../demoTrips.js';
 import { formatAge, positionState } from '../twinData.js';
@@ -597,14 +603,18 @@ function screens(ctx) {
     out.push(roles);
     out.push(kick('Display', `S${target}`));
     const a = el('div', 'rm-actions');
-    const ts = Number(s?.textScale || 2);
+    // A wall's text size stays where the type rule holds (screens F12).
+    const ts = Math.max(
+      WALL_TEXT_MIN,
+      Math.min(WALL_TEXT_MAX, Number(s?.textScale || 1.75)),
+    );
     a.append(
       btn('rm-btn', 'Text −', () =>
         ctx.send(
           {
             type: 'screens',
             target,
-            patch: { textScale: Math.max(1, ts - 0.25) },
+            patch: { textScale: Math.max(WALL_TEXT_MIN, ts - 0.25) },
           },
           `S${target} text smaller`,
         ),
@@ -615,7 +625,7 @@ function screens(ctx) {
           {
             type: 'screens',
             target,
-            patch: { textScale: Math.min(3.5, ts + 0.25) },
+            patch: { textScale: Math.min(WALL_TEXT_MAX, ts + 0.25) },
           },
           `S${target} text larger`,
         ),
@@ -648,6 +658,71 @@ function screens(ctx) {
       btn('rm-btn', 'Identify screens', () => ctx.sync.send({ t: 'identify' })),
     );
     out.push(a);
+    // A wall's layout (screens/05-S1-PLAN §13): set here or at the wall,
+    // only on a wall already in the new frame (F18).
+    const l = layoutValue(s || {});
+    const shell = wallShellOn(s || {});
+    const mapRole = ROLES[s?.role]?.canvas;
+    const lay = el('div', 'rm-actions');
+    const pick = (patch, label) =>
+      ctx.send({ type: 'screens', target, patch: { layout: patch } }, label);
+    if (mapRole)
+      lay.append(
+        btn(
+          `rm-btn${l.cards === 'shown' ? ' on' : ''}`,
+          'Cards shown',
+          () => pick({ cards: 'shown' }, `S${target} cards shown`),
+          { 'aria-pressed': String(l.cards === 'shown') },
+        ),
+        btn(
+          `rm-btn${l.cards === 'map' ? ' on' : ''}`,
+          'Map only',
+          () => pick({ cards: 'map' }, `S${target} map only`),
+          { 'aria-pressed': String(l.cards === 'map') },
+        ),
+      );
+    lay.append(
+      btn(
+        `rm-btn${l.width === 'standard' ? ' on' : ''}`,
+        'Standard column',
+        () => pick({ width: 'standard' }, `S${target} standard column`),
+        { 'aria-pressed': String(l.width === 'standard') },
+      ),
+      btn(
+        `rm-btn${l.width === 'wide' ? ' on' : ''}`,
+        'Wide column',
+        () => pick({ width: 'wide' }, `S${target} wide column`),
+        { 'aria-pressed': String(l.width === 'wide') },
+      ),
+    );
+    for (const c of (CARD_CATALOG[s?.role] || []).filter((x) => !x.lock))
+      if ((CARD_CATALOG[s?.role] || []).filter((x) => !x.lock).length > 1) {
+        const hidden = l.off.includes(c.key);
+        lay.append(
+          btn(
+            `rm-btn${hidden ? '' : ' on'}`,
+            `${c.label} ${hidden ? 'off' : 'on'}`,
+            () =>
+              pick(
+                {
+                  off: hidden
+                    ? l.off.filter((k) => k !== c.key)
+                    : [...l.off, c.key],
+                },
+                `S${target} ${c.label} ${hidden ? 'on' : 'off'}`,
+              ),
+            { 'aria-pressed': String(!hidden) },
+          ),
+        );
+      }
+    if (shell)
+      out.push(
+        kick(
+          'Layout',
+          `S${target}${layoutChanged(s || {}) ? ' · CHANGED' : ''}`,
+        ),
+        lay,
+      );
   }
   out.push(kick('Whole wall', `${WALL}, PINS INCLUDED`));
   const w = el('div', 'rm-actions');
@@ -665,6 +740,28 @@ function screens(ctx) {
             : 'Visitor mode on',
         ),
       { 'aria-pressed': String(Boolean(state.session.visitor)) },
+    ),
+    // Every wall view only, in one press (screens Q2): no menu or sheets
+    // at the walls, nothing saved there; camera moves by hand still work.
+    btn(
+      `rm-btn${state.session.wallControls === false ? ' on' : ''}`,
+      state.session.wallControls === false
+        ? 'Walls view only · turn wall controls on'
+        : 'Wall controls on · set every wall view only',
+      () =>
+        ctx.send(
+          {
+            type: 'session',
+            patch: { wallControls: state.session.wallControls === false },
+          },
+          state.session.wallControls === false
+            ? 'Wall controls on: each wall has its menu again'
+            : 'Every wall view only: no menu or settings at the walls',
+        ),
+      {
+        'aria-pressed': String(state.session.wallControls === false),
+        'data-tt-wall-controls': '',
+      },
     ),
     btn(
       'rm-btn',

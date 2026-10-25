@@ -40,6 +40,7 @@ export const FIELD_LABELS = Object.freeze({
   pinned: 'pin',
   layers: 'layer',
   motion: 'motion',
+  layout: 'layout',
   frame: 'camera',
   tripId: 'trip',
   siteKey: 'site',
@@ -49,6 +50,7 @@ export const FIELD_LABELS = Object.freeze({
   spotlight: 'spotlight',
   visitor: 'Visitor mode',
   simStorm: 'demo storm',
+  wallControls: 'wall controls',
   count: 'number of screens',
 });
 
@@ -61,6 +63,7 @@ export const SESSION_KEYS = Object.freeze([
   'spotlight',
   'visitor',
   'simStorm',
+  'wallControls',
   'wxAt',
 ]);
 /** Per-screen fields (twinSession.js SCREEN_FIELDS), in reading order. */
@@ -73,6 +76,7 @@ export const SCREEN_KEYS = Object.freeze([
   'motion',
   'frame',
   'textScale',
+  'layout',
   'pinned',
 ]);
 
@@ -131,7 +135,7 @@ export function forText(ms) {
 
 /** Parts for one screen field that changed. */
 function screenParts(slot, field, from, to) {
-  if (field === 'layers' || field === 'motion') {
+  if (field === 'layers' || field === 'motion' || field === 'layout') {
     const out = [];
     const keys = new Set([
       ...Object.keys(from || {}),
@@ -314,6 +318,16 @@ export function phrase(
       return `${low(LAYER_LABELS[part.key] || part.key)} ${v ? 'on' : 'off'}`;
     case 'motion':
       return `${MOTION_LABELS[part.key] || part.key} motion ${v === false ? 'off' : 'on'}`;
+    // A wall's layout (screens/05-S1-PLAN §13).
+    case 'layout':
+      if (part.key === 'cards') return v === 'map' ? 'map only' : 'cards shown';
+      if (part.key === 'width')
+        return v === 'wide' ? 'wide column' : 'standard column';
+      if (part.key === 'off')
+        return v?.length
+          ? `${v.length} card${v.length > 1 ? 's' : ''} hidden`
+          : 'every card shown';
+      return 'layout';
     case 'frame': {
       if (v?.kind === 'floor') return `frames floor ${v.label}`;
       if (v?.kind === 'storm') return 'frames the storm';
@@ -348,6 +362,8 @@ export function phrase(
       return v ? 'Visitor mode on' : 'Visitor mode off';
     case 'simStorm':
       return v ? 'demo storm started' : 'demo storm ended';
+    case 'wallControls':
+      return v === false ? 'walls view only' : 'wall controls on';
     case 'wxAt': {
       if (v == null) return 'weather now';
       const m = part.to.min;
@@ -502,7 +518,9 @@ export function byText(actor, actors = []) {
       : actor;
   const name =
     a?.name && typeof a.name === 'string' ? a.name : 'another device';
-  if (a?.kind === 'screen' && a.name) return `${name} keyboard`;
+  // A wall's own controls: its sheets and rail, by key or pointer
+  // (screens/03-spec-aia §1).
+  if (a?.kind === 'screen' && a.name) return `${name} at the wall`;
   return a?.via === 'voice' ? `Voice · ${name}` : name;
 }
 
@@ -554,7 +572,8 @@ const cut = (s, n) =>
  * o: {slot, online, controller: name|null, lastController: name|null,
  *   remoteGoneAt, change: {summary, byName, at} (the first 3 s),
  *   last: {at, byName} (idle), now, suffix (' · pinned' …),
- *   clock(ms) → "21:32", ages: true on a wall}
+ *   clock(ms) → "21:32", ages: true on a wall, short: true in a wall's
+ *   top bar — no last change, the wall's menu says it}
  * With `ages` (walls-live W5) the chip carries no clock time: a wall's
  * header clock is the trip's, so "Remote offline · 12 min", and a change
  * shows without its time (it is 3 s old).
@@ -596,7 +615,9 @@ export function chipText(o) {
     return `${head}${cut(c.summary, Math.max(1, CHIP_MAX - head.length - by.length))}${by}`;
   }
   const base = `${s} · Remote: ${o.controller}`;
-  if (!o.last) return `${base}${suffix}`;
+  // The top bar's short form (screens/01-spec-ia §3): the last change
+  // lives in the wall's menu.
+  if (!o.last || o.short) return `${base}${suffix}`;
   const other =
     o.last.byName && o.last.byName !== o.controller
       ? ` by ${o.last.byName}`

@@ -140,7 +140,7 @@ export const SHIELD_PATH =
 // Signal Aperture, SafeTrekr's own (review/shell D7): the shield in steel
 // inside a hairline ring, and one signal bead at its shoulder — steel when
 // calm, amber for attention, red for an incident. No Serras baton.
-const APERTURE_SVG =
+export const APERTURE_SVG =
   '<svg class="tt-ap" viewBox="0 0 34 34" aria-hidden="true">' +
   '<circle class="tt-ap-ring" cx="17" cy="17" r="15.5"/>' +
   '<circle class="tt-ap-scan" cx="17" cy="17" r="15.5"/>' +

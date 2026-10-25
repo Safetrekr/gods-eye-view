@@ -65,6 +65,8 @@ export function createCutaway({ compact = false, onPick = () => {} } = {}) {
   let last = null;
 
   function setPlate(f) {
+    // The hint is for a hand on the screen; walls hide it unless hands-on.
+    plate.classList.toggle('hint', !f && !compact);
     plate.textContent = f
       ? floorPlate(f, last?.ctx)
       : compact

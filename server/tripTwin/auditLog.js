@@ -136,6 +136,7 @@ const SCREEN_FIELDS = [
   'layers',
   'frame',
   'motion',
+  'layout',
 ];
 const SESSION_FIELDS = [
   'tripId',
@@ -146,6 +147,7 @@ const SESSION_FIELDS = [
   'spotlight',
   'visitor',
   'simStorm',
+  'wallControls',
 ];
 
 const isObj = (v) => v != null && typeof v === 'object' && !Array.isArray(v);
@@ -248,6 +250,18 @@ const FIELD_VALUE = {
       if (typeof v[k] === 'boolean') out[k] = v[k];
     return out;
   },
+  // A wall's layout (screens/05-S1-PLAN §13): enums and card keys only.
+  layout: (v) => {
+    if (!isObj(v)) return v === null ? null : undefined;
+    const out = {};
+    if (['shown', 'map'].includes(v.cards)) out.cards = v.cards;
+    if (['standard', 'wide'].includes(v.width)) out.width = v.width;
+    if (Array.isArray(v.off))
+      out.off = v.off
+        .filter((k) => typeof k === 'string' && WORD_RE.test(k))
+        .slice(0, 12);
+    return out;
+  },
   tripId: nul(id),
   siteKey: nul(id),
   wxAt: nul(num),
@@ -267,6 +281,7 @@ const FIELD_VALUE = {
         ? pick(v, { kind: oneOf(['person', 'place']), id })
         : undefined,
   visitor: bool,
+  wallControls: bool,
   simStorm: nul(num),
 };
 

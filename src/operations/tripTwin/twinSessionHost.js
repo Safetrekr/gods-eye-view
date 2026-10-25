@@ -61,7 +61,16 @@ import {
   pairLockedText,
   pairWrongText,
 } from './twinProtocol.js';
-import { LAYER_CATALOG } from './twinScreenRoles.js';
+import {
+  CARD_CATALOG,
+  LAYER_CATALOG,
+  LAYOUT_CARDS,
+  LAYOUT_WIDTHS,
+  SAFETY_LAYERS,
+  WALL_TEXT_MAX,
+  WALL_TEXT_MIN,
+  wallShellOn,
+} from './twinScreenRoles.js';
 
 const LAYER_KEYS = new Set(
   LAYER_CATALOG.flatMap((g) => g.layers.map((L) => L.key)),
@@ -998,9 +1007,30 @@ export function createSessionHost({
       if (d?.kind !== 'screen' || !d.slot)
         return refused('This screen is not paired');
       const own = Number(cmd?.target) === d.slot;
+      const mine = session.screens[d.slot];
+      // A pinned wall keeps what the remote set; visitor mode makes saved
+      // settings read-only (screens/03-spec-aia §2).
+      // The remote set every wall to view only (screens Q2).
+      if (own && session.session.wallControls === false)
+        return refused(
+          'View only · wall controls are off on the remote',
+          CODE.VIEW_ONLY,
+        );
+      if (own && mine?.pinned)
+        return refused(
+          `S${d.slot} is pinned on the remote · unpin it there`,
+          CODE.PINNED,
+        );
+      if (own && session.session.visitor)
+        return refused(
+          'Visitor mode · settings are read-only at the wall',
+          CODE.VISITOR,
+        );
       let safe = null;
+      // A wall's Reset keeps Live/Advance and the day: those are set on the
+      // remote (screens/20-S1-FIX-LIST F19).
       if (cmd?.type === 'reset' && own)
-        safe = { type: 'reset', target: d.slot };
+        safe = { type: 'reset', target: d.slot, keep: ['mode', 'day'] };
       if (cmd?.type === 'screens' && own) {
         const p = cmd.patch || {};
         const patch = {};
@@ -1018,14 +1048,53 @@ export function createSessionHost({
           const m = flags(p.motion, MOTION_KEYS);
           if (Object.keys(m).length) patch.motion = m;
         }
+        // Safety layers stay on while a report is open (§11).
+        if (
+          patch.layers &&
+          session.session.report &&
+          SAFETY_LAYERS.some((k) => patch.layers[k] === false)
+        )
+          return refused(
+            'A report is open · safety layers stay on at the wall',
+            CODE.SAFETY_LAYER,
+          );
+        // Layout only where the wall's frame reads it (F18).
+        if (
+          'layout' in p &&
+          p.layout &&
+          typeof p.layout === 'object' &&
+          wallShellOn(mine)
+        ) {
+          const l = {};
+          if (LAYOUT_CARDS.includes(p.layout.cards)) l.cards = p.layout.cards;
+          if (LAYOUT_WIDTHS.includes(p.layout.width)) l.width = p.layout.width;
+          if (Array.isArray(p.layout.off)) {
+            // Only this role's cards, never a locked one.
+            const ok = new Set(
+              (CARD_CATALOG[mine?.role] || [])
+                .filter((c) => !c.lock)
+                .map((c) => c.key),
+            );
+            l.off = [...new Set(p.layout.off)]
+              .filter((k) => ok.has(k))
+              .slice(0, 12);
+          }
+          if (Object.keys(l).length) patch.layout = l;
+        }
         if (SCALES.has(p.scale)) patch.scale = p.scale;
+        // At a wall the type rule holds only in this range (F12).
         if (Number.isFinite(p.textScale))
-          patch.textScale = Math.max(1, Math.min(3.5, p.textScale));
+          patch.textScale = Math.max(
+            WALL_TEXT_MIN,
+            Math.min(WALL_TEXT_MAX, p.textScale),
+          );
         if (Object.keys(patch).length)
           safe = { type: 'screens', target: d.slot, patch };
       }
       if (!safe)
-        return refused('A screen changes only its own layers and display');
+        return refused(
+          'A screen changes only its own layers, display and layout',
+        );
       const r = applyCommand(session, safe, { by: refOfId(by), at: now() });
       if (r.error) return refused(r.error, CODE.UNKNOWN_COMMAND);
       const before = session;

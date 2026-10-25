@@ -3,7 +3,13 @@
 // screen only. Every change goes through the session (screen-cmd), so the
 // remote shows it at once and stays the one truth; role, mode, pin and
 // anything wall-wide stay on the remote.
-import { LAYER_CATALOG, ROLES, layerValue } from './twinScreenRoles.js';
+import {
+  LAYER_CATALOG,
+  ROLES,
+  WALL_TEXT_MAX,
+  WALL_TEXT_MIN,
+  layerValue,
+} from './twinScreenRoles.js';
 import { MOTION_TIERS } from './twinMotion.js';
 
 const el = (tag, cls, text) => {
@@ -20,7 +26,7 @@ const btn = (cls, text, fn, attrs = {}) => {
   return b;
 };
 
-const TITLES = { layers: 'Layers', display: 'Display', keys: 'Keyboard' };
+const TITLES = { layers: 'Layers', display: 'Display', keys: 'Keys' };
 const KEYS = { layers: 'L', display: 'D', keys: 'K' };
 const SCALES = [
   ['building', 'Building', '1'],
@@ -32,10 +38,11 @@ const WALL_KEYS = [
   [
     'This screen',
     [
+      ['M', "This screen's menu: layout, options and settings"],
       ['L', 'Layers for this screen'],
       ['D', 'Display for this screen: scale, text size, motion'],
       ['K', 'This list'],
-      ['Esc', 'Close a sheet'],
+      ['Esc', 'Close a sheet, then the menu'],
     ],
   ],
   [
@@ -43,7 +50,7 @@ const WALL_KEYS = [
     [
       ['Drag', 'Turn and tilt'],
       ['Scroll', 'Zoom'],
-      ['1 2 3', 'Building, neighborhood, city · until the remote changes it'],
+      ['1 2 3', 'Building, neighborhood, city · saved for this screen'],
       [', .', 'Turn left or right'],
       ['N', 'Face north'],
       ['F', 'Frame what is selected'],
@@ -63,7 +70,8 @@ const WALL_KEYS = [
 
 /**
  * createWallSheet({screen: () => this screen's state, slot: () => n,
- *   online: () => bool, write: (cmd, label) => Promise<{ok, error}>,
+ *   online: () => bool (may save now), offText: () => why not,
+ *   write: (cmd, label) => Promise<{ok, error}>,
  *   blocked: () => bool (a K8 card replaces the scene: no sheet opens)})
  *   → {open(kind), close(), toggle(kind), refresh(), kind}
  */
@@ -73,6 +81,9 @@ export function createWallSheet({
   online,
   write,
   blocked = () => false,
+  // Why this wall cannot save now (screens/03-spec-aia §2).
+  offText = () =>
+    'Not connected to the Trip Twin computer · changes cannot be saved now',
 }) {
   const root = el('section', 'tt-wall-sheet');
   root.setAttribute('role', 'dialog');
@@ -113,7 +124,7 @@ export function createWallSheet({
     const off = !online();
     f.classList.toggle('warn', off || Boolean(error));
     f.textContent = off
-      ? 'Not connected to the Trip Twin computer · changes cannot be saved now'
+      ? offText()
       : error ||
         (kind === 'keys'
           ? 'Everything else is on the remote. Esc or K closes.'
@@ -172,24 +183,32 @@ export function createWallSheet({
     if (!canvas)
       g1.append(el('div', 'tt-note', 'This screen shows no 3D view.'));
 
-    const ts = Number(s?.textScale || 2);
+    const ts = Math.max(
+      WALL_TEXT_MIN,
+      Math.min(WALL_TEXT_MAX, Number(s?.textScale || 1.75)),
+    );
     const g2 = el('div', 'tt-pop-group');
     g2.append(el('div', 'tt-kicker', 'TEXT SIZE'));
     const row = el('div', 'tt-wall-seg');
     const minus = btn(
       '',
       'Smaller',
-      () => patch({ textScale: Math.max(1, ts - 0.25) }, 'Text smaller'),
+      () =>
+        patch(
+          { textScale: Math.max(WALL_TEXT_MIN, ts - 0.25) },
+          'Text smaller',
+        ),
       { 'data-focus': 'text:-' },
     );
     const plus = btn(
       '',
       'Larger',
-      () => patch({ textScale: Math.min(3.5, ts + 0.25) }, 'Text larger'),
+      () =>
+        patch({ textScale: Math.min(WALL_TEXT_MAX, ts + 0.25) }, 'Text larger'),
       { 'data-focus': 'text:+' },
     );
-    minus.disabled = off || ts <= 1;
-    plus.disabled = off || ts >= 3.5;
+    minus.disabled = off || ts <= WALL_TEXT_MIN;
+    plus.disabled = off || ts >= WALL_TEXT_MAX;
     row.append(minus, el('span', 'val', `×${ts}`), plus);
     g2.append(row);
 

@@ -164,14 +164,6 @@ textarea {
 body[data-view='screen'] {
   background-color: var(--tt-field);
 }
-.tt-wall-head {
-  background: linear-gradient(rgba(4, 12, 18, 0.9), rgba(4, 12, 18, 0.2));
-  border-bottom: 1px solid var(--tt-hair);
-}
-.tt-wall-kicker {
-  font: 600 30px var(--tt-mono);
-  letter-spacing: 0.14em;
-}
 .tt-wall-where {
   font: 400 22px var(--tt-font);
 }
@@ -485,7 +477,7 @@ body[data-view='screen'] .tt-wxtl {
 .tt-m-cine .tt-entry-card {
   animation: ttFog 0.62s var(--fog-in) both;
 }
-.tt-m-cine .tt-wall-head,
+.tt-m-cine .tt-wall-bar,
 .tt-m-cine .tt-wall-panel:not([hidden]),
 .tt-m-cine .tt-rail,
 .tt-m-cine .tt-rcol {
@@ -1620,9 +1612,6 @@ body.tt-st-open .tt-ap-rotor {
 .tt-aperture[data-signal='incident'] .tt-ap-bead {
   fill: var(--tt-hazard);
 }
-.tt-aperture[data-signal='incident'] .tt-ap-ring {
-  stroke: var(--tt-hazard);
-}
 /* Motion (Event tier): the rail fogs in, tiles arrive as a wavefront,
    the ring runs one scan on open. Reduce motion wins. */
 .tt-m-event .tt-st:not([hidden]) {
@@ -2196,12 +2185,11 @@ body:not([data-view='screen']) #tt-rail .tt-sec-head {
   padding: 0 14px;
   width: calc(100% + 28px);
 }
-/* §6 aperture: the ring takes the signal too; a visible edge. */
+/* §6 aperture: a visible edge. The bead alone carries the signal; the
+   ring around the SafeTrekr mark never turns red or amber (Jesse, 25 Oct
+   2026: screens/20-S1-FIX-LIST Q3, shell N3). */
 .tt-aperture {
   border: 1px solid var(--tt-border);
-}
-.tt-aperture[data-signal='attention'] .tt-ap-ring {
-  stroke: var(--tt-attention);
 }
 /* §9 incident Summary: a red numeral, a plain sentence. */
 .tt-sum-hero.incident .tt-sum-n {
@@ -3055,21 +3043,6 @@ body[data-view='screen'][data-role='incident'] .tt-rail-scroll {
 /* ---------- walls-live W1, W4, W5, W11: one header on every wall ---------- */
 /* W1: another trip's report, red, in every header; it points to the Trips
    wall and never switches this one. */
-.tt-wall-other {
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 42vw;
-  font: 600 20px/26px var(--tt-mono);
-  letter-spacing: 0.06em;
-  color: var(--tt-hazard-text);
-  background: rgba(238, 119, 137, 0.12);
-  border: 1.5px solid var(--tt-hazard);
-  border-radius: var(--tt-radius);
-  padding: 6px 14px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 /* W11: the trip's clock, then the data age, in one place on every wall. */
 .tt-wall-clockrow {
   display: flex;

@@ -18,6 +18,16 @@ import { avoidCrossings } from './twinCustomPaths.js';
 // SOC walls (phase 10): names as "Emi S."; visitor mode, initials only.
 // The console keeps full names (identity function).
 let nameStyle = (n) => n;
+/** Where the full attention list is: beside it, or on the Incident wall. */
+const wallList = () => {
+  if (document.body.dataset.view !== 'screen')
+    return 'listed under Needs attention';
+  const n = document.body.dataset.boardSlot;
+  const here = new URLSearchParams(location.search).get('slot');
+  if (n && n === here) return 'listed under Needs attention';
+  return n ? `all on S${n}` : 'all on the remote';
+};
+
 export function setNameStyle(fn) {
   nameStyle = typeof fn === 'function' ? fn : (n) => n;
 }
@@ -678,6 +688,81 @@ export function createHud({
     edges();
   }
 
+  /**
+   * On a wall the report card fits the column: names drop one at a time
+   * and the "+n more" line counts them (screens/20-S1-FIX-LIST F3). Never a
+   * silent cut. The All-in-one scrolls and lists every name.
+   */
+  let wallNameCap = 6;
+  function fitIncident(a, ctx) {
+    if (document.body.dataset.view !== 'screen' || incident.hidden) return;
+    const over = () => incident.scrollHeight > incident.clientHeight + 2;
+    const trim = { move: false, band: null };
+    const rep = Number(ctx.reportedLabel);
+    // The move details: the one-line summary stays and stops pointing
+    // below.
+    const hideMove = () => {
+      const kids = [...incident.children];
+      const at = kids.findIndex(
+        (k) => k.textContent === 'IF THE GROUP MUST MOVE',
+      );
+      if (at < 0) return;
+      for (const k of kids.slice(at)) k.hidden = true;
+      for (const k of kids.slice(0, at))
+        if (!k.children.length && / · details below$/.test(k.textContent))
+          k.textContent = k.textContent.replace(/ · details below$/, '');
+    };
+    // The floor list keeps the floors round the reported one, and says
+    // how many it leaves out. (It is one element across renders.)
+    const band = (b) => {
+      for (const n of incident.querySelectorAll('.tt-floors-more')) n.remove();
+      const rows = [...incident.querySelectorAll('.tt-cut-floor')];
+      let cut = 0;
+      for (const r of rows) {
+        const n = Number(r.dataset.label);
+        const far = b != null && Number.isFinite(n) && Math.abs(n - rep) > b;
+        r.hidden = far;
+        if (far) cut += 1;
+      }
+      if (cut)
+        rows[0].parentElement.append(
+          el(
+            'div',
+            'tt-wall-more tt-floors-more',
+            `+${cut} other floors not shown here`,
+          ),
+        );
+    };
+    const draw = () => {
+      renderIncident(a, ctx);
+      if (trim.move) hideMove();
+      band(trim.band);
+    };
+    wallNameCap = 6;
+    draw();
+    // Names first, down to three…
+    while (over() && wallNameCap > 3) {
+      wallNameCap -= 1;
+      draw();
+    }
+    // …then the move details…
+    if (over()) {
+      trim.move = true;
+      draw();
+    }
+    // …then the widest band of floors round the reported one that fits…
+    if (over() && Number.isFinite(rep))
+      for (const b of [3, 2, 1]) {
+        trim.band = b;
+        draw();
+        if (!over()) break;
+      }
+    // …and only then fewer names.
+    while (over() && wallNameCap > 1) {
+      wallNameCap -= 1;
+      draw();
+    }
+  }
   function renderIncident(a, ctx) {
     const m = ctx.mode;
     if (m.mode !== 'incident') {
@@ -770,7 +855,7 @@ export function createHud({
     // A wall lists six names and says how many more; the roster has them.
     const wall = document.body.dataset.view === 'screen';
     const allRows = g1?.rows || [];
-    const shownRows = wall ? allRows.slice(0, 6) : allRows;
+    const shownRows = wall ? allRows.slice(0, wallNameCap) : allRows;
     for (const r of shownRows) {
       const li = el('li');
       const b = el('button');
@@ -790,7 +875,9 @@ export function createHud({
         el(
           'li',
           'more',
-          `+${allRows.length - shownRows.length} more · listed under Needs attention`,
+          // A wall has no Needs attention card beside it: the list is on
+          // the Incident wall (screens/20-S1-FIX-LIST F3).
+          `+${allRows.length - shownRows.length} more · ${wallList()}`,
         ),
       );
     incident.append(names);
@@ -800,7 +887,7 @@ export function createHud({
         el(
           'div',
           'tt-line',
-          `${inB.rows.length} ${m.comparable === false ? '' : 'more '}may still be inside · listed under Needs attention`,
+          `${inB.rows.length} ${m.comparable === false ? '' : 'more '}may still be inside · ${wallList()}`,
         ),
       );
     const copy = el('button', 'tt-btn primary', 'Copy for responders');
@@ -1018,7 +1105,14 @@ export function createHud({
     },
     /** The wall was resized or its text scale changed: fit again. */
     refit() {
-      if (last) renderRail(last.a, last.ctx);
+      if (!last) return;
+      renderRail(last.a, last.ctx);
+      // The report card fits again too (hands-on adds its controls), not
+      // while someone types in it.
+      const typing =
+        incident.contains(document.activeElement) &&
+        document.activeElement.matches('input, select, textarea');
+      if (!typing) fitIncident(last.a, last.ctx);
     },
     render(a, ctx) {
       last = { a, ctx };
@@ -1028,7 +1122,10 @@ export function createHud({
       const typing =
         incident.contains(document.activeElement) &&
         document.activeElement.matches('input, select, textarea');
-      if (!typing) renderIncident(a, ctx);
+      if (!typing) {
+        renderIncident(a, ctx);
+        fitIncident(a, ctx);
+      }
       if (document.activeElement === findInput) renderFind();
     },
     /** Open a rail card and bring it into view (a station was picked). */
