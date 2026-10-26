@@ -127,7 +127,7 @@ export function createWeatherTimeline({ onChange, clock, tick = clock }) {
       range.value = String(t);
       range.setAttribute(
         'aria-valuetext',
-        `${clock(t)} ${m.t == null ? 'now' : relText(t, m.now)} · ${KIND_TEXT[m.kindAt(t)]}`,
+        `${clock(t) ? `${clock(t)} ` : ''}${m.t == null ? 'now' : relText(t, m.now)} · ${KIND_TEXT[m.kindAt(t)]}`,
       );
       // Track segments by data kind: solid observed, striped model map,
       // outlined site forecast (review/phase6 L13). Bad values dropped.
@@ -170,7 +170,7 @@ export function createWeatherTimeline({ onChange, clock, tick = clock }) {
           el(
             'strong',
             'lead',
-            `WEATHER AT ${clock(t)} (${lensRel(t)}) · ${t > m.now ? (m.kindAt?.(t) === 'projected' ? 'projection on the current track' : 'forecast') : 'past'} — not live`,
+            `${clock(t) ? `WEATHER AT ${clock(t)} (${lensRel(t)})` : `WEATHER ${lensRel(t)}`} · ${t > m.now ? (m.kindAt?.(t) === 'projected' ? 'projection on the current track' : 'forecast') : 'past'} — not live`,
           ),
           ` · ${m.sourceAt(t)} · people and incidents are shown now (dimmed people)`,
         );

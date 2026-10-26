@@ -4983,8 +4983,34 @@ async function main() {
         })
       : '';
   /** Real weather time with its zone and, when not today, its day. */
-  const wxTime = (ms) => {
+  /**
+   * One clock on a wall (Jesse, 26 Oct): every clock time on a wall is
+   * the header's (the sample clock in the demo). While that differs from
+   * real time, live weather reads as durations ("in 1 h 13 min") and the
+   * simulated storm moves onto the sample clock. In real use the two are
+   * the same and nothing changes.
+   */
+  const wallClocks = () =>
+    document.body.dataset.view === 'screen' &&
+    Math.abs(planNow() - Date.now()) > 2 * 60e3;
+  const durText = (ms) => {
+    const r = relText(ms, Date.now());
+    return r === 'now'
+      ? 'now'
+      : r.startsWith('+')
+        ? `in ${r.slice(1)}`
+        : `${r.slice(1)} ago`;
+  };
+  const wxTime = (ms, { sim = false } = {}) => {
     if (!Number.isFinite(ms)) return '';
+    if (wallClocks()) {
+      if (!sim) return durText(ms);
+      const shift = planNow() - Date.now();
+      return clockAt(ms + shift, Date.now() + shift);
+    }
+    return clockAt(ms, Date.now());
+  };
+  function clockAt(ms, nowMs) {
     const d = new Date(ms);
     const day = (x) =>
       x.toLocaleDateString('en-GB', {
@@ -4999,8 +5025,8 @@ async function main() {
         )
         .split(' ')
         .pop() || '';
-    return `${day(d) !== day(new Date()) ? `${day(d)} ` : ''}${hhmm(d.toISOString())} ${zone}`;
-  };
+    return `${day(d) !== day(new Date(nowMs)) ? `${day(d)} ` : ''}${hhmm(d.toISOString())} ${zone}`;
+  }
   const wxSummary = () =>
     nc.simStart && stormStep(Date.now())
       ? {
@@ -5341,7 +5367,10 @@ async function main() {
           ? null
           : weatherChipParts(sum, {
               useF,
-              clock: hhmm(sum?.validTime),
+              // One clock on a wall: the forecast hour as an offset.
+              clock: wallClocks()
+                ? durText(Date.parse(sum?.validTime))
+                : hhmm(sum?.validTime),
               simulated: wx.sim.rain || wx.sim.snow || Boolean(nc.simStart),
             });
     if (!parts && wx.at != null && wx.at < Date.now() && appMode !== 'advance')
@@ -5402,8 +5431,19 @@ async function main() {
   const H = 3600e3;
   timeline = createWeatherTimeline({
     onChange: (t) => setWxTime(t),
-    clock: (ms) => wxTime(ms),
+    // On a wall in the demo, live weather has no clock time (the caption
+    // says the offset); the simulated storm reads the sample clock.
+    clock: (ms) =>
+      wallClocks() && !nc.simStart
+        ? ''
+        : wxTime(ms, { sim: Boolean(nc.simStart) }),
     tick: (ms) => {
+      // One clock on a wall: ticks as offsets from now (live weather) or
+      // on the sample clock (the simulated storm).
+      if (wallClocks())
+        return nc.simStart
+          ? wxTime(ms, { sim: true }).replace(/ \S+$/, '')
+          : `${ms >= Date.now() ? '+' : '−'}${Math.abs(Math.round((ms - Date.now()) / 3600e3))} h`;
       const d = new Date(ms);
       const h = hhmm(d.toISOString());
       return h === '00:00'
@@ -5598,6 +5638,7 @@ async function main() {
     const m = Math.round((Date.now() - ms) / 60e3);
     if (m >= 0 && document.body.dataset.view === 'screen')
       return `${m} min ago`;
+    if (m < 0 && wallClocks()) return durText(ms);
     return m >= 0
       ? `${wxTime(ms)}, ${m} min ago`
       : `${wxTime(ms)}, in ${relText(ms, Date.now()).replace(/^\+/, '')}`;
@@ -5684,7 +5725,7 @@ async function main() {
       dist: (m) => formatDistance(m),
       speed: speedText,
       siteNoun: siteNounNow(),
-      frame: wxTime(r.frameAt),
+      frame: wxTime(r.frameAt, { sim: Boolean(r.simulated) }),
       frameAge: r.simulated ? null : ageMin,
       source: r.source,
       simulated: r.simulated,
@@ -5696,7 +5737,13 @@ async function main() {
   }
   const simAlert = () =>
     nc.simStart ? simulatedAlert(ncCenter(), Date.now(), nc.simStart) : null;
-  const untilText = (iso) => (iso ? ago(Date.parse(iso)) : '');
+  // The simulated warning's end on the sample clock, with its duration.
+  const untilText = (iso, sim = false) =>
+    !iso
+      ? ''
+      : sim && wallClocks()
+        ? `${wxTime(Date.parse(iso), { sim: true })}, ${durText(Date.parse(iso))}`
+        : ago(Date.parse(iso));
   /**
    * Official lines, the same on every surface: the demo's warning first and
    * labelled, then every real alert with its time to go and whether the
@@ -5710,7 +5757,7 @@ async function main() {
     if (a)
       list.push({
         sim: true,
-        text: `SIMULATED (demo) · ${a.event} · until ${untilText(a.ends)}${a.inside ? ` · the ${noun} is inside the area` : ''}`,
+        text: `SIMULATED (demo) · ${a.event} · until ${untilText(a.ends, true)}${a.inside ? ` · the ${noun} is inside the area` : ''}`,
       });
     if (wx.warningsStatus === 'unavailable')
       list.push({
@@ -5753,7 +5800,7 @@ async function main() {
       untilText: a.ends ? untilText(a.ends) : '',
     }));
     const s = simAlert();
-    if (s) list.unshift({ ...s, untilText: untilText(s.ends) });
+    if (s) list.unshift({ ...s, untilText: untilText(s.ends, true) });
     return list;
   }
   /** Whether the lightning grid has answered (a null ltgLine then means
@@ -5854,7 +5901,8 @@ async function main() {
       nc.simStart || (hasMotion(nc.res?.motion) && !nc.res?.positionOnly),
     );
   function projectionLabel(t) {
-    if (nc.simStart) return `SIMULATED storm (prototype) · ${wxTime(t)}`;
+    if (nc.simStart)
+      return `SIMULATED storm (prototype) · ${wxTime(t, { sim: true })}`;
     const r = nc.res;
     return `Projection on the current track · ${r?.source || 'radar'} ${wxTime(r?.frameAt)} + observed motion · not a forecast model`;
   }
@@ -5878,7 +5926,7 @@ async function main() {
       sourceAt: (t) =>
         wx.at == null
           ? 'SIMULATED storm (prototype) · shells, track, lightning and the warning are simulated'
-          : `SIMULATED storm (prototype) · ${wxTime(t)}`,
+          : `SIMULATED storm (prototype) · ${wxTime(t, { sim: true })}`,
     };
   }
   /** The radar grid for the viewed time: {grid, kind}. */
@@ -6533,7 +6581,9 @@ async function main() {
           const tag = w.sim ? ' (SIMULATED)' : '';
           const cover = start <= ev.epoch && ev.epoch <= end;
           const endTxt = Number.isFinite(endRaw)
-            ? `until ${today ? '' : 'today '}${localHm(endRaw)}`
+            ? wallClocks()
+              ? `until ${wxTime(endRaw, { sim: Boolean(w.sim) })}`
+              : `until ${today ? '' : 'today '}${localHm(endRaw)}`
             : 'until further notice';
           return cover
             ? {
@@ -6679,7 +6729,12 @@ async function main() {
         ? `${m > 0 ? '+' : '−'}${Math.round(Math.abs(m) / 5) * 5} MIN`
         : relText(wx.at, now).toUpperCase();
     const claim = lensClaim();
-    return `VIEWING ${rel} · ${wxTime(wx.at)} · ${what}${claim ? ` · ${claim}` : ''}`;
+    // A duration already says when: no second time beside it.
+    const at =
+      wallClocks() && !nc.simStart
+        ? ''
+        : ` · ${wxTime(wx.at, { sim: Boolean(nc.simStart) })}`;
+    return `VIEWING ${rel}${at} · ${what}${claim ? ` · ${claim}` : ''}`;
   }
   function wxRowNote(key) {
     if (key === 'radar3d') return radar3dNote();
