@@ -330,6 +330,16 @@ test('K4 deny codes: every hello refusal carries a code from twinProtocol.js and
       DENY.TICKET_EXPIRED,
       kind,
     );
+  // The All-in-one on this computer rejoins with its expired code (review
+  // ticks, Jesse 26 Oct); from anywhere else, still expired.
+  assert.equal(
+    host.hello({ id: 'aio', kind: 'launcher', setup, local: true }).type,
+    'launcher',
+  );
+  assert.equal(
+    host.hello({ id: 'aio-2', kind: 'launcher', local: true }).code,
+    DENY.NOT_TRUSTED,
+  );
   // A remote with a stale token from a lost store can still pair by a QR.
   const fresh = host.setup({ count: 2 }).setup;
   assert.equal(

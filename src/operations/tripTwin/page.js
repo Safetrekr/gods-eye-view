@@ -159,6 +159,9 @@ import {
 } from './twinStations.js';
 import { ROLES } from './twinScreenRoles.js';
 import {
+  onReviewLink,
+  resumeReviewLink,
+  reviewLinkState,
   sendReview,
   setReviewSnapshot,
   showEntry,
@@ -2853,7 +2856,29 @@ async function main() {
     }
     renderAdvance();
   }
-  // Every tick made here, for the walls once multi-view starts.
+  // Ticks survive a reload of this tab (the walls keep theirs, so the two
+  // agree); notes stay this page's only.
+  try {
+    Object.assign(
+      adv.checks,
+      JSON.parse(sessionStorage.getItem('tripTwin.reviewChecks') || '{}'),
+    );
+  } catch {
+    /* no tab storage: ticks live as long as this page */
+  }
+  function keepChecks() {
+    try {
+      sessionStorage.setItem(
+        'tripTwin.reviewChecks',
+        JSON.stringify(adv.checks),
+      );
+    } catch {
+      /* per-tab convenience only */
+    }
+  }
+  // Whether ticks reach the walls, beside the checks; never silent.
+  onReviewLink(() => renderAdvance(true));
+  // Every tick made here, for the walls whenever the link joins.
   setReviewSnapshot(() =>
     Object.keys(adv.checks).map((k) => {
       const i = k.lastIndexOf(':');
@@ -3148,6 +3173,20 @@ async function main() {
       whoIn,
     );
     box.append(who);
+    const ls = reviewLinkState();
+    box.append(
+      el(
+        'div',
+        `tt-adv-link ${ls}`,
+        {
+          none: 'Ticks stay on this computer until multi-view starts',
+          connecting: 'Joining the walls…',
+          ok: 'Ticks reach the walls',
+          offline: 'Ticks not reaching the walls · reconnecting',
+          expired: 'Ticks not reaching the walls · start multi-view again',
+        }[ls],
+      ),
+    );
     const items = el('ul', 'tt-adv-items');
     for (const it of brief.items) {
       const li = el('li', it.warn ? 'warn' : it.ok ? 'ok' : '');
@@ -3161,6 +3200,7 @@ async function main() {
         const k = `${ev.key}:${it.key}`;
         if (cb.checked) adv.checks[k] = stamp();
         else delete adv.checks[k];
+        keepChecks();
         // The tick reaches the walls (Jesse, 26 Oct): who and when only.
         sendReview({
           stop: ev.key,
@@ -8831,6 +8871,9 @@ async function main() {
     cleanups.push(() => rcolWatch.disconnect());
     renderStations();
   }
+  // The All-in-one rejoins the walls with this tab's launch code, so its
+  // review ticks keep reaching them after a reload (Jesse, 26 Oct).
+  if (!VIEW) resumeReviewLink();
   // Filming opens straight on the All-in-one: no chooser on camera.
   if (!VIEW && !params.has('freeze') && !FILM)
     showEntry({

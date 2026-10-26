@@ -463,6 +463,16 @@ test("Review ticks: only this computer's launcher; the tick, never notes (Jesse,
   const r2 = reviews();
   assert.equal(Object.keys(r2).length, 2);
   assert.equal(r2[Object.keys(r2).find((k) => k.endsWith('|light'))].by, null);
+  // Sent again (the All-in-one rejoining): the first time stays.
+  const first = reviews()[key].at;
+  launcher.say({
+    t: 'review',
+    stop: 'd1-arrive',
+    item: 'hospital',
+    on: true,
+    initials: 'JT',
+  });
+  assert.equal(reviews()[key].at, first);
   // Untick at the All-in-one.
   launcher.say({ t: 'review', stop: 'd1-arrive', item: 'hospital', on: false });
   assert.equal(Object.keys(reviews()).length, 1);

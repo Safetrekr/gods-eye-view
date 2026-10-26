@@ -670,8 +670,12 @@ export function createSessionHost({
       const setupOk = Boolean(setup) && setups.get(setup)?.expires > t;
       if (known?.tokenHash && !holds(known, tk))
         return deny(DENY.ID_IN_USE, 'This device id is already in use');
+      // The All-in-one rejoining on this computer with its launch code,
+      // expired or not, so review ticks keep reaching the walls (Jesse,
+      // 26 Oct). A launcher only watches and ticks; starting multi-view
+      // already trusts this computer.
       if (kind === 'launcher')
-        return setupOk
+        return setupOk || (local && setup)
           ? { type: 'launcher' }
           : setup
             ? deny(
@@ -1012,7 +1016,12 @@ export function createSessionHost({
           : null;
       const key = `${session.session.tripId || ''}|${stop}|${item}`;
       const reviews = { ...(session.session.reviews || {}) };
-      if (on) reviews[key] = { at: now(), by: who };
+      // A tick sent again (the All-in-one rejoining) keeps its first time.
+      if (on)
+        reviews[key] =
+          reviews[key] && reviews[key].by === who
+            ? reviews[key]
+            : { at: now(), by: who };
       else delete reviews[key];
       const keys = Object.keys(reviews);
       if (keys.length > REVIEW_MAX)

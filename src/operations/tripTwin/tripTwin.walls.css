@@ -2730,3 +2730,13 @@ body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips']
   width: 4.5em;
   text-transform: uppercase;
 }
+/* Whether the All-in-one's ticks reach the walls (never silent). */
+.tt-adv-link {
+  font-size: 12px;
+  color: var(--tt-text-2);
+  margin: 0 0 8px;
+}
+.tt-adv-link.offline,
+.tt-adv-link.expired {
+  color: var(--tt-attention);
+}

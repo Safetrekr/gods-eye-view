@@ -14,15 +14,66 @@ import { STATUS } from './twinDescribe.js';
 
 // Review ticks to the walls (Jesse, 26 Oct 2026): the All-in-one's own
 // launcher link carries them (this computer only); the tick, never notes.
+// The link keeps its launch code in this tab, so after a dropped link or a
+// reload it rejoins by itself and sends every tick again; it says when the
+// ticks are not reaching the walls, never silently.
+const LAUNCH_KEY = 'tripTwin.launch';
 let liveLauncher = null;
 let reviewSnapshot = null;
+let linkState = 'none'; // none | connecting | ok | offline | expired
+const linkWatchers = new Set();
+const setLink = (s) => {
+  if (s === linkState) return;
+  linkState = s;
+  for (const fn of linkWatchers) fn(s);
+};
 /** Send one review tick {stop, item, on, initials} to the walls. */
 export function sendReview(r) {
   liveLauncher?.send({ t: 'review', ...r });
 }
-/** Every tick to send once multi-view starts: () => [{stop, item, on, initials}]. */
+/** Every tick to send when the link joins: () => [{stop, item, on, initials}]. */
 export function setReviewSnapshot(fn) {
   reviewSnapshot = typeof fn === 'function' ? fn : null;
+}
+/** Whether ticks reach the walls: none | connecting | ok | offline | expired. */
+export const reviewLinkState = () => linkState;
+/** Called with the new state whenever it changes. */
+export function onReviewLink(fn) {
+  if (typeof fn === 'function') linkWatchers.add(fn);
+}
+function openReviewLink(setup, on = {}) {
+  liveLauncher?.close?.();
+  setLink('connecting');
+  liveLauncher = connectSync({
+    kind: 'launcher',
+    setup,
+    on: {
+      ...on,
+      welcome(m) {
+        on.welcome?.(m);
+        if (m.type === 'denied') {
+          setLink('expired');
+          return;
+        }
+        setLink('ok');
+        for (const r of reviewSnapshot?.() || [])
+          liveLauncher.send({ t: 'review', ...r });
+      },
+      status(s) {
+        if (s === 'offline' && linkState !== 'expired') setLink('offline');
+      },
+    },
+  });
+}
+/** On the All-in-one's load: rejoin with this tab's launch code, if any. */
+export function resumeReviewLink() {
+  let setup = null;
+  try {
+    setup = sessionStorage.getItem(LAUNCH_KEY);
+  } catch {
+    /* no tab storage: ticks stay here until multi-view starts */
+  }
+  if (setup) openReviewLink(setup);
 }
 
 const el = (tag, cls, text) => {
@@ -359,10 +410,19 @@ export function showEntry(o) {
             );
             return;
           }
-          // The ticks made before multi-view started reach the walls too.
-          liveLauncher = sync;
-          for (const r of reviewSnapshot?.() || [])
-            sync.send({ t: 'review', ...r });
+          // The review link takes over from the setup socket: it carries
+          // the launch code, so it rejoins after a drop or a reload, and
+          // sends the ticks made before multi-view started.
+          try {
+            sessionStorage.setItem(LAUNCH_KEY, m.setup);
+          } catch {
+            /* the link still works until this page reloads */
+          }
+          sync.close();
+          openReviewLink(m.setup, {
+            presence: (x) => seen(x.presence),
+            state: (x) => seen(x.presence),
+          });
           launch(m.setup, info);
         },
         presence: (m) => seen(m.presence),

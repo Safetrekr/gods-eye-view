@@ -187,7 +187,9 @@ function goldenTranscript() {
   deny({ id: 'remote-y', kind: 'remote', token: 'gone' }, false);
   deny({ id: 'remote-z', kind: 'remote', setup: 'expired' }, false);
   deny({ id: 'screen-z', kind: 'screen', setup: 'expired', slot: 2 });
-  deny({ id: 'launcher-z', kind: 'launcher', setup: 'expired' });
+  // From another computer: on this one, an expired launch code rejoins
+  // (the All-in-one's review link, Jesse 26 Oct).
+  deny({ id: 'launcher-z', kind: 'launcher', setup: 'expired' }, false);
   deny({ id: 'screen-old', kind: 'screen', proto: 1 });
   deny({
     id: 'screen-gold-2',
