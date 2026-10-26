@@ -161,6 +161,7 @@ import { ROLES } from './twinScreenRoles.js';
 import { showEntry, showLaunch } from './twinEntry.js';
 import {
   DEMO_TRIPS,
+  TIER,
   sortTiles,
   tripById,
   tripForCity,
@@ -8389,6 +8390,227 @@ async function main() {
     frameStorm: () => frameStorm(),
     stormTracked: () =>
       Boolean(ncView()?.ap?.core || lastCtx?.weather?.approach),
+    /**
+     * S6 in the new frame (C5-S6-PLAN): one tile per trip, reason first,
+     * every clock the header's moment in that trip's zone, counts that
+     * add up, one report wording. o = {order, off, board, weatherWall}.
+     */
+    tripsBoard(node, o = {}) {
+      const now = Date.now();
+      const ageS = (now - lastFeed) / 1000;
+      const at = planNow();
+      // This trip's report at any of its sites (S6 r1 P0-1), as the pill.
+      const mode = lastCtx?.mode?.mode;
+      const reportOpen = mode === 'incident' || mode === 'incident_elsewhere';
+      // One delay rule, the header's (S6 r1 P1-1): one feed for every tile.
+      const degraded = Boolean(lastCtx?.mode?.degraded);
+      const own = lastA?.counts
+        ? {
+            notCurrent: lastA.counts['Not current'] ?? 0,
+            notLocated: lastA.counts['Not located'] ?? 0,
+            incident: reportOpen ? lastCtx.mode.topLine.split(' — ')[0] : null,
+          }
+        : null;
+      const ap = nc.text || approachLine();
+      const stormNear = ['arriving', 'near', 'over'].includes(ap?.status);
+      const headerIso = new Date(at).toLocaleDateString('en-CA', {
+        timeZone: city.timezone,
+      });
+      const tiles = DEMO_TRIPS.map((t) => {
+        const tile = tripTile(
+          t,
+          tripTwinDemoSnapshot(t.city, t.scenario, {
+            now,
+            startMs: scenarioEpoch,
+          }),
+          {
+            now,
+            dataAgeS: 0,
+            at,
+            override: t.id === focusTrip.id ? own : null,
+          },
+        );
+        if (!tile || tile.noData) return tile;
+        tile.stale = degraded;
+        // A storm on the trip in focus is a reason (S6 r1 P0-2): right
+        // after a report, and the tile never folds.
+        if (t.id === focusTrip.id && stormNear && !tile.incident)
+          tile.tier = TIER.report + 0.5;
+        else if (degraded && !tile.incident) tile.tier = TIER.stale;
+        return tile;
+      }).filter(Boolean);
+      // This trip's report before another trip's, within the report tier.
+      for (const t of tiles)
+        if (t.id === focusTrip.id && t.tier === TIER.report) t.tier = -0.5;
+      const sorted = sortTiles(tiles, { order: o.order });
+      const off = new Set(o.off || []);
+      const reported = sorted.filter((t) => t.incident).length;
+      node.replaceChildren();
+      const head = document.createElement('div');
+      head.className = 'tt-kicker tt-trips-head';
+      head.textContent = [
+        `TRIPS ON WATCH · ${sorted.length}`,
+        reported ? `${reported} REPORTED` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ');
+      node.append(head);
+      if (degraded) {
+        const n = document.createElement('div');
+        n.className = 'tt-wall-line tt-trips-link';
+        n.textContent = `Data delayed for every trip · ${formatAge(ageS)} since the last update · the counts may be out of date`;
+        node.append(n);
+      }
+      const grid = document.createElement('div');
+      grid.className = 'tt-trips tt-trips-board';
+      grid.dataset.n = String(sorted.length);
+      node.append(grid);
+      const headerDay = new Date(at).toLocaleDateString('en-GB', {
+        timeZone: city.timezone,
+        weekday: 'short',
+      });
+      const toCheckFocus = screenApi.needsCount?.();
+      for (const t of sorted) {
+        const focus = t.id === focusTrip.id;
+        const sec = document.createElement('section');
+        sec.className = `tt-trip tt-board-card${t.incident ? (focus ? ' rep' : ' rep-other') : ''}${t.noData ? ' nodata' : ''}${t.stale ? ' stale' : ''}${focus ? ' focus' : ''}`;
+        sec.dataset.tier = String(t.tier ?? '');
+        sec.dataset.title = t.title;
+        const add = (cls, txt) => {
+          const n = document.createElement('div');
+          n.className = cls;
+          if (txt != null) n.textContent = txt;
+          sec.append(n);
+          return n;
+        };
+        // 1 · The reason, worst first. The trip in focus counts as the
+        // header and S3 do (S6 r1 P1-7).
+        const toCheck =
+          focus && Number.isFinite(toCheckFocus)
+            ? toCheckFocus
+            : (t.notCurrent || 0) + (t.notLocated || 0);
+        sec.dataset.check = String(toCheck);
+        const where =
+          focus && mode === 'incident_elsewhere'
+            ? lastCtx.mode.elsewhere?.where
+            : '';
+        const reason = t.incident
+          ? focus
+            ? [
+                'rep',
+                `REPORT OPEN${where ? ` · ${where}` : ''} · details on ${o.board || 'the remote'}`,
+              ]
+            : // Switching clears this trip's open report (S6 r1 P1-6).
+              reportOpen
+              ? ['rep', 'REPORT · see the remote']
+              : ['rep', 'REPORT · switch trips on the remote']
+          : t.noData
+            ? ['grey', 'NO DATA · nothing received yet']
+            : focus && stormNear
+              ? [
+                  'amber',
+                  `STORM ${ap.status === 'over' ? 'OVER THE HOTEL' : 'NEAR'}${nc.simStart ? ' (SIMULATED)' : ''} · ${o.weatherWall || 'the remote'}`,
+                ]
+              : t.stale
+                ? ['amber', `DATA DELAYED · ${formatAge(ageS)}`]
+                : toCheck
+                  ? ['amber', `${toCheck} TO CHECK`]
+                  : ['', 'NOTHING FLAGGED'];
+        add(`tt-kicker tt-trip-why ${reason[0]}`, reason[1]);
+        // 2 · Title and tags.
+        const title = add('t tt-trip-title', t.title);
+        if (focus) {
+          const g = document.createElement('span');
+          g.className = 'tag';
+          g.textContent = 'IN FOCUS';
+          title.append(g);
+        } else if (t.incident) {
+          const g = document.createElement('span');
+          g.className = 'tag rep-other';
+          g.textContent = 'OTHER TRIP';
+          title.append(g);
+        }
+        // 3 · The report, one wording; the storm's own line on the trip
+        // in focus, with the band's figure.
+        if (t.incident) add('tt-wall-line i tt-trip-rep', t.incident);
+        if (focus && stormNear)
+          add(
+            'tt-wall-line tt-trip-wx',
+            // The claim once; the reason line already says SIMULATED.
+            String(ap.claim || ap.text || '')
+              .split(' · ')
+              .filter((x) => !/^SIMULATED$/.test(x.trim()))[0] || '',
+          );
+        // 4 · Counts that add up.
+        if (!t.noData) {
+          const st = add('tt-trip-counts', null);
+          const bit = (v, label, attn) => {
+            const b = document.createElement('span');
+            b.className = attn ? 'attn' : 'dim';
+            b.textContent = `${v} ${label}`;
+            return b;
+          };
+          st.append(
+            bit(t.notCurrent, 'not current', t.notCurrent > 0 && !t.stale),
+            ' · ',
+            bit(t.notLocated, 'not located', t.notLocated > 0 && !t.stale),
+          );
+          // The reason's count can include checks beyond positions (the
+          // header's): the difference is named, so the tile adds up.
+          const pos = (t.notCurrent || 0) + (t.notLocated || 0);
+          // Not during a report: S3's floor groups are mostly people
+          // already current, and the reason line points to S3 (S6 r2).
+          const extra = t.incident ? 0 : toCheck - pos;
+          add(
+            'tt-wall-note tt-trip-sum',
+            `${t.people} people · ${Math.max(0, t.people - pos)} current${extra > 0 ? ` · +${extra} more check${extra > 1 ? 's' : ''} on ${o.board || 'the remote'}` : ''}${t.stale ? ' · counts may be out of date' : ''}`,
+          );
+        } else add('tt-trip-counts tt-trip-nodata', '— people · no positions');
+        // 5 · Next stop, S5's words; "today" only on the header's day.
+        if (!off.has('next') && !t.noData && t.nextParts)
+          add(
+            'tt-wall-line x tt-trip-next',
+            `Next stop · ${t.nextParts.iso === headerIso ? 'today' : t.nextParts.day} · ${t.nextParts.start} · ${t.nextParts.title}`,
+          );
+        else if (!off.has('next') && !t.noData)
+          add('tt-wall-line x tt-trip-next', 'No more stops on the plan');
+        // 6 · The clock in the trip's zone, and where.
+        if (!t.noData) {
+          const ck = add('clock tt-trip-clock', t.localTime || '—');
+          const sm = document.createElement('small');
+          sm.textContent = `${t.place} · ${t.zone}${t.day && t.day !== headerDay ? ` · ${t.day}` : ''}`;
+          ck.append(sm);
+        }
+        // Org · hotel; a reported tile keeps its hotel (S6 r1 IA P1-4).
+        if (!off.has('org') || t.incident)
+          add(
+            `tt-wall-note o tt-trip-org${t.incident ? ' keep' : ''}`,
+            `${t.org} · ${t.city}`,
+          );
+        grid.append(sec);
+      }
+      // The board's foot: what S6 does not watch. The data age is the
+      // header's alone (S6 r1).
+      const foot = document.createElement('div');
+      foot.className = 'tt-wall-note tt-trips-foot';
+      foot.textContent =
+        'Weather is watched for the trip in focus only · sample trips, fictional people';
+      node.append(foot);
+      // Nothing-flagged trips hidden by the menu: named, never silent;
+      // the trip in focus never hides.
+      if (off.has('quiet')) {
+        const quiet = [...grid.querySelectorAll('.tt-trip:not(.focus)')].filter(
+          (n) => n.dataset.tier === String(TIER.calm),
+        );
+        if (quiet.length) {
+          for (const n of quiet) n.remove();
+          const q = document.createElement('div');
+          q.className = 'tt-wall-note tt-trips-quiet';
+          q.textContent = `+${quiet.length} nothing flagged: ${quiet.map((n) => n.dataset.title).join(', ')} · on the remote`;
+          node.insertBefore(q, foot);
+        }
+      }
+    },
     /** Trips on watch (S6): every sample trip, by need. */
     tripsPanel(node) {
       const now = Date.now();

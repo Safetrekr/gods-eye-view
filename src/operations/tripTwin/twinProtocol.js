@@ -101,7 +101,7 @@ export const MSG_TYPES = Object.freeze([
  * sheet sends `screen-cmd`; the CMD state it causes has `by` = the wall's
  * actor, whose `slot` is a number (a remote's is null) and `via`
  * 'keyboard'. 5 (wall menu, screens/05-S1-PLAN): every screen in the
- * state carries `layout` {cards, width, off}; a wall's own command may set
+ * state carries `layout` {cards, width, order, off}; a wall's own command may set
  * it, and is refused PINNED, VISITOR, SAFETY_LAYER or VIEW_ONLY; the
  * session carries `wallControls` (false = every wall view only).
  */

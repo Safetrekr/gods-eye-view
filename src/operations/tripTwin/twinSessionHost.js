@@ -65,6 +65,7 @@ import {
   CARD_CATALOG,
   LAYER_CATALOG,
   LAYOUT_CARDS,
+  LAYOUT_ORDERS,
   LAYOUT_WIDTHS,
   ROLES,
   SAFETY_LAYERS,
@@ -1085,6 +1086,7 @@ export function createSessionHost({
           )
             l.cards = p.layout.cards;
           if (LAYOUT_WIDTHS.includes(p.layout.width)) l.width = p.layout.width;
+          if (LAYOUT_ORDERS.includes(p.layout.order)) l.order = p.layout.order;
           if (Array.isArray(p.layout.off)) {
             // Only this role's cards, never a locked one.
             const ok = new Set(

@@ -33,7 +33,7 @@ const SCREEN_FIELDS = new Set([
   'layers', // {[layer]: bool}, merged
   'frame', // one-shot camera intent {subject, nonce}; never a copied camera
   'motion', // {live, event, cine}: this wall's motion tiers (phase 11)
-  'layout', // {cards, width, off}: this wall's layout (screens/05-S1-PLAN)
+  'layout', // {cards, width, order, off}: this wall's layout (screens/05-S1-PLAN)
 ]);
 
 const clone = (x) => JSON.parse(JSON.stringify(x));

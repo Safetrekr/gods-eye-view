@@ -32,7 +32,7 @@ test('tiles: the trip with a reported incident comes first; never "all clear"', 
   );
   const sorted = sortTiles(tiles);
   assert.equal(sorted[0].id, 'trip-youth-london');
-  assert.match(sorted[0].incident, /floor 9 · not verified/);
+  assert.match(sorted[0].incident, /floor 9 \(hotel desk, .* not verified\)/);
   for (const t of tiles) {
     assert.ok(t.people > 0);
     assert.match(t.localTime, /^\d\d:\d\d$/);
@@ -120,4 +120,33 @@ test('the trip in focus uses the wall’s own counts, clock and report (R3)', ()
   const plain = tripTile(t, snap, { now: NOW, dataAgeS: 5 });
   assert.equal(plain.localTime, '21:33');
   assert.doesNotMatch(plain.next, /\d{4}-\d\d-\d\d/);
+});
+
+test("S6: one moment for every trip, in each trip's zone; tiers, not a sum", () => {
+  const at = Date.parse('2026-10-26T02:32:00Z');
+  const tiles = DEMO_TRIPS.map((t) =>
+    tripTile(t, tripTwinDemoSnapshot(t.city, t.scenario, { now: NOW }), {
+      now: NOW,
+      dataAgeS: 5,
+      at,
+    }),
+  );
+  const by = Object.fromEntries(tiles.map((t) => [t.id, t]));
+  assert.equal(by['trip-youth-london'].localTime, '02:32');
+  assert.equal(by['trip-choir-austin'].localTime, '21:32');
+  assert.equal(by['trip-band-dc'].localTime, '22:32');
+  assert.equal(by['trip-band-dc'].zone, 'EDT');
+  // No data sorts right after reports, never last (S6 plan).
+  const none = tripTile(DEMO_TRIPS[1], null);
+  const calm = { ...by['trip-choir-austin'], tier: 5 };
+  const order = sortTiles([calm, none, by['trip-youth-london']]);
+  assert.deepEqual(
+    order.map((t) => t.id),
+    ['trip-youth-london', 'trip-band-dc', 'trip-choir-austin'],
+  );
+  // By name, the report still leads; the rest by name (S6 r1).
+  assert.deepEqual(
+    sortTiles(tiles, { order: 'name' }).map((t) => t.title),
+    ['Youth choir tour', 'Jazz band trip', 'Spring choir tour'],
+  );
 });

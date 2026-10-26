@@ -225,15 +225,24 @@ export const CARD_CATALOG = Object.freeze({
     { key: 'schedule', label: 'Schedule', lock: true },
     { key: 'brief', label: 'Stop brief', lock: true },
   ],
-  trips: [{ key: 'trips', label: 'Trips on watch', lock: true }],
+  // S6 (C5-S6-PLAN): the board is locked; what each tile shows may be
+  // trimmed (saved through layout.off, a toggle row on the menu).
+  trips: [
+    { key: 'trips', label: 'Trips on watch', lock: true },
+    { key: 'quiet', label: 'Nothing-flagged trips' },
+    { key: 'next', label: 'Next stop' },
+    { key: 'org', label: 'Org & hotel' },
+  ],
 });
 
 /** Layout values a wall may hold (the relay rebuilds `layout` from these). */
 export const LAYOUT_CARDS = Object.freeze(['shown', 'map']);
 export const LAYOUT_WIDTHS = Object.freeze(['standard', 'wide']);
+/** S6's tile order (C5-S6-PLAN): by need tier, or by name. */
+export const LAYOUT_ORDERS = Object.freeze(['need', 'name']);
 
 /**
- * A screen's layout with every default filled in: {cards, width, off}.
+ * A screen's layout with every default filled in: {cards, width, order, off}.
  * cards 'map' = map only (the left column steps away); off = hidden card
  * keys of this role, locked cards never among them.
  */
@@ -247,6 +256,7 @@ export function layoutValue(screen = {}) {
   return {
     cards: map && LAYOUT_CARDS.includes(l.cards) ? l.cards : 'shown',
     width: LAYOUT_WIDTHS.includes(l.width) ? l.width : 'standard',
+    order: LAYOUT_ORDERS.includes(l.order) ? l.order : 'need',
     off: Array.isArray(l.off) ? l.off.filter((k) => keys.has(k)) : [],
   };
 }
@@ -254,7 +264,12 @@ export function layoutValue(screen = {}) {
 /** True when a screen's layout differs from its role's default. */
 export function layoutChanged(screen = {}) {
   const v = layoutValue(screen);
-  return v.cards !== 'shown' || v.width !== 'standard' || v.off.length > 0;
+  return (
+    v.cards !== 'shown' ||
+    v.width !== 'standard' ||
+    v.order !== 'need' ||
+    v.off.length > 0
+  );
 }
 
 /**
@@ -281,6 +296,7 @@ export const WALL_LAYOUT_ROLES = new Set([
   'incident',
   'weather',
   'day',
+  'trips',
 ]);
 export const wallShellOn = (screen = {}) => WALL_LAYOUT_ROLES.has(screen.role);
 

@@ -2444,3 +2444,274 @@ body.tt-body[data-view='screen'].tt-wall-map
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ====================== S6 · Trips on watch (C5-S6-PLAN) ======================
+   A board: tiles that hug their content, reason first; the menu narrows
+   the board to its edge, never covers a tile. */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips']
+  .tt-wall-panel {
+  top: calc((var(--w-top) + var(--w-g)) / var(--wall-scale)) !important;
+  left: calc(var(--w-g) / var(--wall-scale)) !important;
+  right: calc(
+    (var(--w-g) * 2 + 52px * var(--w-rz)) / var(--wall-scale)
+  ) !important;
+  bottom: calc((var(--w-bot) + var(--w-g)) / var(--wall-scale)) !important;
+  width: auto !important;
+  padding: 0 !important;
+  background: none !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+  transition: right 0.32s var(--fog-in, ease);
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips'].tt-wst-open
+  .tt-wall-panel {
+  right: calc((var(--w-g) * 2 + var(--w-st)) / var(--wall-scale)) !important;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips']
+  .tt-trips-board {
+  flex: 0 1 auto;
+  min-height: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: auto;
+  align-content: start;
+  gap: 12px;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips']
+  .tt-trips-board:is([data-n='10'], [data-n='11'], [data-n='12']),
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips'][data-wall-width='wide']
+  .tt-trips-board {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips'].tt-wst-open
+  .tt-trips-board {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips']
+  .tt-trip.tt-board-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 18px 14px;
+  border-radius: var(--tt-radius-lg);
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips']
+  .tt-trip.focus {
+  border-color: var(--tt-border);
+}
+/* This trip's report: solid red; another trip's: dashed, as its chip. */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips'] .tt-trip.rep {
+  border-color: var(--tt-hazard);
+  box-shadow:
+    0 0 0 1px rgba(238, 119, 137, 0.25),
+    var(--tt-depth-1),
+    inset 0 1px 0 var(--tt-light);
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips']
+  .tt-trip.rep-other {
+  border: 1px dashed var(--tt-hazard);
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips']
+  .tt-trip.nodata {
+  border-style: dashed;
+  opacity: 0.85;
+}
+.tt-trip .tt-trip-why {
+  margin: 0;
+  color: var(--tt-text-2);
+}
+.tt-trip .tt-trip-why.rep {
+  color: var(--tt-hazard-text);
+}
+.tt-trip .tt-trip-why.amber {
+  color: var(--tt-attention);
+}
+.tt-trip .tt-trip-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+.tt-trip .tt-trip-title .tag {
+  font: 500 11px/16px var(--tt-mono);
+  letter-spacing: 0.08em;
+  padding: 1px 6px;
+  border: 1px solid var(--tt-border);
+  border-radius: 4px;
+  color: var(--tt-text);
+}
+.tt-trip .tt-trip-title .tag.rep-other {
+  border: 1px dashed var(--tt-hazard);
+  color: var(--tt-hazard-text);
+}
+body.tt-body[data-view='screen'] .tt-trip .tt-trip-rep {
+  font: 500 15px/1.35 var(--tt-sans, inherit);
+  letter-spacing: 0;
+  color: var(--tt-hazard-text);
+}
+.tt-trip .tt-trip-wx {
+  color: var(--tt-attention);
+}
+.tt-trip .tt-trip-counts {
+  font: 400 22px/1.2 var(--tt-display);
+}
+.tt-trip .tt-trip-counts .attn {
+  color: var(--tt-attention);
+}
+.tt-trip .tt-trip-counts .dim,
+.tt-trip.stale .tt-trip-counts,
+.tt-trip.stale .tt-trip-counts .attn {
+  color: var(--tt-text-2);
+}
+body.tt-body[data-view='screen'] .tt-trip .tt-trip-clock {
+  font: 200 40px/1 var(--tt-display);
+  margin: 4px 0 0;
+}
+body.tt-body[data-view='screen'] .tt-trip .tt-trip-clock small {
+  letter-spacing: 0.1em;
+}
+.tt-trips-head,
+.tt-trips-foot,
+.tt-trips-quiet {
+  flex: none;
+}
+.tt-trips-link {
+  color: var(--tt-attention);
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips']
+  .tt-trip
+  .tt-trip-next {
+  align-self: stretch;
+  text-align: left;
+  border-top: 1px solid var(--tt-hair);
+  border-bottom: 0;
+  padding: 8px 0 0;
+  margin: 2px 0 0;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips']
+  .tt-trip
+  .tt-trip-next {
+  line-height: 1.3;
+}
+/* A tight board (fitTrips): smaller type, the reason still leads. */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips']
+  .tt-trips-board.tight {
+  gap: 8px;
+}
+.tt-trips-board.tight .tt-trip.tt-board-card {
+  padding: 10px 14px;
+  gap: 4px;
+}
+.tt-trips-board.tight .tt-trip .t {
+  font-size: 24px;
+}
+.tt-trips-board.tight .tt-trip .tt-trip-counts {
+  font-size: 18px;
+}
+body.tt-body[data-view='screen'] .tt-trips-board.tight .tt-trip .tt-trip-clock {
+  font-size: 30px;
+}
+
+/* ------------------ S6 round 1 (S6-20-FIX-LIST) ------------------ */
+/* The full width: the aperture sits bottom right, below the tiles. */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips']:not(
+    .tt-wst-open
+  )
+  .tt-wall-panel {
+  right: calc(var(--w-g) / var(--wall-scale)) !important;
+}
+/* Compact is the tight type at 3 columns; 4 only for 10–12 trips. */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips'][data-wall-width='wide']
+  .tt-trips-board:not([data-n='10']):not([data-n='11']):not([data-n='12']) {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips'].tt-wst-open[data-wall-width='wide']
+  .tt-trips-board {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips'][data-wall-width='wide']
+  .tt-trip.tt-board-card {
+  padding: 10px 14px;
+  gap: 4px;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips'][data-wall-width='wide']
+  .tt-trip
+  .t {
+  font-size: 24px;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips'][data-wall-width='wide']
+  .tt-trip
+  .tt-trip-clock {
+  font-size: 30px;
+}
+/* The trip in focus: no outline or glow of its own; its tag says it. */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips']
+  .tt-trip.focus:not(.rep) {
+  border-color: var(--tt-border);
+  box-shadow:
+    var(--tt-depth-1),
+    inset 0 1px 0 var(--tt-light);
+}
+/* This trip's report outranks another trip's: S3's hazard recipe, glow
+   included; another trip's stays dashed, no glow. */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips'] .tt-trip.rep {
+  border: 2px solid var(--tt-hazard);
+  box-shadow:
+    0 0 0 1px rgba(238, 119, 137, 0.25),
+    0 0 24px rgba(238, 119, 137, 0.18),
+    var(--tt-depth-1),
+    inset 0 1px 0 var(--tt-light);
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips']
+  .tt-trip.rep-other {
+  box-shadow:
+    var(--tt-depth-1),
+    inset 0 1px 0 var(--tt-light);
+}
+/* The board's line type (S3/S4's clamp), so the report leads. */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips']
+  .tt-trip
+  .tt-wall-line {
+  font-size: min(15px, calc(28px / var(--wall-scale)));
+  line-height: 1.35;
+  padding: 0;
+  border-bottom: 0;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips']
+  .tt-trip
+  .tt-trip-rep {
+  font-family: inherit;
+  font-weight: 500;
+  letter-spacing: 0;
+  font-size: min(16px, calc(30px / var(--wall-scale)));
+  color: var(--tt-hazard-text);
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips']
+  .tt-trip
+  .tt-trip-next {
+  border-top: 1px solid var(--tt-hair);
+  padding-top: 8px;
+}
+body.tt-body[data-view='screen'] .tt-trip .tt-trip-clock {
+  font-variant-numeric: tabular-nums;
+}
+.tt-trip .tt-trip-counts {
+  font-size: 20px;
+}
+.tt-trip .tt-trip-counts .dim {
+  font-size: 0.8em;
+  color: var(--tt-text-dim, var(--tt-text-2));
+}
+/* S6 r2: the grid never shrinks under the fold line; the fit measures
+   the real height. */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips']
+  .tt-trips-board {
+  flex: none;
+}

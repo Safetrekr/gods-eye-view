@@ -694,9 +694,12 @@ function screens(ctx) {
         ),
       );
     // The wall's own words (S3: two columns, "Even" / "List wider").
+    // S6's own words (S6 r1): Standard / Compact tiles, and its Order.
     const [stdWord, wideWord] = mapRole
       ? ['Standard column', 'Wide column']
-      : ['Even columns', 'List wider'];
+      : s?.role === 'trips'
+        ? ['Standard tiles', 'Compact tiles']
+        : ['Even columns', 'List wider'];
     lay.append(
       btn(
         `rm-btn${l.width === 'standard' ? ' on' : ''}`,
@@ -712,6 +715,20 @@ function screens(ctx) {
         { 'aria-pressed': String(l.width === 'wide') },
       ),
     );
+    // S6's Order, as on its menu (S6 r1: the remote had none).
+    if (s?.role === 'trips')
+      for (const [v, word] of [
+        ['need', 'Order by need'],
+        ['name', 'Order by name'],
+      ])
+        lay.append(
+          btn(
+            `rm-btn${l.order === v ? ' on' : ''}`,
+            word,
+            () => pick({ order: v }, `S${target} ${word.toLowerCase()}`),
+            { 'aria-pressed': String(l.order === v) },
+          ),
+        );
     for (const c of (CARD_CATALOG[s?.role] || []).filter((x) => !x.lock))
       if ((CARD_CATALOG[s?.role] || []).filter((x) => !x.lock).length > 1) {
         const hidden = l.off.includes(c.key);

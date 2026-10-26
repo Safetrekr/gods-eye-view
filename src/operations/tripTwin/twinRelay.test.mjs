@@ -389,6 +389,39 @@ test('S3 board: Map only needs a map — refused at the wall; Columns kept (S3 r
   );
 });
 
+test('S6: a trips wall saves its order and what tiles show; never Map only (C5-S6-PLAN)', () => {
+  const relay = createRelay();
+  const launcher = fakeSocket();
+  relay.attach(launcher);
+  launcher.say({ t: 'setup', count: 6 });
+  const { setup } = launcher.last('setup');
+  const s6 = fakeSocket();
+  relay.attach(s6);
+  s6.say({ t: 'hello', id: 'S6', kind: 'screen', setup, slot: 6 });
+  const remote = fakeSocket();
+  relay.attach(remote);
+  remote.say({ t: 'hello', id: 'R', kind: 'remote', setup, name: 'iPad' });
+  let req = 0;
+  const wall = (patch) => {
+    s6.say({
+      t: 'screen-cmd',
+      reqId: ++req,
+      cmd: { type: 'screens', target: 6, patch },
+    });
+    return s6.last('ack');
+  };
+  const screen = () => remote.last('state').state.screens[6];
+  assert.equal(
+    wall({ layout: { order: 'name', off: ['quiet', 'trips'] } }).ok,
+    true,
+  );
+  assert.equal(screen().role, 'trips');
+  // The board itself is locked: only the free tile parts go.
+  assert.deepEqual(screen().layout, { order: 'name', off: ['quiet'] });
+  assert.equal(layoutValue(screen()).order, 'name');
+  assert.equal(wall({ layout: { cards: 'map' } }).ok, false);
+});
+
 test('S4: the demo storm keeps alert areas on at a wall (A5-S4-PLAN)', () => {
   const relay = createRelay();
   const launcher = fakeSocket();

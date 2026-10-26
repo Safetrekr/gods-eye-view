@@ -63,6 +63,45 @@ export function wallPage(role, ctx) {
           v === 'wide' ? 'List wider' : 'Even columns',
         ),
     });
+  // S6 (C5-S6-PLAN): tile density and the order; the board is locked.
+  if (ctx.shell && role === 'trips') {
+    layout.push({
+      key: 'width',
+      label: 'Tiles',
+      value: l.width,
+      choices: [
+        { value: 'standard', label: 'Standard' },
+        { value: 'wide', label: 'Compact' },
+      ],
+      disabled: off,
+      reason: why,
+      pick: (v) =>
+        save(
+          { layout: { width: v } },
+          v === 'wide' ? 'Compact tiles' : 'Standard tiles',
+        ),
+    });
+    layout.push({
+      key: 'order',
+      label: 'Order',
+      value: l.order,
+      choices: [
+        { value: 'need', label: 'Need' },
+        { value: 'name', label: 'Name' },
+      ],
+      disabled: off,
+      reason: why,
+      note:
+        l.order === 'name'
+          ? 'Reported, delayed and no-data trips still show; never folded'
+          : '',
+      pick: (v) =>
+        save(
+          { layout: { order: v } },
+          v === 'name' ? 'Order by name' : 'Order by need',
+        ),
+    });
+  }
   if (ctx.shell && MAP_ROLES.has(role)) {
     layout.push({
       key: 'cards',
@@ -105,7 +144,8 @@ export function wallPage(role, ctx) {
   }
   // Cards that may be hidden one by one (never a locked card).
   const free = cards.filter((c) => !c.lock);
-  if (free.length > 1)
+  // S6 shows its free cards as one toggle row (its page options).
+  if (free.length > 1 && role !== 'trips')
     for (const c of free)
       layout.push({
         key: `card-${c.key}`,
@@ -224,6 +264,42 @@ const DAY_LAYERS = [
 ];
 
 const PAGES = {
+  // S6 Trips on watch (C5-S6-PLAN): what each tile shows, one toggle row
+  // saved through layout.off. No tiles: the wall never switches trips.
+  trips({ screen, save }, { off, why }) {
+    const l = layoutValue(screen);
+    const opts = (CARD_CATALOG.trips || []).filter((c) => !c.lock);
+    return {
+      note: 'The trip in focus is switched on the remote',
+      options: [
+        {
+          key: 'show',
+          label: 'Show',
+          multi: true,
+          choices: opts.map((c) => ({
+            value: c.key,
+            label: c.label,
+            on: !l.off.includes(c.key),
+          })),
+          value: opts.map((c) => (l.off.includes(c.key) ? 0 : 1)).join(''),
+          disabled: off,
+          reason: why,
+          pick: (k, on) =>
+            save(
+              {
+                layout: {
+                  off: on
+                    ? l.off.filter((x) => x !== k)
+                    : [...new Set([...l.off, k])],
+                },
+              },
+              `${opts.find((c) => c.key === k)?.label} ${on ? 'on' : 'off'}`,
+            ),
+        },
+      ],
+      tiles: [],
+    };
+  },
   // S1 Site (05-S1-PLAN): Ways out is a saved layer; the tiles move the
   // camera: Floors (H), Frame hotel (F), Plan view, Face north (N), First
   // to check (A), Restore view.

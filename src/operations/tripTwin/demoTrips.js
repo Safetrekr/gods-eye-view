@@ -54,7 +54,7 @@ const localTime = (now, timeZone) =>
 export function tripTile(
   trip,
   snapshot,
-  { now = Date.now(), dataAgeS = 0, override = null } = {},
+  { now = Date.now(), dataAgeS = 0, override = null, at = null } = {},
 ) {
   const city = TWIN_CITIES[trip.city];
   if (!snapshot)
@@ -66,6 +66,7 @@ export function tripTile(
       noData: true,
       line: 'No data received',
       need: 1,
+      tier: TIER.noData,
     };
   // Positions age from the data, like the walls (review/phase10 R3).
   const people = snapshot.participants || [];
@@ -81,16 +82,22 @@ export function tripTile(
     notLocated = override.notLocated ?? notLocated;
   }
   const report = snapshot.reported_incidents?.[0] || null;
+  // One wording on every surface: the banner's sentence (S6 plan).
   const incident = override
     ? override.incident || null
     : report
-      ? `Reported: ${report.kind} · floor ${report.floor_label} · not verified`
+      ? reportSentence(report, now)
       : null;
   const tz = snapshot.trips?.[0]?.timezone || city?.timezone;
-  const today = new Date(now).toLocaleDateString('en-CA', { timeZone: tz });
-  // The sample clock, as every wall header shows it.
+  // at: one moment for every trip (the header's, S6 plan), shown in each
+  // trip's own zone; without it, the trip's own sample clock.
+  const today = new Date(at ?? now).toLocaleDateString('en-CA', {
+    timeZone: tz,
+  });
   const hhmm =
-    override?.localTime || sampleTime(snapshot) || localTime(now, tz);
+    at != null
+      ? localTime(at, tz)
+      : override?.localTime || sampleTime(snapshot) || localTime(now, tz);
   const next = (snapshot.itinerary || [])
     .filter(
       (e) =>
@@ -108,6 +115,12 @@ export function tripTile(
     title: trip.title,
     org: trip.org,
     city: city?.label || trip.city,
+    // The city by its name, beside its clock (the hotel is on the org line).
+    place:
+      CITY_NAME[trip.city] ||
+      `${String(trip.city)[0].toUpperCase()}${String(trip.city).slice(1)}`,
+    zone: zoneName(at ?? now, tz),
+    day: dayText(today).split(' ')[0],
     localTime: hhmm,
     people: people.length,
     notCurrent,
@@ -120,10 +133,76 @@ export function tripTile(
       ? `Data delayed · ${formatAge(dataAgeS)} old`
       : `Data ${formatAge(dataAgeS || 0)} old`,
     stale,
+    nextParts: next
+      ? {
+          today: next.event_date === today,
+          iso: next.event_date,
+          day: dayText(next.event_date),
+          start: next.start_time,
+          title: next.title,
+        }
+      : null,
     // Need, not name, decides the order (travel-risk review).
     need:
       (incident ? 100 : 0) + notCurrent * 2 + notLocated * 3 + (stale ? 20 : 0),
+    // Tiers, never a sum (S6 plan): a trip moves only when its tier does.
+    tier: incident
+      ? TIER.report
+      : stale
+        ? TIER.stale
+        : notLocated
+          ? TIER.notLocated
+          : notCurrent
+            ? TIER.notCurrent
+            : TIER.calm,
   };
+}
+
+const CITY_NAME = Object.freeze({
+  austin: 'Austin',
+  dc: 'Washington',
+  london: 'London',
+});
+
+/** Need tiers, worst first (S6 plan): report › no data › delayed › … */
+export const TIER = Object.freeze({
+  report: 0,
+  noData: 1,
+  stale: 2,
+  notLocated: 3,
+  notCurrent: 4,
+  calm: 5,
+});
+
+/** "Smoke reported, floor 9 (hotel desk, 2 min ago, not verified)". */
+export function reportSentence(r, now = Date.now()) {
+  const kind = String(r.kind || 'incident');
+  const ageMin = r.reported_at
+    ? Math.max(0, Math.round((now - Date.parse(r.reported_at)) / 60e3))
+    : null;
+  const parts = [
+    r.source,
+    ageMin != null ? `${ageMin} min ago` : null,
+    r.verified ? 'verified' : 'not verified',
+  ].filter(Boolean);
+  return `${kind[0].toUpperCase()}${kind.slice(1)} reported${r.floor_label != null ? `, floor ${r.floor_label}` : ''} (${parts.join(', ')})`;
+}
+
+/** The zone's short name at a moment: "GMT", "EDT". */
+function zoneName(ms, timeZone) {
+  try {
+    return (
+      new Date(ms)
+        .toLocaleTimeString(/^America\//.test(timeZone) ? 'en-US' : 'en-GB', {
+          timeZone,
+          timeZoneName: 'short',
+        })
+        .split(' ')
+        .pop() || ''
+    );
+  } catch {
+    return '';
+  }
 }
 
 /** "Sat 17 Oct" for a date string. */
@@ -144,11 +223,22 @@ function sampleTime(snapshot) {
   return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
 }
 
-/** Tiles in order of need; ties keep the trip order. */
-export function sortTiles(tiles) {
+/**
+ * Tiles in order of need: by tier, then the trip order (or by name with
+ * order 'name'; S6 plan). Tiles without a tier fall back to need.
+ */
+export function sortTiles(tiles, { order = 'need' } = {}) {
+  const tierOf = (t) => t.tier ?? (t.need >= 100 ? 0 : t.noData ? 1 : 5);
   return tiles
     .map((t, i) => ({ t, i }))
-    .sort((a, b) => b.t.need - a.t.need || a.i - b.i)
+    .sort((a, b) =>
+      order === 'name'
+        ? // By name, but a report, no data or delayed data still leads
+          // (S6 r1: a report never sinks to the last slot).
+          Number(tierOf(a.t) > TIER.stale) - Number(tierOf(b.t) > TIER.stale) ||
+          String(a.t.title).localeCompare(String(b.t.title))
+        : tierOf(a.t) - tierOf(b.t) || a.i - b.i,
+    )
     .map((x) => x.t);
 }
 

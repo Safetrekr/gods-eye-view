@@ -357,7 +357,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       api.refitRail?.();
       if (
         b.classList.contains('tt-wall-board') ||
-        ['weather', 'day'].includes(b.dataset.role)
+        ['weather', 'day', 'trips'].includes(b.dataset.role)
       )
         renderPanel();
     });
@@ -423,7 +423,24 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       });
       fitDay();
     } else if (role === 'weather') api.weatherPanel(panel);
-    else if (role === 'trips') api.tripsPanel(panel);
+    else if (
+      role === 'trips' &&
+      document.body.classList.contains('tt-wall-shell')
+    ) {
+      // S6 in the new frame (C5-S6-PLAN).
+      const l = layoutValue(state?.screens?.[mySlot] || {});
+      const slotOf = (r) =>
+        Object.entries(state?.screens || {}).find(
+          ([, x]) => x?.role === r,
+        )?.[0];
+      api.tripsBoard(panel, {
+        order: l.order,
+        off: l.off,
+        board: slotOf('incident') ? `S${slotOf('incident')}` : '',
+        weatherWall: slotOf('weather') ? `S${slotOf('weather')}` : '',
+      });
+      fitTrips();
+    } else if (role === 'trips') api.tripsPanel(panel);
     else if (role === 'day') api.dayPanel?.(panel);
     else if (
       role === 'incident' &&
@@ -726,6 +743,88 @@ export function createScreenMode({ api, slot = null, setup = null }) {
           rows.pop().remove();
           gone += 1;
           paint();
+        }
+      },
+    ];
+    for (const step of steps) {
+      if (!over()) break;
+      step();
+    }
+  }
+
+  /**
+   * S6 never cuts silently (C5-S6-PLAN): nothing-flagged trips fold first
+   * into one line naming them; reported, delayed and no-data trips never.
+   */
+  function fitTrips() {
+    if (panel.hidden || panel.clientHeight < 100) return;
+    const over = () => panel.scrollHeight > panel.clientHeight + 2;
+    const grid = panel.querySelector('.tt-trips-board');
+    if (!grid || !over()) return;
+    // Every fold is said, with what it took (S6 r1).
+    const said = [];
+    const names = [];
+    const note = () => {
+      let line = panel.querySelector('.tt-trips-more');
+      if (!line) {
+        line = el('div', 'tt-wall-note tt-trips-quiet tt-trips-more');
+        panel.querySelector('.tt-trips-foot')?.before(line);
+      }
+      // Folded trips are on the remote; hidden lines just say so.
+      line.textContent = [
+        names.length
+          ? `+${names.length} more: ${names.join(', ')} · on the remote`
+          : null,
+        said.length ? `${said.join(' and ')} hidden to fit` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ');
+    };
+    // A folded trip keeps its reason: "Jazz band trip (1 to check)".
+    const fold = (n) => {
+      const c = Number(n.dataset.check || 0);
+      names.push(`${n.dataset.title}${c ? ` (${c} to check)` : ''}`);
+      n.remove();
+      note();
+    };
+    const steps = [
+      // Org and hotel first; a reported tile keeps its hotel.
+      () => {
+        const ns = panel.querySelectorAll('.tt-trip-org:not(.keep)');
+        if (!ns.length) return;
+        ns.forEach((n) => n.remove());
+        said.push('org & hotel');
+        note();
+      },
+      // Tighter tiles: smaller title, counts and clock.
+      () => grid.classList.add('tight'),
+      // Nothing-flagged trips next; never the trip in focus.
+      () => {
+        for (const n of [
+          ...panel.querySelectorAll('.tt-trip:not(.focus)[data-tier="5"]'),
+        ].reverse()) {
+          if (!over()) break;
+          fold(n);
+        }
+      },
+      // The Next stop lines (S5 carries the plan).
+      () => {
+        const ns = panel.querySelectorAll('.tt-trip-next');
+        if (!ns.length) return;
+        ns.forEach((n) => n.remove());
+        said.push('next stops');
+        note();
+      },
+      // Last: the lowest-need tiles. A report, a storm, no data, delayed
+      // data and the trip in focus never fold (C5-S6-PLAN, S6 r1).
+      () => {
+        for (const n of [
+          ...panel.querySelectorAll(
+            '.tt-trip:not(.focus):not(.rep):not(.rep-other):not(.nodata):not(.stale)',
+          ),
+        ].reverse()) {
+          if (!over()) break;
+          fold(n);
         }
       },
     ];
