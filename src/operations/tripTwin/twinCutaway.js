@@ -148,6 +148,9 @@ export function createCutaway({ compact = false, onPick = () => {} } = {}) {
       b.type = 'button';
       b.dataset.state = f.state;
       b.dataset.label = String(f.label);
+      b.dataset.people = String(
+        f.likely.length + possibleN(f) + f.floorNotKnown.length,
+      );
       if (f.amber) b.classList.add('amber');
       if (ctx.focusLabel === f.label) b.classList.add('focus');
       const isFlagged = f.state !== 'quiet';

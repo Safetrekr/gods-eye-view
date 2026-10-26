@@ -693,17 +693,22 @@ function screens(ctx) {
           { 'aria-pressed': String(l.cards === 'map') },
         ),
       );
+    // The wall's own words (S3: two columns, "Even" / "List wider").
+    const [stdWord, wideWord] = mapRole
+      ? ['Standard column', 'Wide column']
+      : ['Even columns', 'List wider'];
     lay.append(
       btn(
         `rm-btn${l.width === 'standard' ? ' on' : ''}`,
-        'Standard column',
-        () => pick({ width: 'standard' }, `S${target} standard column`),
+        stdWord,
+        () =>
+          pick({ width: 'standard' }, `S${target} ${stdWord.toLowerCase()}`),
         { 'aria-pressed': String(l.width === 'standard') },
       ),
       btn(
         `rm-btn${l.width === 'wide' ? ' on' : ''}`,
-        'Wide column',
-        () => pick({ width: 'wide' }, `S${target} wide column`),
+        wideWord,
+        () => pick({ width: 'wide' }, `S${target} ${wideWord.toLowerCase()}`),
         { 'aria-pressed': String(l.width === 'wide') },
       ),
     );

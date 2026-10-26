@@ -33,13 +33,16 @@ const wallList = () => {
   const n = document.body.dataset.boardSlot;
   const here = new URLSearchParams(location.search).get('slot');
   if (n && n === here) return 'listed under Needs attention';
-  return n ? `all on S${n}` : 'all on the remote';
+  // Never "all on": S3 may not hold every name either (S3 IA round 2).
+  return n ? `Needs attention on S${n}` : 'all on the remote';
 };
 
 export function setNameStyle(fn) {
   nameStyle = typeof fn === 'function' ? fn : (n) => n;
 }
 const nm = (n) => nameStyle(String(n || ''));
+/** A name as this screen writes it (wall: Jay P.; visitor: initials). */
+export const styledName = (n) => nm(n);
 
 const el = (tag, cls, text) => {
   const n = document.createElement(tag);
@@ -76,7 +79,7 @@ function rowReason(row, groupKey, ctx) {
   if (groupKey === 'elsewhere_above' && row.elsewhereReason)
     return row.elsewhereReason;
   if (groupKey === 'at_or_above' && ctx.mode?.assignedAbove?.has(row.person.id))
-    return `Assigned floor ${row.assigned} · floor not detected — ${
+    return `Assigned floor ${row.assigned} · floor not known — ${
       row.floor.kind === 'not_shared'
         ? 'floor not shared'
         : UNKNOWN_TEXT[row.floor.reason] || 'no estimate'
@@ -206,6 +209,7 @@ export function createHud({
   onOpenFloor = () => {},
   onSetNumbering = () => {},
   onCardToggle = () => {},
+  fitFirst = () => {},
 }) {
   // Persistent rail skeleton: the Summary stays pinned, every other section
   // is a collapsible card in one scroll column (shell review, 23 Oct 2026).
@@ -606,7 +610,29 @@ export function createHud({
         el('span', 'num', String(g.rows.length)),
       );
       box.append(gh);
-      for (const r of rows) {
+      // A board wall (S3): the whole list shows (S3 reviews, P0). A big
+      // group lays its people in two columns, and three or more in a row
+      // with the same reason say it once, above them.
+      const board = wall() && document.body.classList.contains('tt-wall-board');
+      const reasons = rows.map((r) => rowReason(r, g.key, ctx));
+      const heads = reasons.map((t) =>
+        t.includes(' — ') ? t.split(' — ')[0] : '',
+      );
+      const runStart = new Map(); // row index → shared reason
+      if (board)
+        for (let i = 0; i < rows.length;) {
+          let j = i;
+          while (j < rows.length && heads[j] && heads[j] === heads[i]) j += 1;
+          if (j - i >= 3)
+            for (let k = i; k < j; k += 1) runStart.set(k, heads[i]);
+          i = Math.max(j, i + 1);
+        }
+      box.classList.toggle('tt-group-cols', board && rows.length > 6);
+      box.classList.toggle('tt-group-shared', runStart.size > 0);
+      for (const [i, r] of rows.entries()) {
+        const shared = runStart.get(i) || '';
+        if (shared && runStart.get(i - 1) !== shared)
+          box.append(el('div', 'tt-group-why', shared));
         const b = el(
           'button',
           `tt-rowbtn${ctx.selectedPersonId === r.person.id ? ' on' : ''}`,
@@ -620,7 +646,11 @@ export function createHud({
             'who',
             nm(r.person.name) + (r.person.role === 'chaperone' ? ' (C)' : ''),
           ),
-          el('div', 'why', rowReason(r, g.key, ctx)),
+          el(
+            'div',
+            'why',
+            shared ? reasons[i].split(' — ').slice(1).join(' — ') : reasons[i],
+          ),
         );
         b.append(initialsBadge(r), text);
         b.addEventListener('click', () =>
@@ -743,7 +773,13 @@ export function createHud({
   let wallNameCap = 6;
   function fitIncident(a, ctx) {
     if (document.body.dataset.view !== 'screen' || incident.hidden) return;
-    const over = () => incident.scrollHeight > incident.clientHeight + 2;
+    // S3: the report card keeps its height and the column is measured;
+    // the board below steps back first (S3 reviews).
+    const col = document.body.classList.contains('tt-wall-board')
+      ? incident.parentElement
+      : null;
+    const box = col || incident;
+    const over = () => box.scrollHeight > box.clientHeight + 2;
     const trim = { move: false, band: null };
     const rep = Number(ctx.reportedLabel);
     // The move details: the one-line summary stays and stops pointing
@@ -760,25 +796,34 @@ export function createHud({
           k.textContent = k.textContent.replace(/ · details below$/, '');
     };
     // The floor list keeps the floors round the reported one, and says
-    // how many it leaves out. (It is one element across renders.)
+    // which it leaves out. A floor at or above the reported one with
+    // people on it never hides. (It is one element across renders.)
     const band = (b) => {
       for (const n of incident.querySelectorAll('.tt-floors-more')) n.remove();
       const rows = [...incident.querySelectorAll('.tt-cut-floor')];
-      let cut = 0;
+      const cut = [];
       for (const r of rows) {
         const n = Number(r.dataset.label);
-        const far = b != null && Number.isFinite(n) && Math.abs(n - rep) > b;
+        const keep = n >= rep && Number(r.dataset.people) > 0;
+        const far =
+          b != null && !keep && Number.isFinite(n) && Math.abs(n - rep) > b;
         r.hidden = far;
-        if (far) cut += 1;
+        if (far) cut.push(n);
       }
-      if (cut)
-        rows[0].parentElement.append(
-          el(
-            'div',
-            'tt-wall-more tt-floors-more',
-            `+${cut} other floors not shown here`,
-          ),
-        );
+      if (!cut.length) return;
+      const lo = Math.min(...cut);
+      const hi = Math.max(...cut);
+      // Which floors, and how many people they hold (S3 reviews).
+      const ppl = rows
+        .filter((r) => r.hidden)
+        .reduce((x, r) => x + (Number(r.dataset.people) || 0), 0);
+      const who = ppl ? `${ppl} ${ppl === 1 ? 'person' : 'people'}` : 'none';
+      const text = cut.every((n) => n < rep)
+        ? `${cut.length === 1 ? `Floor ${lo}` : `Floors ${lo}–${hi}`} · ${who}`
+        : `+${cut.length} other floors · ${who}`;
+      rows[0].parentElement.append(
+        el('div', 'tt-wall-more tt-floors-more', text),
+      );
     };
     const draw = () => {
       renderIncident(a, ctx);
@@ -787,6 +832,7 @@ export function createHud({
     };
     wallNameCap = 6;
     draw();
+    fitFirst();
     // Names first, down to three…
     while (over() && wallNameCap > 3) {
       wallNameCap -= 1;
@@ -799,7 +845,7 @@ export function createHud({
     }
     // …then the widest band of floors round the reported one that fits…
     if (over() && Number.isFinite(rep))
-      for (const b of [3, 2, 1]) {
+      for (const b of [6, 5, 4, 3, 2, 1]) {
         trim.band = b;
         draw();
         if (!over()) break;
@@ -812,6 +858,11 @@ export function createHud({
   }
   function renderIncident(a, ctx) {
     const m = ctx.mode;
+    // A dismissed report is not a report: no red edge (S3 reviews).
+    incident.classList.toggle(
+      'tt-inc-dismissed',
+      m.mode !== 'incident' && Boolean(ctx.dismissed),
+    );
     if (m.mode !== 'incident') {
       dismissStep = 0;
       incident.hidden = !ctx.dismissed;
@@ -863,8 +914,8 @@ export function createHud({
           'div',
           'tt-hero-note',
           m.outOfRange
-            ? `Reported floor ${ctx.reportedLabel} is outside this building's floors (${m.outOfRange.ground}–${m.outOfRange.top}${m.numberingSource === 'operator' ? ', from the operator entry' : ''}). No count is shown — check the floor numbering. Everyone inside is listed under "May still be in the building".`
-            : `Floor estimates can't be matched to floor ${ctx.reportedLabel} here (floor numbering not mapped). Everyone inside is listed under "May still be in the building".`,
+            ? `Reported floor ${ctx.reportedLabel} is outside this building's floors (${m.outOfRange.ground}–${m.outOfRange.top}${m.numberingSource === 'operator' ? ', from the operator entry' : ''}). No count is shown — check the floor numbering. Everyone inside is listed under "May still be inside".`
+            : `Floor estimates can't be matched to floor ${ctx.reportedLabel} here (floor numbering not mapped). Everyone inside is listed under "May still be inside".`,
         ),
       );
       const set = el('button', 'tt-link', 'Set floor numbering');
@@ -1090,6 +1141,9 @@ export function createHud({
     if (!wall()) return;
     const needs = needsCard.body;
     needs.querySelector('.tt-wall-more')?.remove();
+    needs.querySelector('.tt-calm-line')?.remove();
+    for (const g of needs.querySelectorAll('.tt-group-folded'))
+      g.classList.remove('tt-group-folded');
     const ppl = peopleCard.sec;
     ppl.classList.remove('tt-fit-compact', 'tt-fit-fold');
     head.classList.remove('tt-fit-lean');
@@ -1158,10 +1212,23 @@ export function createHud({
       board === new URLSearchParams(location.search).get('slot');
     const carries = here || /\bincident\b/.test(b.dataset.merged || '');
     const more = el('div', 'tt-wall-more');
+    // A shared reason with none of its people showing steps out too.
+    const syncWhy = () => {
+      for (const w of needs.querySelectorAll('.tt-group-why')) {
+        let n = w.nextElementSibling;
+        let any = false;
+        while (n?.classList.contains('tt-rowbtn')) {
+          if (!n.hidden) any = true;
+          n = n.nextElementSibling;
+        }
+        w.hidden = !any;
+      }
+    };
     const say = () => {
+      syncWhy();
       more.textContent = `+${hidden} more${
         board && !here
-          ? ` · all on S${board}`
+          ? ` · Needs attention on S${board}`
           : carries
             ? shellRail()
               ? ' · Next to check walks them'
@@ -1196,6 +1263,35 @@ export function createHud({
         head.classList.toggle('tt-fit-lean', steps[k].includes('lean'));
         while (over() && rows() > 3 && drop(true)) say();
         if (!over()) break;
+      }
+      // A board in a report: the calm groups showing no names fold into
+      // one line, so the people at or above the floor keep the room
+      // (S3 reviews, P0: the whole list at 2560).
+      if (over() && incidentNow && b.classList.contains('tt-wall-board')) {
+        const calm = [...needs.querySelectorAll('.tt-group:not(.p1)')].filter(
+          (g) => ![...g.querySelectorAll('.tt-rowbtn')].some((r) => !r.hidden),
+        );
+        if (calm.length > 1) {
+          const line = el(
+            'div',
+            'tt-calm-line',
+            `Also: ${calm
+              .map(
+                (g) =>
+                  `${g.querySelector('.tt-group-head > span')?.textContent} ${g.querySelector('.tt-group-head .num')?.textContent}`,
+              )
+              .join(' · ')}`,
+          );
+          for (const g of calm) g.classList.add('tt-group-folded');
+          calm[0].before(line);
+          // The room freed goes back to names.
+          for (const r of needs.querySelectorAll('.tt-group.p1 .tt-rowbtn'))
+            r.hidden = false;
+          hidden = [...needs.querySelectorAll('.tt-rowbtn')].filter(
+            (r) => r.hidden,
+          ).length;
+          say();
+        }
       }
       while (over() && drop()) say();
     } else while (over() && drop()) say();

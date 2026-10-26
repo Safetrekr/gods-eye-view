@@ -185,16 +185,20 @@ export function createWallRail({ onToggle, onKeep = () => {}, menu = [] }) {
     t.dataset.tile = x.key;
     t.innerHTML = x.icon || '';
     const why = el('span', 'why');
-    t.append(el('span', 'num', x.kbd || ''), el('span', 'lab', x.label), why);
+    const lab = el('span', 'lab', x.label);
+    t.append(el('span', 'num', x.kbd || ''), lab, why);
+    // The latest tile's action and label ("Next to check · 2 of 6").
+    const c = { t, why, lab, x };
     t.addEventListener('click', () => {
-      if (!t.disabled) x.action();
+      if (!t.disabled) c.x.action();
     });
-    return { t, why };
+    return c;
   }
 
   function renderTiles(tiles) {
     const list = tiles.slice(0, 6);
-    while (list.length < 6) list.push({ key: `empty${list.length}` });
+    // Fixed slots in rows of three; a board's one row has no empty row.
+    while (list.length % 3) list.push({ key: `empty${list.length}` });
     const key = list.map((x) => x.key).join(',');
     if (key !== tilesKey) {
       tilesKey = key;
@@ -219,6 +223,8 @@ export function createWallRail({ onToggle, onKeep = () => {}, menu = [] }) {
     for (const x of list) {
       const c = tileCells.get(x.key);
       if (!c) continue;
+      c.x = x;
+      if (c.lab.textContent !== x.label) c.lab.textContent = x.label;
       c.t.disabled = Boolean(x.disabled);
       c.why.textContent = x.disabled && x.reason ? x.reason : '';
       c.t.title = x.title || x.label;

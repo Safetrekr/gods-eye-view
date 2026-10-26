@@ -904,8 +904,9 @@ export function assessSnapshot(
 // --- modes, top line and grouped exceptions (review/03 §1–2) -----------------
 
 const GROUP_LABEL = {
-  at_or_above: (f) => `At or above reported floor ${f}`,
-  in_building: () => 'May still be in the building',
+  // One wording on every surface (screens S3 reviews).
+  at_or_above: (f) => `May be at or above floor ${f}`,
+  in_building: () => 'May still be inside',
   not_current: () => 'Not current',
   alone: () => 'Unaccompanied or outside group zone',
   not_located: () => 'Not located',
@@ -970,11 +971,26 @@ export function deriveMode(assessment, ctx = {}) {
   const order = incident
     ? ['at_or_above', 'in_building', 'not_current', 'alone', 'not_located']
     : ['alone', 'not_current', 'not_located'];
+  // In a report a person sits in the first group that fits; when that
+  // leaves a count short of People's, the heading says so (S3 reviews:
+  // People "4 not current" beside "Not current 3").
+  const listedAbove = {
+    not_current: assessment.rows.some(
+      (r) =>
+        incident &&
+        atOrAbove.has(r.person.id) &&
+        r.pos.located &&
+        !r.pos.current,
+    ),
+    not_located: assessment.rows.some(
+      (r) => incident && atOrAbove.has(r.person.id) && !r.pos.located,
+    ),
+  };
   const list = order
     .filter((k) => groups[k]?.length)
     .map((k) => ({
       key: k,
-      label: GROUP_LABEL[k](ctx.reportedLabel),
+      label: `${GROUP_LABEL[k](ctx.reportedLabel)}${listedAbove[k] ? ' · not listed above' : ''}`,
       rows: groups[k],
     }));
   const total = list.reduce((n, g) => n + g.rows.length, 0);
@@ -1047,14 +1063,14 @@ export function deriveMode(assessment, ctx = {}) {
   };
 }
 
-/** "2 by phone estimate, 1 by last estimate, 1 assigned above, floor not detected" */
+/** "2 by phone estimate, 1 by last estimate, 1 assigned above, floor not known" */
 function breakdownText(b, reported) {
   const parts = [];
   if (b.estimate) parts.push(`${b.estimate} by phone estimate`);
   if (b.last) parts.push(`${b.last} by last estimate (not current)`);
   if (b.room.length)
     parts.push(
-      `${b.room.length} assigned ${b.room.every((r) => r.assigned > reported) ? 'above' : 'at or above'}, floor not detected`,
+      `${b.room.length} assigned ${b.room.every((r) => r.assigned > reported) ? 'above' : 'at or above'}, floor not known`,
     );
   return parts.join(', ');
 }
@@ -1112,7 +1128,7 @@ export function floorOccupancy(assessment, place, reportedLabel = null) {
   const c = assessment.partition.counts;
   const footer = {
     loaded: assessment.rows.length,
-    'floor unknown': c['Floor unknown'],
+    'floor not known': c['Floor unknown'],
     'not shared': c['Not shared'],
     'last estimate only': c['Last est. only'],
   };
@@ -1245,12 +1261,14 @@ export function floorRoster(occupancy, label, { numbering = true } = {}) {
   return { floor: f, sections };
 }
 
-/** "Whole group (27): floor unknown 2 · not shared 0 · last estimate only 1" */
+/** "Whole group (27): floor not known 2 · last estimate only 1" — one
+ *  form for the floor not known, and no bucket that is zero (S3 reviews). */
 export function footerLine(footer) {
   const { loaded, ...rest } = footer;
-  return `Whole group (${loaded}): ${Object.entries(rest)
-    .map(([k, v]) => `${k} ${v}`)
-    .join(' · ')}`;
+  const parts = Object.entries(rest)
+    .filter(([, v]) => v)
+    .map(([k, v]) => `${k} ${v}`);
+  return `Whole group (${loaded})${parts.length ? `: ${parts.join(' · ')}` : ''}`;
 }
 
 // --- trip-wide incidents (phase 3 G3) -------------------------------------------

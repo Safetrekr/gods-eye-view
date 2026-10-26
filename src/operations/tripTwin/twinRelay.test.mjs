@@ -15,6 +15,7 @@ import {
   serverFrames,
   setupOf,
 } from './twinTestKit.mjs';
+import { layoutValue } from './twinScreenRoles.js';
 
 // The relay keeps its store in TRIP_TWIN_DATA_DIR (K2) and still writes
 // the old os.tmpdir() copy. Point both at a fresh folder first, so no test
@@ -354,6 +355,38 @@ test("a wall's menu: layout from the allowlist; pinned, visitor and safety layer
   const vis = wall(s2, 2, { textScale: 2 });
   assert.equal(vis.ok, false);
   assert.equal(vis.code, 'VISITOR');
+});
+
+test('S3 board: Map only needs a map — refused at the wall; Columns kept (S3 reviews)', () => {
+  const relay = createRelay();
+  const launcher = fakeSocket();
+  relay.attach(launcher);
+  launcher.say({ t: 'setup', count: 3 });
+  const { setup } = launcher.last('setup');
+  const s3 = fakeSocket();
+  relay.attach(s3);
+  s3.say({ t: 'hello', id: 'S3', kind: 'screen', setup, slot: 3 });
+  const remote = fakeSocket();
+  relay.attach(remote);
+  remote.say({ t: 'hello', id: 'R', kind: 'remote', setup, name: 'iPad' });
+  let req = 0;
+  const wall = (patch) => {
+    s3.say({
+      t: 'screen-cmd',
+      reqId: ++req,
+      cmd: { type: 'screens', target: 3, patch },
+    });
+    return s3.last('ack');
+  };
+  const screen = () => remote.last('state').state.screens[3];
+  assert.equal(wall({ layout: { cards: 'map' } }).ok, false);
+  assert.equal(wall({ layout: { cards: 'map', width: 'wide' } }).ok, true);
+  assert.equal(screen().role, 'incident');
+  assert.deepEqual(screen().layout, { width: 'wide' });
+  assert.equal(
+    layoutValue({ role: 'incident', layout: { cards: 'map' } }).cards,
+    'shown',
+  );
 });
 
 test("CF: a wall's keyboard changes share the per-device command limit (S-16) and carry no actor field from the page", () => {

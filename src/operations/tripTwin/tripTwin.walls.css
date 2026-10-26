@@ -514,13 +514,15 @@ body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'] .tt-rcol {
 }
 body.tt-body[data-view='screen']:is(
     .tt-wall-shell[data-role='site'],
-    .tt-wall-two
+    .tt-wall-two,
+    .tt-wall-board
   )
   .tt-rcol
   > .tt-panel,
 body.tt-body[data-view='screen']:is(
     .tt-wall-shell[data-role='site'],
-    .tt-wall-two
+    .tt-wall-two,
+    .tt-wall-board
   )
   .tt-rcol
   > .tt-incident {
@@ -664,6 +666,16 @@ body.tt-body[data-view='screen'] .tt-wall-bar .tt-wall-other {
   white-space: nowrap;
   min-width: 0;
   flex: 0 1 auto;
+  display: inline-flex;
+}
+body.tt-body[data-view='screen'] .tt-wall-bar .tt-wall-other > .k {
+  flex: none;
+  white-space: pre;
+}
+body.tt-body[data-view='screen'] .tt-wall-bar .tt-wall-other > .n {
+  min-width: 2ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* F7: the slot is read aloud, not shown; the actor never truncates. */
 .tt-sr {
@@ -699,7 +711,8 @@ body.tt-body[data-view='screen'] .tt-wall-sheet {
    folds to its kicker and name. Map only keeps the report card. */
 body.tt-body[data-view='screen']:is(
     .tt-wall-shell[data-role='site'],
-    .tt-wall-two
+    .tt-wall-two,
+    .tt-wall-board
   ).tt-report-open
   .tt-rcol {
   display: flex;
@@ -708,7 +721,8 @@ body.tt-body[data-view='screen']:is(
 }
 body.tt-body[data-view='screen']:is(
     .tt-wall-shell[data-role='site'],
-    .tt-wall-two
+    .tt-wall-two,
+    .tt-wall-board
   ).tt-report-open
   .tt-rcol
   > .tt-incident {
@@ -718,7 +732,8 @@ body.tt-body[data-view='screen']:is(
 }
 body.tt-body[data-view='screen']:is(
     .tt-wall-shell[data-role='site'],
-    .tt-wall-two
+    .tt-wall-two,
+    .tt-wall-board
   ).tt-report-open
   .tt-rcol
   > .tt-card {
@@ -726,7 +741,8 @@ body.tt-body[data-view='screen']:is(
 }
 body.tt-body[data-view='screen']:is(
     .tt-wall-shell[data-role='site'],
-    .tt-wall-two
+    .tt-wall-two,
+    .tt-wall-board
   ).tt-report-open
   .tt-rcol
   > .tt-card
@@ -741,7 +757,8 @@ body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'][data-wall-cards
 /* F1: the report card keeps its hazard edge and outline (Jesse, 23 Oct). */
 body.tt-body[data-view='screen']:is(
     .tt-wall-shell[data-role='site'],
-    .tt-wall-two
+    .tt-wall-two,
+    .tt-wall-board
   )
   .tt-rcol
   > .tt-incident:not([hidden]) {
@@ -756,14 +773,16 @@ body.tt-body[data-view='screen']:is(
 /* F13: the floor rows are S1's main content, not its smallest type. */
 body.tt-body[data-view='screen']:is(
     .tt-wall-shell[data-role='site'],
-    .tt-wall-two
+    .tt-wall-two,
+    .tt-wall-board
   )
   .tt-cut-floor {
   min-height: 20px;
 }
 body.tt-body[data-view='screen']:is(
     .tt-wall-shell[data-role='site'],
-    .tt-wall-two
+    .tt-wall-two,
+    .tt-wall-board
   )
   .tt-cut-floor
   .t {
@@ -771,7 +790,8 @@ body.tt-body[data-view='screen']:is(
 }
 body.tt-body[data-view='screen']:is(
     .tt-wall-shell[data-role='site'],
-    .tt-wall-two
+    .tt-wall-two,
+    .tt-wall-board
   )
   .tt-cut-floor
   .g {
@@ -779,12 +799,14 @@ body.tt-body[data-view='screen']:is(
 }
 body.tt-body[data-view='screen']:is(
     .tt-wall-shell[data-role='site'],
-    .tt-wall-two
+    .tt-wall-two,
+    .tt-wall-board
   )
   .tt-cut-head,
 body.tt-body[data-view='screen']:is(
     .tt-wall-shell[data-role='site'],
-    .tt-wall-two
+    .tt-wall-two,
+    .tt-wall-board
   )
   .tt-rcol
   .tt-kicker {
@@ -973,7 +995,8 @@ body.tt-body[data-view='screen'].tt-unpaired .tt-wst-toast {
    would only repeat the hotel. Hand-only controls stay out at rest. */
 body.tt-body[data-view='screen']:is(
     .tt-wall-shell[data-role='site'],
-    .tt-wall-two
+    .tt-wall-two,
+    .tt-wall-board
   ).tt-report-open
   .tt-rcol
   > .tt-card {
@@ -1039,7 +1062,8 @@ body.tt-body[data-view='screen'] .tt-incident .tt-inc-names li.more {
 /* The reported floor's row reads whole: it may wrap (ui N1). */
 body.tt-body[data-view='screen']:is(
     .tt-wall-shell[data-role='site'],
-    .tt-wall-two
+    .tt-wall-two,
+    .tt-wall-board
   )
   .tt-cut-floor
   .t {
@@ -1049,7 +1073,8 @@ body.tt-body[data-view='screen']:is(
 }
 body.tt-body[data-view='screen']:is(
     .tt-wall-shell[data-role='site'],
-    .tt-wall-two
+    .tt-wall-two,
+    .tt-wall-board
   )
   .tt-cut-floor {
   /* The row grows with its words (its JS height is a desk size). */
@@ -1059,7 +1084,8 @@ body.tt-body[data-view='screen']:is(
 }
 body.tt-body[data-view='screen']:is(
     .tt-wall-shell[data-role='site'],
-    .tt-wall-two
+    .tt-wall-two,
+    .tt-wall-board
   )
   .tt-cut-floor
   .t {
@@ -1611,4 +1637,347 @@ body.tt-body[data-view='screen'].tt-wall-shell
 body.tt-body[data-view='screen'].tt-wall-shell .tt-roster .cnt,
 body.tt-body[data-view='screen'].tt-wall-shell .tt-roster .lbl {
   line-height: 34px;
+}
+
+/* ====================== S3 · Incident & attention (95-S3-PLAN) ======================
+   Two card columns: who (the rail) on the left, what happened and the
+   way out (report card, then the board) on the right. The menu narrows
+   both columns, never covers them. */
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-board {
+  --w-avail: calc(100vw - var(--w-g) * 3);
+  --w-left: calc(var(--w-avail) / 2);
+  --w-col: var(--w-left);
+}
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-board[data-wall-width='wide'] {
+  --w-left: calc(var(--w-avail) * 0.6);
+}
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-board.tt-wst-open {
+  --w-avail: calc(100vw - var(--w-g) * 4 - var(--w-st));
+}
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-board .tt-rcol {
+  left: calc((var(--w-g) * 2 + var(--w-left)) / var(--wall-scale)) !important;
+  right: auto !important;
+  top: calc((var(--w-top) + var(--w-g)) / var(--wall-scale)) !important;
+  bottom: auto !important;
+  width: calc((var(--w-avail) - var(--w-left)) / var(--wall-scale)) !important;
+  max-height: calc(
+    (
+        100vh - var(--w-top) - var(--w-bot) - var(--w-g) * 3 - 52px *
+          var(--w-rz)
+      ) /
+      var(--wall-scale)
+  );
+  display: flex !important;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+}
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-board.tt-wst-open
+  .tt-rcol {
+  max-height: calc(
+    (100vh - var(--w-top) - var(--w-bot) - var(--w-g) * 2) / var(--wall-scale)
+  );
+}
+/* The board inside the right column: static, its cards in the recipe. */
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-board
+  .tt-rcol
+  > .tt-wall-panel {
+  position: static !important;
+  zoom: 1;
+  inset: auto !important;
+  width: auto !important;
+  max-height: none !important;
+  padding: 0;
+  margin: 0;
+  background: none !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: none;
+}
+.tt-board-card {
+  padding: 12px 16px 10px;
+  background: var(--tt-glass);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  box-shadow:
+    var(--tt-depth-1),
+    inset 0 1px 0 var(--tt-light);
+}
+.tt-board-card.hazard {
+  border-color: var(--tt-hazard);
+  box-shadow:
+    0 0 0 1px rgba(238, 119, 137, 0.25),
+    0 0 22px rgba(238, 119, 137, 0.24),
+    var(--tt-depth-1),
+    inset 0 1px 0 var(--tt-light);
+}
+.tt-board-card.hazard .tt-kicker {
+  color: var(--tt-hazard-text);
+}
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-board
+  .tt-board-card
+  .tt-kicker {
+  margin: 0 0 4px;
+}
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-board
+  .tt-board-card
+  .tt-wall-line {
+  font-size: min(15px, calc(28px / var(--wall-scale)));
+  line-height: 1.35;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--tt-hair);
+}
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-board
+  .tt-board-card
+  .tt-wall-line:last-child {
+  border-bottom: 0;
+}
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-board
+  .tt-board-card
+  .tt-wall-note {
+  font-size: 13px;
+  margin-top: 4px;
+}
+/* The report card leads; beside the Summary it drops its second numeral
+   and its names (the list on the left has them) — S3 and one/two-screen
+   walls; S1 alone keeps them. */
+body.tt-body[data-view='screen']:is(.tt-wall-board, .tt-wall-two)
+  .tt-rcol
+  > .tt-incident
+  :is(.tt-hero, .tt-inc-names, .tt-inc-names + .tt-line) {
+  display: none !important;
+}
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-board
+  .tt-rcol
+  > .tt-incident:not([hidden]) {
+  /* Keeps its height: the board steps back first (fitBoard, then
+     fitIncident on the column). */
+  flex: none;
+  overflow: hidden;
+  border-color: var(--tt-hazard);
+  border-top: 2px solid var(--tt-hazard);
+  box-shadow:
+    0 0 0 1px rgba(238, 119, 137, 0.25),
+    0 0 22px rgba(238, 119, 137, 0.24),
+    var(--tt-depth-1),
+    inset 0 1px 0 var(--tt-light);
+}
+/* In a report the Summary steps back to its red numeral and kicker (the
+   banner says the sentence; G4 on S3). */
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-board.tt-report-open
+  .tt-rail-head
+  > :not(.tt-sum),
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-board.tt-report-open
+  .tt-sum
+  > :not(.tt-sum-hero),
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-board.tt-report-open
+  .tt-sum-hero
+  .tt-topline {
+  display: none;
+}
+/* People's line that adds up to the whole trip, under the Summary. */
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-board
+  .tt-rail
+  .tt-sec-people {
+  display: block !important;
+}
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-board
+  .tt-rail
+  .tt-sec-people
+  .tt-sec-body {
+  display: none !important;
+}
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-board
+  .tt-rail
+  .tt-sec-people
+  .tt-sec-line {
+  display: block !important;
+  white-space: normal;
+  font-size: min(14px, calc(28px / var(--wall-scale)));
+  line-height: 20px;
+}
+/* A board has no map: the menu's foot is Display and Keys. */
+body.tt-body[data-view='screen'].tt-wall-board .tt-wst [data-tt-menu='layers'] {
+  display: none;
+}
+/* The menu's middle stacks from the top (a short page is not stretched). */
+.tt-wst-panel {
+  align-content: start;
+}
+/* The menu keeps its foot and tile icons during a report (the All-in-one's
+   compact-incident rail rules are not for a wall's menu). */
+body.tt-body[data-view='screen'] .tt-wst .tt-st-foot {
+  display: flex !important;
+}
+body.tt-body[data-view='screen'] .tt-wst .tt-st-tile svg {
+  display: block !important;
+}
+/* S3: one line per person — name, then the reason, wrapping under it —
+   so the whole at-or-above group fits (92-ux, 94-ui). */
+body.tt-body[data-view='screen'].tt-wall-board
+  .tt-rail
+  .tt-rowbtn
+  > span:not(.ini) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 10px;
+}
+body.tt-body[data-view='screen'].tt-wall-board .tt-rail .tt-rowbtn {
+  padding-top: 3px;
+  padding-bottom: 3px;
+  min-height: 0;
+}
+/* S3 round 1 (S3-12-ui and the other reviews). Board kickers take the
+   rail's 11 px mono, dim; the report card keeps its own 14 px. */
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-board
+  .tt-rcol
+  .tt-board-card
+  .tt-kicker {
+  font: 500 11px/14px var(--tt-mono);
+  letter-spacing: 0.08em;
+  color: var(--tt-text-2);
+  min-height: 0;
+  margin: 0 0 6px;
+}
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-board
+  .tt-rcol
+  .tt-board-card.hazard
+  .tt-kicker {
+  color: var(--tt-hazard-text);
+}
+.tt-board-card {
+  padding: 10px 16px 12px;
+}
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-board
+  .tt-board-card
+  .tt-wall-note {
+  font-size: min(13px, calc(28px / var(--wall-scale)));
+}
+/* "List wider" leaves the right column a working width. */
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-board[data-wall-width='wide'] {
+  --w-left: min(
+    calc(var(--w-avail) * 0.6),
+    calc(var(--w-avail) - 560px * var(--wall-disp, 1))
+  );
+}
+/* One-line rows: a smaller avatar; the name holds, the reason takes the
+   rest and wraps under itself. */
+body.tt-body[data-view='screen'].tt-wall-board .tt-rail .tt-rowbtn .ini {
+  width: 24px;
+  height: 24px;
+}
+body.tt-body[data-view='screen'].tt-wall-board .tt-rail .tt-rowbtn .who {
+  flex: none;
+}
+body.tt-body[data-view='screen'].tt-wall-board .tt-rail .tt-rowbtn .why {
+  flex: 1 1 24ch;
+  min-width: 0;
+}
+/* A group that shares a reason says it once under its heading. */
+body.tt-body[data-view='screen'].tt-wall-board .tt-group-why {
+  font-size: min(14px, calc(28px / var(--wall-scale)));
+  line-height: 20px;
+  color: var(--tt-text-2);
+  margin: 2px 0 4px;
+}
+/* People's buckets never break mid-bucket. */
+body.tt-body[data-view='screen'].tt-wall-board
+  .tt-rail
+  .tt-sec-people
+  .tt-sec-line {
+  text-wrap: balance;
+}
+/* Names on a wall are not links at rest (G16: the line is a border). */
+body.tt-body[data-view='screen'] .tt-namebtn {
+  border-bottom-color: transparent;
+}
+/* In a report the Summary's numeral carries the red; its outline is
+   steel (the report card and Needs carry the red edge). */
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-board.tt-report-open
+  .tt-rail-head {
+  border-color: var(--tt-border) !important;
+  box-shadow:
+    var(--tt-depth-1),
+    inset 0 1px 0 var(--tt-light) !important;
+}
+/* A big group on a board: two columns of people; headings, shared
+   reasons and "+n" lines span both (S3 reviews, P0: the whole list). */
+body.tt-body[data-view='screen'].tt-wall-board
+  .tt-rail
+  .tt-group.tt-group-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 16px;
+}
+body.tt-body[data-view='screen'].tt-wall-board
+  .tt-rail
+  .tt-group.tt-group-cols
+  > :not(.tt-rowbtn) {
+  grid-column: 1 / -1;
+}
+body.tt-body[data-view='screen'].tt-wall-board
+  .tt-rail
+  .tt-group.tt-group-cols
+  > .tt-rowbtn {
+  min-width: 0;
+}
+body.tt-body[data-view='screen'].tt-wall-board
+  .tt-rail
+  .tt-group.tt-group-cols
+  .tt-rowbtn
+  .why {
+  flex: 1 1 auto;
+}
+body.tt-body[data-view='screen'].tt-wall-board .tt-rail .tt-group-folded {
+  display: none;
+}
+body.tt-body[data-view='screen'].tt-wall-board .tt-rail .tt-calm-line {
+  font-size: min(14px, calc(28px / var(--wall-scale)));
+  line-height: 20px;
+  color: var(--tt-text-2);
+  padding: 8px 0 2px;
+}
+/* The report card's inner labels (OFFICIAL, FLOORS) take the rail's card
+   name style; its lead kicker stays the one state line (S3 brand P1-1). */
+body.tt-body[data-view='screen']:is(.tt-wall-board, .tt-wall-two)
+  .tt-rcol
+  > .tt-incident
+  .tt-kicker:not(.tt-incident > .tt-kicker:first-child) {
+  font: 500 11px/14px var(--tt-mono);
+  letter-spacing: 0.08em;
+  color: var(--tt-text-2);
+}
+/* REPORT DISMISSED is steel: the red edge is for an open report only. */
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-rcol
+  > .tt-incident.tt-inc-dismissed:not([hidden]) {
+  border-color: var(--tt-border);
+  border-top: 1px solid var(--tt-border);
+  box-shadow:
+    var(--tt-depth-1),
+    inset 0 1px 0 var(--tt-light);
+}
+body.tt-body[data-view='screen'].tt-wall-board
+  .tt-board-changed
+  .tt-wall-line
+  .clk {
+  color: var(--tt-hazard-text);
+}
+/* Two-column rows keep the reason beside the name (S3 UI round 2). */
+body.tt-body[data-view='screen'].tt-wall-board
+  .tt-rail
+  .tt-group.tt-group-cols
+  .tt-rowbtn
+  .why {
+  flex: 1 1 0;
+  min-width: 12ch;
 }

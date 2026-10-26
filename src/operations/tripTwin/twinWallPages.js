@@ -42,6 +42,25 @@ export function wallPage(role, ctx) {
   const layout = [];
   // Layout only where it changes something (20-S1-FIX-LIST F18).
   const cards = ctx.shell ? CARD_CATALOG[role] || [] : [];
+  // A board wall (S3): the column ratio only; both columns carry the
+  // report, so neither may be hidden (95-S3-PLAN).
+  if (ctx.shell && role === 'incident')
+    layout.push({
+      key: 'width',
+      label: 'Columns',
+      value: l.width,
+      choices: [
+        { value: 'standard', label: 'Even' },
+        { value: 'wide', label: 'List wider' },
+      ],
+      disabled: off,
+      reason: why,
+      pick: (v) =>
+        save(
+          { layout: { width: v } },
+          v === 'wide' ? 'List wider' : 'Even columns',
+        ),
+    });
   if (ctx.shell && MAP_ROLES.has(role)) {
     layout.push({
       key: 'cards',
@@ -289,6 +308,28 @@ const PAGES = {
     };
   },
   // The others until their turn: the shared view moves on map walls.
+  // S3 Incident & attention: walk the list; nothing is saved here.
+  incident({ api }) {
+    const needs = api.needsCount?.() || 0;
+    return {
+      options: [],
+      tilesTitle: 'Walk the list · not saved',
+      tiles: [
+        firstTile(api, needs),
+        nextTile(api, needs),
+        {
+          key: 'prev',
+          label: 'Previous to check',
+          icon: ICON.back,
+          kbd: '[',
+          title: 'Select the previous person who needs attention',
+          disabled: needs === 0,
+          reason: 'No one to check',
+          action: () => api.prevToCheck(),
+        },
+      ],
+    };
+  },
   weather: ({ api }) => ({
     options: [],
     tiles: [planTile(api), northTile(api), restoreTile(api)],

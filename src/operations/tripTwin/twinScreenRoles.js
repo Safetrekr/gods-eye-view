@@ -240,8 +240,10 @@ export function layoutValue(screen = {}) {
   const keys = new Set(
     (CARD_CATALOG[screen.role] || []).filter((c) => !c.lock).map((c) => c.key),
   );
+  // Map only needs a map: a board wall's cards are always shown.
+  const map = ROLES[screen.role]?.canvas !== false;
   return {
-    cards: LAYOUT_CARDS.includes(l.cards) ? l.cards : 'shown',
+    cards: map && LAYOUT_CARDS.includes(l.cards) ? l.cards : 'shown',
     width: LAYOUT_WIDTHS.includes(l.width) ? l.width : 'standard',
     off: Array.isArray(l.off) ? l.off.filter((k) => keys.has(k)) : [],
   };
@@ -271,7 +273,7 @@ export const SAFETY_LAYERS = Object.freeze([
  * S2 People. A wall carrying more than one role (one or two screens)
  * converts with them: a second card column (55-S2-PLAN §2).
  */
-export const WALL_LAYOUT_ROLES = new Set(['site', 'travelers']);
+export const WALL_LAYOUT_ROLES = new Set(['site', 'travelers', 'incident']);
 export const wallShellOn = (screen = {}) => WALL_LAYOUT_ROLES.has(screen.role);
 
 /**

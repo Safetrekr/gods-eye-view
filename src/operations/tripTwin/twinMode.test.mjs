@@ -55,7 +55,7 @@ test('Demo A is INCIDENT and the top line says who may still be inside', () => {
   assert.equal(m.mode, 'incident');
   assert.equal(
     m.topLine,
-    'Smoke reported, floor 9 (hotel desk, 2 min ago, not verified) — 3 may be at or above (2 by phone estimate, 1 assigned above, floor not detected), 5 more may still be inside, 3 not current or not located',
+    'Smoke reported, floor 9 (hotel desk, 2 min ago, not verified) — 3 may be at or above (2 by phone estimate, 1 assigned above, floor not known), 5 more may still be inside, 3 not current or not located',
   );
   assert.equal(
     m.subLine,

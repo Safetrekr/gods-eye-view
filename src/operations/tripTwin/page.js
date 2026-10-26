@@ -27,6 +27,7 @@ import {
   renderRouteSection,
   responderText,
   resultEl,
+  styledName,
 } from './twinHud.js';
 import {
   MODES,
@@ -322,7 +323,12 @@ async function main() {
   const changeLog = [];
   let prevLogCounts = null;
   let prevGroups = null;
-  function logChanges(a, m, clock) {
+  let prevLogReport; // the open report's id (S3 reviews); undefined at load
+  /** One Changed line: clock · name · what, the name written as the
+   *  screen writes names now (visitor mode: initials; S3 reviews). */
+  const changeText = (e) =>
+    [e.clock, e.name && styledName(e.name), e.text].filter(Boolean).join(' · ');
+  function logChanges(a, m, clock, incident = null) {
     const now = Date.now();
     if (prevLogCounts)
       for (const [k, v] of Object.entries(a.counts || {}))
@@ -346,16 +352,63 @@ async function main() {
     if (prevGroups)
       for (const [key, g] of groups) {
         const before = prevGroups.get(key)?.ids || new Map();
-        for (const [id, name] of g.ids)
-          if (!before.has(id))
+        const joined = [...g.ids].filter(([id]) => !before.has(id));
+        // Many joining at once (a report opening) read as one line.
+        if (joined.length > 3)
+          changeLog.unshift({
+            at: now,
+            clock,
+            text: `${joined.length} · ${g.label.toLowerCase()}`,
+            warn: true,
+          });
+        else
+          for (const [, name] of joined)
             changeLog.unshift({
               at: now,
               clock,
-              text: `${shortName(name)} · ${g.label.toLowerCase()}`,
+              name,
+              text: g.label.toLowerCase(),
               warn: true,
             });
       }
     prevGroups = groups;
+    // The report itself last, so it leads the card (S3 reviews). Tracked
+    // by its id, so a new report replacing an open one is a line too; a
+    // wall that loads during a report logs it at the report's own time.
+    const rep = m?.mode === 'incident' || m?.mode === 'incident_elsewhere';
+    const key = rep
+      ? lastSessionReport?.id ||
+        lastCtx?.snapshot?.reported_incidents?.[0]?.id ||
+        String(m.topLine || 'report').split(' — ')[0]
+      : null;
+    if (key !== prevLogReport) {
+      const first = prevLogReport === undefined;
+      const age = Number(incident?.ageMin) || 0;
+      if (key && (!first || age < 10))
+        changeLog.unshift({
+          at: now - (first ? age * 60000 : 0),
+          clock: incident?.clock || clock,
+          // "Smoke reported, floor 9 · not verified": the banner's words
+          // without the trip and the age.
+          text: `${
+            String(m.topLine || 'Incident reported')
+              .split(' — ')[0]
+              .split(' · ')
+              .slice(-1)[0]
+              .replace(/\s*\(.*$/, '') || 'Incident reported'
+          } · not verified`,
+          warn: true,
+          report: true,
+        });
+      else if (!key && !first)
+        changeLog.unshift({
+          at: now,
+          clock,
+          text: 'Report closed',
+          report: true,
+        });
+    }
+    prevLogReport = key;
     if (changeLog.length > 30) changeLog.length = 30;
   }
   let selection = null;
@@ -793,10 +846,7 @@ async function main() {
     if (!recent.length)
       add('tt-wall-line', 'Nothing changed in the last 10 min');
     for (const e of recent.slice(0, 6))
-      add(
-        `tt-wall-line${e.warn ? ' warn' : ''}`,
-        `${e.clock || ''} · ${e.text}`,
-      );
+      add(`tt-wall-line${e.warn ? ' warn' : ''}`, changeText(e));
   }
   // ---- station panels (review/shell R2-1…R2-3) ----
   // One home per fact: the left cards keep the lists; a station panel
@@ -1182,7 +1232,9 @@ async function main() {
       twin.select(null);
     },
   });
+  let boardFit = null;
   const hud = createHud({
+    fitFirst: () => boardFit?.(),
     rail: $('tt-rail'),
     incident: $('tt-incident'),
     onCardToggle: (key, on) => save(`card.${key}`, on ? '1' : '0'),
@@ -1796,7 +1848,7 @@ async function main() {
           : [...incidentChips, ...ncChip, ...wxChips, ...placeChips],
       );
       lastA = a;
-      logChanges(a, mode, sampleClock(snap));
+      logChanges(a, mode, sampleClock(snap), incident);
       if (document.body.dataset.view !== 'screen')
         document.body.classList.toggle(
           'tt-incident-open',
@@ -6747,7 +6799,11 @@ async function main() {
       e.preventDefault();
       return hud.focusFind();
     }
-    if (k === 'l' || k === 'L') {
+    // A board wall has no map, so no Layers (S3 reviews).
+    if (
+      (k === 'l' || k === 'L') &&
+      !document.body.classList.contains('tt-wall-board')
+    ) {
       openPop('tt-layers');
       return renderLayers();
     }
@@ -6775,7 +6831,9 @@ async function main() {
     const base = at >= 0 ? at : attentionIndex;
     if (k === 'a' || k === 'A') attentionIndex = 0;
     else if (k === ']') attentionIndex = (base + 1) % list.length;
-    else if (k === '[') attentionIndex = (base - 1 + list.length) % list.length;
+    else if (k === '[')
+      attentionIndex =
+        ((base < 0 ? list.length : base) - 1 + list.length) % list.length;
     else return;
     twin.selectPerson(list[attentionIndex].person.id, { frame: true });
   });
@@ -6996,6 +7054,15 @@ async function main() {
       attentionIndex = ((i >= 0 ? i : attentionIndex) + 1) % list.length;
       twin.selectPerson(list[attentionIndex].person.id, { frame: true });
     },
+    /** [ : the previous person who needs attention (S3 tiles). */
+    prevToCheck() {
+      const list = flatNeeds();
+      if (!list.length) return;
+      const i = list.findIndex((r) => r.person.id === twin.selectedPersonId);
+      const base = i >= 0 ? i : list.length;
+      attentionIndex = (base - 1 + list.length) % list.length;
+      twin.selectPerson(list[attentionIndex].person.id, { frame: true });
+    },
     /** Which of the list the selection is ("2 of 6"), or ''. */
     checkPosition() {
       const list = flatNeeds();
@@ -7191,6 +7258,10 @@ async function main() {
       ['incident', 'incident_elsewhere'].includes(lastCtx?.mode?.mode),
     /** Fit the wall's lists again (resize, text size). */
     refitRail: () => hud.refit(),
+    /** S3: the board's own fit, run before the report card trims. */
+    setBoardFit: (fn) => {
+      boardFit = fn;
+    },
     /** Where the report is when it is not the site on screen, else null. */
     incidentElsewhere: () =>
       lastCtx?.mode?.mode === 'incident_elsewhere'
@@ -7316,10 +7387,7 @@ async function main() {
             : `Nothing changed in the last 10 min · data every 5 s · ${lastCtx?.snapshot ? sampleClock(lastCtx.snapshot) : ''}`,
         );
       for (const e of recent.slice(0, 8))
-        add(
-          `tt-wall-line${e.warn ? ' warn' : ''}`,
-          `${e.clock || ''} · ${e.text}`,
-        );
+        add(`tt-wall-line${e.warn ? ' warn' : ''}`, changeText(e));
       add('tt-kicker', 'NEXT ON THE PLAN');
       const now = Date.now();
       const next = advEvents()
@@ -7363,6 +7431,130 @@ async function main() {
           );
       } catch {
         /* no sunset line */
+      }
+    },
+    /**
+     * S3 in the new frame (95-S3-PLAN): the board as glass cards under the
+     * report card. o: {report (this trip's report is open), where (a
+     * report at another site), hasWeather, hasDay (walls that own those
+     * facts — else S3 stands in for them)}.
+     */
+    boardPanel(node, o = {}) {
+      const card = (key, kicker, cls = '') => {
+        const sec = document.createElement('section');
+        sec.className = `tt-board-card tt-board-${key}${cls ? ` ${cls}` : ''}`;
+        const k = document.createElement('div');
+        k.className = 'tt-kicker';
+        k.textContent = kicker;
+        sec.append(k);
+        node.append(sec);
+        const add = (c, t) => {
+          const n = document.createElement('div');
+          n.className = c;
+          n.textContent = t;
+          sec.append(n);
+          return n;
+        };
+        add.sec = sec;
+        return add;
+      };
+      node.replaceChildren();
+      // Status: names its trip, so a calm board never reads as all clear
+      // for every trip (93-aia §4). A report on screen has the card above.
+      if (o.where) {
+        const add = card(
+          'status',
+          `REPORTED AT ${o.where.toUpperCase()} · NOT VERIFIED`,
+          'hazard',
+        );
+        add(
+          'tt-wall-line',
+          `At ${o.where}, not the site on screen · the list on the left includes who may be there`,
+        );
+      }
+      // What changed in the last 10 min: S3's own (no other wall shows it).
+      {
+        const add = card('changed', 'CHANGED · LAST 10 MIN');
+        const recent = changeLog.filter((e) => Date.now() - e.at < 600000);
+        // The true total, so "+n earlier" counts right (S3 reviews).
+        add.sec.dataset.total = String(recent.length);
+        if (!recent.length)
+          add('tt-wall-line', 'Nothing changed in the last 10 min');
+        // Every line of the last 10 min; fitBoard keeps the newest three
+        // (the report's among them) and counts the rest — never a silent cap.
+        // Steel lines; only the report's clock is red (S3 brand round 2:
+        // an amber log competed with the report card).
+        for (const e of recent) {
+          const n = add('tt-wall-line', changeText(e));
+          n.dataset.report = e.report ? '1' : '';
+          if (e.report && e.warn && e.clock) {
+            n.textContent = '';
+            n.append(
+              Object.assign(document.createElement('span'), {
+                className: 'clk',
+                textContent: e.clock,
+              }),
+              changeText({ ...e, clock: '' }).replace(/^/, ' · '),
+            );
+          }
+        }
+      }
+      // Official warnings only while one is active; never steps out.
+      const official = officialLines().filter(
+        (l) => l.official || l.sim || l.warn,
+      );
+      if (official.length) {
+        const add = card(
+          'official',
+          `OFFICIAL · ${WX.warnings === 'nws' ? 'NWS' : 'MeteoAlarm'}`,
+          'keep',
+        );
+        for (const l of official)
+          add(
+            `tt-wall-line${l.sim ? ' sim' : l.official ? ' official' : ' warn'}`,
+            l.text,
+          );
+      }
+      const closed = hud.closedLines();
+      // In a report the card's "If the group must move" line carries it.
+      if (closed.safety && !o.report) {
+        const add = card(
+          'paths',
+          `SAFETY & PATHS${closed.safetyCount ? ` · ${closed.safetyCount}` : ''}`,
+        );
+        add('tt-wall-line', closed.safety);
+      }
+      // Stand-ins for walls this room does not have (91-ia): first to go.
+      if (!o.hasWeather && closed.hazards) {
+        const add = card('hazards', 'HAZARDS', 'standin');
+        add('tt-wall-line', closed.hazards);
+      }
+      if (!o.hasDay && !o.report) {
+        const add = card('next', 'NEXT ON THE PLAN', 'standin');
+        const now = Date.now();
+        const next = advEvents()
+          .filter((e) => Number.isFinite(e.epoch) && e.epoch > now)
+          .slice(0, 3);
+        if (!next.length) add('tt-wall-line', 'Nothing further on the plan');
+        for (const e of next) {
+          const site = SITES.find((x) => x.key === e.siteKey);
+          add(
+            'tt-wall-line',
+            `Day ${e.day} · ${e.start} · ${e.title}${site && !String(e.title).includes(site.short || '§') ? ` · ${site.short || site.label || ''}` : ''}`,
+          );
+        }
+        try {
+          const c = city.anchors?.inside || city.center;
+          const today = new Date().toISOString().slice(0, 10);
+          const { set } = sunTimes(today, c.lat, c.lon ?? c.lng);
+          if (set)
+            add(
+              'tt-wall-note',
+              `Sunset ${new Date(set).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: city.timezone })} local`,
+            );
+        } catch {
+          /* no sunset line */
+        }
       }
     },
     /** S5 · Day plan: the day's schedule, sunset, official alerts. */

@@ -66,6 +66,7 @@ import {
   LAYER_CATALOG,
   LAYOUT_CARDS,
   LAYOUT_WIDTHS,
+  ROLES,
   SAFETY_LAYERS,
   WALL_TEXT_MAX,
   WALL_TEXT_MIN,
@@ -1066,7 +1067,12 @@ export function createSessionHost({
           wallShellOn(mine)
         ) {
           const l = {};
-          if (LAYOUT_CARDS.includes(p.layout.cards)) l.cards = p.layout.cards;
+          // Map only needs a map (S3 reviews): a board keeps its cards.
+          if (
+            LAYOUT_CARDS.includes(p.layout.cards) &&
+            ROLES[mine?.role]?.canvas !== false
+          )
+            l.cards = p.layout.cards;
           if (LAYOUT_WIDTHS.includes(p.layout.width)) l.width = p.layout.width;
           if (Array.isArray(p.layout.off)) {
             // Only this role's cards, never a locked one.

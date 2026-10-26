@@ -84,7 +84,7 @@ test('Demo A cutaway: ranges count as detected; amber only for at-hotel, floor n
   assert.equal(floor(occ, 1).state, 'possible', 'S.D. last estimate floor 1');
   assert.equal(
     footerLine(occ.footer),
-    'Whole group (27): floor unknown 2 · not shared 0 · last estimate only 1',
+    'Whole group (27): floor not known 2 · last estimate only 1',
   );
 });
 
@@ -160,7 +160,7 @@ test('stopped phones with a last estimate above the fire join "at or above" (FLR
   assert.equal(m.groups[0].rows.length, 4);
   assert.match(
     m.topLine,
-    /— 4 may be at or above \(2 by phone estimate, 1 by last estimate \(not current\), 1 assigned above, floor not detected\)/,
+    /— 4 may be at or above \(2 by phone estimate, 1 by last estimate \(not current\), 1 assigned above, floor not known\)/,
   );
   void s;
 });

@@ -301,6 +301,8 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     b.classList.toggle('tt-wall-map', shell && Boolean(ROLES[s.role]?.canvas));
     // More than one role on this wall: a second card column (S2 plan §2).
     b.classList.toggle('tt-wall-two', shell && (s.merged || []).length > 0);
+    // A board wall in the new frame (S3; 95-S3-PLAN): two card columns.
+    b.classList.toggle('tt-wall-board', shell && s.role === 'incident');
     setWallScale(s.textScale);
     applyLayout(s);
     renderPanel();
@@ -335,10 +337,34 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     b.dataset.wallCards = l.cards;
     b.dataset.wallWidth = l.width;
     b.dataset.wallOff = l.off.join(' ');
+    refitOnChange();
+  }
+  // The columns change width when the menu opens or closes or Columns
+  // changes: the lists fit again (S3 reviews).
+  let fitKey = '';
+  function refitOnChange() {
+    const b = document.body;
+    const k = `${b.classList.contains('tt-wst-open')}|${b.dataset.wallWidth}`;
+    if (k === fitKey) return;
+    const first = !fitKey;
+    fitKey = k;
+    if (first) return;
+    requestAnimationFrame(() => {
+      api.refitRail?.();
+      if (b.classList.contains('tt-wall-board')) renderPanel();
+    });
   }
 
   function renderPanel() {
     const role = document.body.dataset.role;
+    // Off the board wall the panel goes back to the page.
+    if (
+      panel.parentNode !== document.body &&
+      !(
+        role === 'incident' && document.body.classList.contains('tt-wall-board')
+      )
+    )
+      document.body.append(panel);
     panel.hidden = !(
       role === 'weather' ||
       role === 'trips' ||
@@ -348,7 +374,30 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     if (role === 'weather') api.weatherPanel(panel);
     else if (role === 'trips') api.tripsPanel(panel);
     else if (role === 'day') api.dayPanel?.(panel);
-    else if (role === 'incident') {
+    else if (
+      role === 'incident' &&
+      document.body.classList.contains('tt-wall-board')
+    ) {
+      // The new frame (95-S3-PLAN): the board's cards sit in the right
+      // column, under the report card.
+      const rcol = document.getElementById('tt-rcol');
+      if (rcol && panel.parentNode !== rcol) rcol.append(panel);
+      const open = api.incidentOpen();
+      const where = api.incidentElsewhere?.();
+      document.body.classList.toggle('tt-incident-open', open && !where);
+      document.body.classList.toggle('tt-incident-elsewhere', Boolean(where));
+      const roles = Object.values(state?.screens || {}).flatMap((x) => [
+        x.role,
+        ...(x.merged || []),
+      ]);
+      api.boardPanel(panel, {
+        report: open && !where,
+        where: where || null,
+        hasWeather: roles.includes('weather'),
+        hasDay: roles.includes('day'),
+      });
+      fitBoard();
+    } else if (role === 'incident') {
       // Idle: say so plainly; the board fills when a floor is reported.
       const open = api.incidentOpen();
       const where = api.incidentElsewhere?.();
@@ -384,6 +433,49 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       else api.idlePanel(panel);
       fitPanel();
     }
+  }
+
+  /**
+   * S3's board in the new frame (95-S3-PLAN): the right column never runs
+   * off the wall silently. Stand-ins step out first; Changed keeps its
+   * newest three lines and says how many earlier; only then does the
+   * report card fit itself (fitIncident calls this first). Official
+   * warnings never step out.
+   */
+  api.setBoardFit?.(() => fitBoard());
+  function fitBoard() {
+    const rcol = document.getElementById('tt-rcol');
+    if (!rcol) return;
+    const over = () => rcol.scrollHeight > rcol.clientHeight + 2;
+    for (const c of [
+      ...panel.querySelectorAll('.tt-board-card.standin'),
+    ].reverse()) {
+      if (!over()) break;
+      c.remove();
+    }
+    const ch = panel.querySelector('.tt-board-changed');
+    if (ch && over()) {
+      const lines = [...ch.querySelectorAll('.tt-wall-line')];
+      const total = Math.max(lines.length, Number(ch.dataset.total) || 0);
+      if (lines.length > 3) {
+        // The newest three, the report's own line always among them.
+        const rep = lines.find((l) => l.dataset.report === '1');
+        const keep = new Set(
+          rep && lines.indexOf(rep) > 2
+            ? [...lines.slice(0, 2), rep]
+            : lines.slice(0, 3),
+        );
+        for (const l of lines) if (!keep.has(l)) l.remove();
+        const more = el(
+          'div',
+          'tt-wall-note',
+          `+${total - 3} earlier · on the All-in-one`,
+        );
+        ch.append(more);
+      }
+    }
+    const paths = panel.querySelector('.tt-board-paths');
+    if (paths && over()) paths.remove();
   }
 
   /**
@@ -639,7 +731,19 @@ export function createScreenMode({ api, slot = null, setup = null }) {
           el('span', n ? 'tt-bar-hotel' : 'tt-crumb-trip', t),
         ]),
       );
+      where.title = label.replace(' · ', ' › ');
     }
+    // F9: a place name shows enough to read, or not at all (S3 reviews:
+    // the hotel read "F.." beside a report's chips).
+    for (const n of where.querySelectorAll('.tt-bar-hotel, .tt-crumb-trip')) {
+      n.hidden = false;
+      const cut = n.scrollWidth > n.clientWidth + 1;
+      n.hidden = cut && n.clientWidth < Math.min(n.scrollWidth * 0.6, 120);
+    }
+    for (const sep of where.querySelectorAll('.tt-crumb-sep'))
+      sep.hidden = Boolean(
+        sep.previousElementSibling?.hidden || sep.nextElementSibling?.hidden,
+      );
     const ss = state?.session || {};
     const advance = s?.mode === 'advance';
     const dayPlan = s?.role === 'day';
@@ -701,10 +805,21 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       const tripsSlot = Object.entries(state?.screens || {}).find(
         ([, x]) => x?.role === 'trips',
       )?.[0];
+      // Only the trip's name ellipsises; where to look never does (S3
+      // reviews: "› S6" was lost at 1728). No Trips wall: the remote.
       const to =
-        tripsSlot && Number(tripsSlot) !== mySlot ? ` › S${tripsSlot}` : '';
+        tripsSlot && Number(tripsSlot) !== mySlot
+          ? ` › S${tripsSlot}`
+          : tripsSlot
+            ? ''
+            : ' › remote';
       const more = rep.count > 1 ? ` +${rep.count - 1}` : '';
-      other.textContent = `OTHER TRIP · ${rep.title.toUpperCase()} · REPORTED${more}${to}`;
+      other.replaceChildren(
+        el('span', 'k', 'OTHER TRIP · '),
+        el('span', 'n', rep.title.toUpperCase()),
+        el('span', 'k', ` · REPORTED${more}${to}`),
+      );
+      other.title = `Other trip · ${rep.title} · reported${more}${to}`;
     }
     const ctl = presence?.remotes?.find((r) => r.controller);
     if (ctl?.name) lastCtl = ctl.name;
@@ -1307,6 +1422,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       drifting ? 'Drifting · idle camera (Cinematic)' : null,
       setAtWall(s) ? 'Some settings were set at this wall' : null,
     ].filter(Boolean);
+    queueMicrotask(refitOnChange);
     rail.render({
       open: railOpen,
       slot: mySlot ?? '?',
@@ -1333,7 +1449,8 @@ export function createScreenMode({ api, slot = null, setup = null }) {
           : railNote,
       // While the menu is closed, a save's note shows by the aperture (F14).
       toast: railNote,
-      tiles: MAP_ROLES.has(role.key) ? page.tiles : [],
+      tiles:
+        MAP_ROLES.has(role.key) || role.key === 'incident' ? page.tiles : [],
       tilesTitle: page.tilesTitle,
       stale: lost,
       closingIn:
@@ -1470,14 +1587,16 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     if (
       handsEndedAt &&
       now - handsEndedAt > 60000 &&
-      s0()?.role === 'travelers' &&
-      !handsOn() &&
-      !api.incidentOpen()
+      (s0()?.role === 'incident' ||
+        (s0()?.role === 'travelers' && !api.incidentOpen())) &&
+      !handsOn()
     ) {
       handsEndedAt = null;
       const sp = state?.session?.spotlight;
       if (wallPick && picked === wallPick) {
         if (sp) api.spotlight(sp);
+        // S3 has no map: the list just lets go of the row (S3 reviews).
+        else if (s0()?.role === 'incident') api.frame({ kind: 'clear' });
         else api.frameGroup?.();
       }
       wallPick = null;
