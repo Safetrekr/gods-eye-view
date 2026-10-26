@@ -823,6 +823,20 @@ export function createRelay({
           });
         break;
       }
+      case 'review': {
+        // The All-in-one's review tick (Jesse, 26 Oct): from this
+        // computer's launcher only; the host checks every field.
+        if (me.kind !== 'launcher' || !conn?.isLocal) break;
+        const r = host.review({
+          by: me.id,
+          stop: m.stop,
+          item: m.item,
+          on: m.on,
+          initials: m.initials,
+        });
+        if (r.ok) broadcastState({ cause: CAUSE.CMD, changed: ['session'] });
+        break;
+      }
       case 'hb':
         host.beat(me.id);
         break;

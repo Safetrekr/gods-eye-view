@@ -81,6 +81,9 @@ export const MSG_TYPES = Object.freeze([
   'local',
   'thumb',
   'screen-cmd',
+  // The All-in-one's review tick (launcher, this computer only; Jesse,
+  // 26 Oct): {stop, item, on, initials}. Old relays drop it.
+  'review',
 ]);
 
 // ---------------------------------------------------------------- K5
@@ -349,3 +352,21 @@ export function reloadGuard({ storage, now, everyMs = RELOAD_EVERY_MS }) {
     return { reload: false };
   }
 }
+
+/**
+ * Stop-brief rows a review tick may name (twinAdvance.js siteBrief keys).
+ * The tick only — who and when — never notes (Jesse, 26 Oct 2026).
+ */
+export const REVIEW_ITEMS = Object.freeze([
+  'from_hotel',
+  'hospital',
+  'police',
+  'fire_station',
+  'rally',
+  'numbering',
+  'light',
+  'forecast',
+  'alerts',
+]);
+/** At most this many ticks are kept (the oldest go first). */
+export const REVIEW_MAX = 300;

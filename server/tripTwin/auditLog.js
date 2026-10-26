@@ -43,6 +43,7 @@ import {
   MSG_TYPES,
   REMOTE_NAMES,
   isRef,
+  REVIEW_ITEMS,
 } from '../../src/operations/tripTwin/twinProtocol.js';
 import { LIMIT_NAMES } from './twinLimits.js';
 import { ROLES } from '../../src/operations/tripTwin/twinScreenRoles.js';
@@ -557,6 +558,11 @@ export const AUDIT_EVENTS = Object.freeze({
     data: { slot, on: bool, reason: oneOf(DRIFT_REASONS) },
   },
   'wall.identify': { peer: false, data: { ok: bool, screens: int } },
+  // A review tick from the All-in-one: the row and on/off, never who.
+  'review.set': {
+    peer: false,
+    data: { on: bool, item: oneOf(REVIEW_ITEMS) },
+  },
   // Limits (K7, S-16): one line per limit per 10 s; `dropped` counts the
   // lines left out since. Wrong tokens are a signal here, never a lockout.
   'limit.hit': {

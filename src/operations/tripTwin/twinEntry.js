@@ -12,6 +12,19 @@ import { ROLES, defaultRoles } from './twinScreenRoles.js';
 import { CODE, DENY } from './twinProtocol.js';
 import { STATUS } from './twinDescribe.js';
 
+// Review ticks to the walls (Jesse, 26 Oct 2026): the All-in-one's own
+// launcher link carries them (this computer only); the tick, never notes.
+let liveLauncher = null;
+let reviewSnapshot = null;
+/** Send one review tick {stop, item, on, initials} to the walls. */
+export function sendReview(r) {
+  liveLauncher?.send({ t: 'review', ...r });
+}
+/** Every tick to send once multi-view starts: () => [{stop, item, on, initials}]. */
+export function setReviewSnapshot(fn) {
+  reviewSnapshot = typeof fn === 'function' ? fn : null;
+}
+
 const el = (tag, cls, text) => {
   const n = document.createElement(tag);
   if (cls) n.className = cls;
@@ -346,6 +359,10 @@ export function showEntry(o) {
             );
             return;
           }
+          // The ticks made before multi-view started reach the walls too.
+          liveLauncher = sync;
+          for (const r of reviewSnapshot?.() || [])
+            sync.send({ t: 'review', ...r });
           launch(m.setup, info);
         },
         presence: (m) => seen(m.presence),

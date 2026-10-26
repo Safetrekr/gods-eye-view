@@ -2715,3 +2715,18 @@ body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips']
   .tt-trips-board {
   flex: none;
 }
+/* A review tick from the All-in-one: quiet steel, after the row's text. */
+.tt-board-brief .tt-day-check .rv {
+  color: var(--tt-text-2);
+  font-size: 0.9em;
+}
+.tt-adv-reviewer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 8px;
+}
+.tt-adv-reviewer input {
+  width: 4.5em;
+  text-transform: uppercase;
+}

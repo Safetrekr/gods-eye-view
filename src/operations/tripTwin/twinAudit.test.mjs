@@ -391,7 +391,7 @@ test('K6 ET-5: each message type writes exactly one line; heartbeats, thumbnails
     assert.equal(await count(ws, msg), want, JSON.stringify(msg));
 });
 
-test('CF (shell D5): a wall\'s keyboard change is logged as cmd.applied by the wall\'s ref, via keyboard; a refused one as cmd.refused with its code', async () => {
+test("CF (shell D5): a wall's keyboard change is logged as cmd.applied by the wall's ref, via keyboard; a refused one as cmd.refused with its code", async () => {
   const dir = freshDir();
   const audit = createAuditLog({ dir, pruneEveryMs: 0 });
   const { socks } = goldenSession(audit);
@@ -661,6 +661,7 @@ const FIXTURES = {
     data: { slot: 1, on: true, reason: 'idle', text: 'drifting · idle camera' },
   },
   'wall.identify': { data: { ok: true, screens: 6 } },
+  'review.set': { data: { on: true, item: 'hospital' } },
   // K7: a limit (with what a flood would carry) and a message that threw.
   'limit.hit': {
     data: {
@@ -1006,7 +1007,12 @@ test('K6 SEC-12: 10,000 events in a burst delay a heartbeat by at most 50 ms; pa
                 target: 1,
                 fields: ['layers'],
                 diffs: [
-                  { scope: 'S1', field: 'layers', from: {}, to: { radar: true } },
+                  {
+                    scope: 'S1',
+                    field: 'layers',
+                    from: {},
+                    to: { radar: true },
+                  },
                 ],
                 changed: [1],
                 skipped: [],

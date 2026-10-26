@@ -60,6 +60,8 @@ import {
   isRef,
   pairLockedText,
   pairWrongText,
+  REVIEW_ITEMS,
+  REVIEW_MAX,
 } from './twinProtocol.js';
 import {
   CARD_CATALOG,
@@ -985,6 +987,51 @@ export function createSessionHost({
         skipped: r.skipped,
         undoId,
       };
+    },
+    /**
+     * A review tick from the All-in-one (Jesse, 26 Oct 2026): the relay
+     * accepts it only from this computer's launcher. The tick only — who
+     * (initials, or none) and when — never notes. Kept in the session so
+     * every wall shows it; keyed by trip, stop and row. Not a remote
+     * command: no lease, no Undo (untick at the All-in-one).
+     */
+    review({ by, stop, item, on, initials = null } = {}) {
+      const bad = (error) => ({
+        ok: false,
+        code: CODE.VALIDATION_COMMAND,
+        error,
+      });
+      if (typeof stop !== 'string' || !/^[\w:.|-]{1,80}$/.test(stop))
+        return bad('Not applied: stop is not valid');
+      if (!REVIEW_ITEMS.includes(item))
+        return bad('Not applied: item is not valid');
+      if (typeof on !== 'boolean') return bad('Not applied: on is not valid');
+      const who =
+        typeof initials === 'string' && /^[A-Z]{1,3}$/.test(initials)
+          ? initials
+          : null;
+      const key = `${session.session.tripId || ''}|${stop}|${item}`;
+      const reviews = { ...(session.session.reviews || {}) };
+      if (on) reviews[key] = { at: now(), by: who };
+      else delete reviews[key];
+      const keys = Object.keys(reviews);
+      if (keys.length > REVIEW_MAX)
+        for (const k of keys
+          .sort((a, b) => reviews[a].at - reviews[b].at)
+          .slice(0, keys.length - REVIEW_MAX))
+          delete reviews[k];
+      const before = session.rev;
+      session = {
+        ...session,
+        rev: session.rev + 1,
+        session: { ...session.session, reviews },
+      };
+      say('review.set', {
+        actor: actorOfId(by),
+        rev: { before, after: session.rev },
+        data: { on, item },
+      });
+      return { ok: true, rev: session.rev };
     },
     /**
      * A paired screen changes its own layers and display from its keyboard

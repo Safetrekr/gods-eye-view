@@ -410,6 +410,10 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         }
       }
       api.dayCards(panel, {
+        // Review ticks from the All-in-one (Jesse, 26 Oct): who and when.
+        reviews: state?.session?.reviews || {},
+        tripId: state?.session?.tripId || '',
+        visitor: Boolean(state?.session?.visitor),
         chosen: Boolean(wallStop),
         weatherWall: slotOf('weather') ? `S${slotOf('weather')}` : '',
         report: open
@@ -655,7 +659,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         const f = panel.querySelector('.tt-day-foot');
         if (f)
           f.textContent =
-            'Straight-line distances · reviews at the All-in-one, not on walls';
+            'Straight-line distances · ticks from the All-in-one · notes never on walls';
       },
       // The Official card's demo note (S4 carries the full story).
       () => panel.querySelector('.tt-board-official .tt-wall-note')?.remove(),
@@ -705,13 +709,16 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         const also = el('div', 'tt-wall-line tt-day-check also');
         const names = [];
         brief.querySelector('.tt-day-foot')?.before(also);
+        // A folded row's review tick is counted, never lost (S5 reviews).
+        let ticked = 0;
         for (const n of ok) {
           if (!over()) break;
           names.push(n.dataset.label.toLowerCase());
+          if (n.classList.contains('reviewed')) ticked += 1;
           n.remove();
           also.replaceChildren(
             el('b', '', 'No flags: '),
-            `${names.join(', ')} · rows on the All-in-one`,
+            `${names.join(', ')}${ticked ? ` (${ticked} reviewed)` : ''} · rows on the All-in-one`,
           );
         }
         if (!names.length) also.remove();

@@ -422,6 +422,52 @@ test('S6: a trips wall saves its order and what tiles show; never Map only (C5-S
   assert.equal(wall({ layout: { cards: 'map' } }).ok, false);
 });
 
+test("Review ticks: only this computer's launcher; the tick, never notes (Jesse, 26 Oct)", () => {
+  const relay = createRelay();
+  const launcher = fakeSocket();
+  relay.attach(launcher);
+  launcher.say({ t: 'setup', count: 6 });
+  const { setup } = launcher.last('setup');
+  const remote = fakeSocket();
+  relay.attach(remote);
+  remote.say({ t: 'hello', id: 'R', kind: 'remote', setup, name: 'iPad' });
+  const s5 = fakeSocket();
+  relay.attach(s5);
+  s5.say({ t: 'hello', id: 'S5', kind: 'screen', setup, slot: 5 });
+  const reviews = () => remote.last('state').state.session.reviews || {};
+  launcher.say({
+    t: 'review',
+    stop: 'd1-arrive',
+    item: 'hospital',
+    on: true,
+    initials: 'JT',
+    notes: 'never stored',
+  });
+  const r = reviews();
+  const key = Object.keys(r)[0];
+  assert.match(key, /\|d1-arrive\|hospital$/);
+  assert.equal(r[key].by, 'JT');
+  assert.ok(Number.isFinite(r[key].at));
+  assert.deepEqual(Object.keys(r[key]).sort(), ['at', 'by']);
+  // A remote or a wall cannot tick; a bad row or initials are refused.
+  remote.say({ t: 'review', stop: 'd1-arrive', item: 'police', on: true });
+  s5.say({ t: 'review', stop: 'd1-arrive', item: 'police', on: true });
+  launcher.say({ t: 'review', stop: 'd1-arrive', item: 'notes', on: true });
+  launcher.say({
+    t: 'review',
+    stop: 'x',
+    item: 'light',
+    on: true,
+    initials: 'John',
+  });
+  const r2 = reviews();
+  assert.equal(Object.keys(r2).length, 2);
+  assert.equal(r2[Object.keys(r2).find((k) => k.endsWith('|light'))].by, null);
+  // Untick at the All-in-one.
+  launcher.say({ t: 'review', stop: 'd1-arrive', item: 'hospital', on: false });
+  assert.equal(Object.keys(reviews()).length, 1);
+});
+
 test('S4: the demo storm keeps alert areas on at a wall (A5-S4-PLAN)', () => {
   const relay = createRelay();
   const launcher = fakeSocket();

@@ -158,7 +158,12 @@ import {
   weatherPill,
 } from './twinStations.js';
 import { ROLES } from './twinScreenRoles.js';
-import { showEntry, showLaunch } from './twinEntry.js';
+import {
+  sendReview,
+  setReviewSnapshot,
+  showEntry,
+  showLaunch,
+} from './twinEntry.js';
 import {
   DEMO_TRIPS,
   TIER,
@@ -2816,8 +2821,13 @@ async function main() {
     pathText: {}, // event key → path summary while drawn
     sig: '',
   };
+  /** The initials walls show beside a review tick (this viewer's). */
+  const reviewer = () => {
+    const v = String(pref('reviewer', '') || '').toUpperCase();
+    return /^[A-Z]{1,3}$/.test(v) ? v : null;
+  };
   const stamp = () =>
-    `you · ${new Date().toLocaleString('en-US', {
+    `${reviewer() || 'you'} · ${new Date().toLocaleString('en-US', {
       timeZone: city.timezone,
       weekday: 'short',
       month: 'short',
@@ -2843,6 +2853,18 @@ async function main() {
     }
     renderAdvance();
   }
+  // Every tick made here, for the walls once multi-view starts.
+  setReviewSnapshot(() =>
+    Object.keys(adv.checks).map((k) => {
+      const i = k.lastIndexOf(':');
+      return {
+        stop: k.slice(0, i),
+        item: k.slice(i + 1),
+        on: true,
+        initials: reviewer(),
+      };
+    }),
+  );
   const advEvents = () =>
     lastCtx?.snapshot ? tripEvents(lastCtx.snapshot, SITES, city.timezone) : [];
   function briefFor(ev) {
@@ -3098,6 +3120,34 @@ async function main() {
         'CHECKS · tick each when reviewed',
       ),
     );
+    // Initials beside a tick on the walls (blank: the tick and time only).
+    const who = el('label', 'tt-adv-reviewer');
+    const whoIn = el('input');
+    whoIn.type = 'text';
+    whoIn.maxLength = 3;
+    whoIn.value = reviewer() || '';
+    whoIn.placeholder = 'JT';
+    whoIn.dataset.focusKey = 'reviewer';
+    whoIn.setAttribute(
+      'aria-label',
+      'Your initials, shown on walls beside a tick',
+    );
+    whoIn.addEventListener('change', () => {
+      whoIn.value = whoIn.value
+        .toUpperCase()
+        .replace(/[^A-Z]/g, '')
+        .slice(0, 3);
+      save('reviewer', whoIn.value);
+    });
+    who.append(
+      el(
+        'span',
+        'tt-dim',
+        'Initials on walls · ticks show on every wall, notes never',
+      ),
+      whoIn,
+    );
+    box.append(who);
     const items = el('ul', 'tt-adv-items');
     for (const it of brief.items) {
       const li = el('li', it.warn ? 'warn' : it.ok ? 'ok' : '');
@@ -3111,6 +3161,13 @@ async function main() {
         const k = `${ev.key}:${it.key}`;
         if (cb.checked) adv.checks[k] = stamp();
         else delete adv.checks[k];
+        // The tick reaches the walls (Jesse, 26 Oct): who and when only.
+        sendReview({
+          stop: ev.key,
+          item: it.key,
+          on: cb.checked,
+          initials: reviewer(),
+        });
         renderAdvance(true);
       });
       lab.append(cb, el('span', 'tt-adv-label', it.label));
@@ -6604,6 +6661,11 @@ async function main() {
         // "Checked now" never ages on a wall (S5 AIA): say when.
         alerts.text = `None on file for ${ev.start} · ${src} checked ${wx.warningsAt ? ago(wx.warningsAt) : 'at load'} · alerts are issued close to the time`;
       }
+      // Review ticks (the All-in-one's): who (none in visitor mode) and
+      // when, on the walls' clock.
+      const reviewOf = (it) =>
+        (o.reviews || {})[`${o.tripId || ''}|${ev.key}|${it.key}`] || null;
+      const reviewed = items.filter((it) => reviewOf(it)).length;
       const look = items.filter((it) => it.warn).length;
       // Never "READY": the wall cannot vouch for a stop (S5 reviews, P0).
       const state = repHere
@@ -6613,7 +6675,7 @@ async function main() {
           : 'NOTHING FLAGGED';
       const add = card(
         'brief',
-        `STOP BRIEF · ${ev.start} · ${state}${o.chosen && ev.key !== next?.key ? ' · CHOSEN HERE' : ''}`,
+        `STOP BRIEF · ${ev.start} · ${state}${reviewed ? ` · ${reviewed} OF ${items.length} REVIEWED` : ''}${o.chosen && ev.key !== next?.key ? ' · CHOSEN HERE' : ''}`,
         repHere ? 'rep' : '',
       );
       add(
@@ -6649,10 +6711,18 @@ async function main() {
               it.key === 'hospital' ? '$1 ·' : '$&',
             )}${it.warn ? ' · needs a look' : ''}`,
         );
+        const rv = reviewOf(it);
+        if (rv) {
+          line.classList.add('reviewed');
+          const tag = document.createElement('span');
+          tag.className = 'rv';
+          tag.textContent = ` · reviewed${rv.by && !o.visitor ? ` ${rv.by}` : ''} ${wxTime(rv.at, { sim: true }).replace(/ \S+$/, '')}`;
+          line.append(tag);
+        }
       }
       add(
         'tt-wall-note tt-day-foot',
-        'Distances are straight lines from OpenStreetMap · reviews and notes are made at the All-in-one, not shown on walls',
+        'Distances are straight lines from OpenStreetMap · reviews are ticked at the All-in-one · notes are not shown on walls',
       );
     }
     // Official, only while a warning is active (one amber outline), right
