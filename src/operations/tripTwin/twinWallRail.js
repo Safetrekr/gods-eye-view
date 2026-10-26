@@ -115,7 +115,9 @@ export function createWallRail({ onToggle, onKeep = () => {}, menu = [] }) {
 
   /** One option row: a segmented choice or an on/off switch. */
   function option(o) {
-    const row = el('div', 'tt-wst-opt');
+    // multi: a row of toggles, each on or off by itself (S4's weather
+    // layers in one row, A5-S4-PLAN); pick(value, nextOn).
+    const row = el('div', `tt-wst-opt${o.multi ? ' multi' : ''}`);
     row.dataset.opt = o.key;
     const lab = el('div', 'tt-wst-optk', o.label);
     row.append(lab);
@@ -123,14 +125,20 @@ export function createWallRail({ onToggle, onKeep = () => {}, menu = [] }) {
     seg.setAttribute('role', 'group');
     seg.setAttribute('aria-label', o.label);
     for (const c of o.choices) {
-      const b = el('button', c.value === o.value ? 'on' : '', c.label);
+      const on = o.multi ? Boolean(c.on) : c.value === o.value;
+      const b = el('button', on ? 'on' : '', c.label);
       b.type = 'button';
       b.dataset.focus = `${o.key}:${c.value}`;
-      b.setAttribute('aria-pressed', String(c.value === o.value));
+      b.setAttribute('aria-pressed', String(on));
       b.disabled = Boolean(o.disabled);
       if (o.pending === c.value) b.classList.add('pending');
+      if (c.held) {
+        b.classList.add('held');
+        b.title = 'Held on now · see the note';
+      }
       b.addEventListener('click', () => {
-        if (c.value !== o.value) o.pick(c.value);
+        if (o.multi) o.pick(c.value, !c.on);
+        else if (c.value !== o.value) o.pick(c.value);
       });
       seg.append(b);
     }
@@ -146,6 +154,7 @@ export function createWallRail({ onToggle, onKeep = () => {}, menu = [] }) {
     const key = JSON.stringify([
       s.groups.map((g) => [
         g.title,
+        g.note,
         g.options.map((o) => [
           o.key,
           o.value,
@@ -164,7 +173,9 @@ export function createWallRail({ onToggle, onKeep = () => {}, menu = [] }) {
     for (const g of s.groups) {
       const box = el('div', 'tt-wst-group');
       box.append(el('div', 'tt-kicker', g.title));
-      if (g.note) box.append(el('div', 'tt-wst-gnote', g.note));
+      // keep: a note that says why a control is held never steps out.
+      if (g.note)
+        box.append(el('div', `tt-wst-gnote${g.keep ? ' keep' : ''}`, g.note));
       for (const o of g.options) box.append(option(o));
       parts.push(box);
     }

@@ -1059,6 +1059,17 @@ export function createSessionHost({
             'A report is open · safety layers stay on at the wall',
             CODE.SAFETY_LAYER,
           );
+        // The demo storm keeps them on too (A5-S4-PLAN): SIMULATED weather
+        // is on every wall, so its alert areas and heat stay drawn.
+        if (
+          patch.layers &&
+          session.session.simStorm &&
+          patch.layers.alertAreas === false
+        )
+          return refused(
+            'The demo storm is running (SIMULATED) · alert areas stay on at the wall',
+            CODE.SAFETY_LAYER,
+          );
         // Layout only where the wall's frame reads it (F18).
         if (
           'layout' in p &&

@@ -830,7 +830,10 @@ async function refreshWx(force = false) {
     });
   else if (us && !alerts.length)
     lines.push({
-      text: `NWS checked ${ago(alertsAt)}: no active alerts returned for this point`,
+      // Under the demo the real check is a note, as on the walls (S4).
+      text: lines.some((l) => l.sim)
+        ? `Real NWS under the demo: no active alerts returned · checked ${ago(alertsAt)}`
+        : `NWS checked ${ago(alertsAt)}: no active alerts returned for this point`,
     });
   else if (!us)
     lines.push({

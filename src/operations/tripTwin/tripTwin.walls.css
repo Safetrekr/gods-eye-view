@@ -1981,3 +1981,275 @@ body.tt-body[data-view='screen'].tt-wall-board
   flex: 1 1 0;
   min-width: 12ch;
 }
+
+/* ====================== S4 · Weather & alerts (A5-S4-PLAN) ======================
+   The map is the whole screen; the weather cards are the left column;
+   the timeline and the rain key share a dock along the map's bottom. */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='weather']
+  #cesiumContainer {
+  left: 0;
+  right: 0;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='weather'] .tt-rcol {
+  display: flex !important;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+  left: calc(var(--w-g) / var(--wall-scale));
+  right: auto;
+  top: calc((var(--w-top) + var(--w-g)) / var(--wall-scale));
+  bottom: auto;
+  width: calc(var(--w-col) / var(--wall-scale));
+  max-height: calc(
+    (100vh - var(--w-top) - var(--w-bot) - var(--w-g) * 2) / var(--wall-scale)
+  );
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='weather']
+  .tt-rcol
+  > :not(.tt-wall-panel) {
+  display: none !important;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='weather']
+  .tt-rcol
+  > .tt-wall-panel {
+  position: static !important;
+  zoom: 1;
+  inset: auto !important;
+  width: auto !important;
+  max-height: none !important;
+  padding: 0;
+  margin: 0;
+  background: none !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: none;
+}
+body.tt-body[data-view='screen'][data-role='weather']
+  .tt-rcol
+  .tt-board-card
+  .tt-kicker {
+  font: 500 11px/14px var(--tt-mono);
+  letter-spacing: 0.08em;
+  color: var(--tt-text-2);
+  margin: 0 0 6px;
+}
+body.tt-body[data-view='screen'][data-role='weather']
+  .tt-rcol
+  .tt-board-card
+  .tt-wall-line {
+  font-size: min(15px, calc(28px / var(--wall-scale)));
+  line-height: 1.35;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--tt-hair);
+}
+body.tt-body[data-view='screen'][data-role='weather']
+  .tt-rcol
+  .tt-board-card
+  .tt-wall-line:last-child {
+  border-bottom: 0;
+}
+body.tt-body[data-view='screen'][data-role='weather']
+  .tt-rcol
+  .tt-board-card
+  .tt-wall-note {
+  font-size: min(13px, calc(28px / var(--wall-scale)));
+  line-height: 1.35;
+  color: var(--tt-text-2);
+  margin-top: 4px;
+}
+/* One amber outline: an active warning, else a near storm; Outdoors now
+   says its kicker in amber. S4 has no red of its own. */
+.tt-board-card.attention {
+  border-color: var(--tt-attention);
+  box-shadow:
+    0 0 0 1px rgba(245, 158, 11, 0.22),
+    var(--tt-depth-1),
+    inset 0 1px 0 var(--tt-light);
+}
+body.tt-body[data-view='screen'][data-role='weather']
+  .tt-rcol
+  .tt-board-card.amber
+  .tt-kicker {
+  color: var(--tt-attention);
+}
+body.tt-body[data-view='screen'][data-role='weather']
+  .tt-rcol
+  .tt-board-card
+  .tt-wall-line.sim {
+  color: var(--tt-attention);
+  border-left: 0;
+  padding-left: 0;
+}
+/* Map only keeps the official card (an active warning is never hidden). */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='weather'][data-wall-cards='map']
+  .tt-rcol
+  .tt-board-card:not(.tt-board-official):not(.tt-board-outdoors):not(.keep) {
+  display: none;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='weather'][data-wall-cards='map']
+  .tt-mapbar,
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='weather'][data-wall-cards='map']
+  .tt-wxtl {
+  left: calc((var(--w-g) * 2 + var(--w-col)) / var(--wall-scale));
+}
+/* The dock: from the column's edge to the aperture's gutter, above the
+   credits and the banner; the menu shortens it, never covers it. */
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-map .tt-wxtl {
+  zoom: var(--wall-scale);
+  transform: none;
+  width: auto;
+  left: calc((var(--w-g) * 2 + var(--w-col)) / var(--wall-scale));
+  right: calc((var(--w-g) * 2 + 52px * var(--w-rz)) / var(--wall-scale));
+  bottom: calc((var(--w-bot) + var(--w-g)) / var(--wall-scale));
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    'track key'
+    'cap key'
+    'legend key';
+  column-gap: 16px;
+  transition: right 0.32s var(--fog-in, ease);
+}
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-map.tt-wst-open
+  .tt-wxtl {
+  right: calc((var(--w-g) * 2 + var(--w-st)) / var(--wall-scale));
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='weather'][data-wall-off~='timeline']
+  .tt-wxtl
+  > :not(.tt-wx-key) {
+  display: none;
+}
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-map .tt-wxtl .tt-wx-key {
+  grid-area: key;
+  position: static;
+  width: 230px;
+  padding: 0 0 0 16px;
+  background: none;
+  border: 0;
+  border-left: 1px solid var(--tt-hair);
+  border-radius: 0;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  align-self: center;
+}
+/* A row of toggles (S4 weather layers): the label above, the toggles
+   wrap under it. */
+.tt-wst-opt.multi .tt-wall-seg {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+/* The dock with the menu open: the key takes its own row, in two columns. */
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-map.tt-wst-open
+  .tt-wxtl {
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    'track'
+    'cap'
+    'legend'
+    'key';
+}
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-map.tt-wst-open
+  .tt-wxtl
+  .tt-wx-key {
+  width: auto;
+  padding: 8px 0 0;
+  border-left: 0;
+  border-top: 1px solid var(--tt-hair);
+  grid-template-columns: 1fr 1fr;
+  column-gap: 16px;
+}
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-map.tt-wst-open
+  .tt-wxtl
+  .tt-wx-key
+  .tt-kicker {
+  grid-column: 1 / -1;
+}
+/* The group's title names a toggle row; its own label would cost a line. */
+.tt-wst-opt.multi .tt-wst-optk {
+  display: none;
+}
+.tt-wst-opt.multi .tt-wall-seg {
+  margin-top: 0;
+  gap: 4px;
+}
+.tt-wst-opt.multi {
+  padding-bottom: 2px;
+}
+/* A disabled tile says why on its top line, beside the icon, never over
+   its label (S4 reviews). */
+.tt-wst .tt-st-tile .why {
+  top: 12px;
+  bottom: auto;
+  left: 40px;
+  right: 28px;
+  white-space: normal;
+  line-height: 11px;
+  max-height: 24px;
+}
+
+/* A toggle held on by a warning or a near storm looks held: no press
+   turns it off (the note says why). */
+.tt-wst .tt-wall-seg button.held {
+  border-style: dashed;
+  border-color: var(--tt-attention);
+}
+/* S4's cards sit straight in the column, so each blurs the map behind it
+   as S1's card does (S4 UI P1-2: a wrapping panel blocked the blur). */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='weather']
+  .tt-rcol
+  > .tt-wall-panel {
+  display: contents;
+}
+/* The fog-in animation leaves `filter: blur(0)` on the column, which cuts
+   its cards' own blur off from the map (S4 UI P1-2). No filter on a
+   converted wall's columns. */
+body.tt-body[data-view='screen'].tt-wall-shell
+  :is(.tt-rcol, .tt-rail, .tt-wall-panel) {
+  /* The fog still blurs in; it just leaves no filter behind. */
+  animation-fill-mode: backwards !important;
+}
+
+/* The dock on every converted map wall (S1, S2 and their one/two-screen
+   walls too: the timeline covered Needs attention on a two-screen S2). It
+   starts after the second column when that column shows a card, and at
+   the edge in S1's Map only. */
+body.tt-body[data-view='screen'].tt-wall-map.tt-wall-two.tt-rcol-on .tt-wxtl {
+  left: calc((var(--w-g) * 3 + var(--w-col) * 2) / var(--wall-scale));
+}
+body.tt-body[data-view='screen'].tt-wall-map[data-role='site']:not(
+    [data-merged~='travelers']
+  )[data-wall-cards='map']:not(.tt-report-open)
+  .tt-wxtl {
+  left: calc(var(--w-g) / var(--wall-scale));
+}
+/* While the band shows the approach, a Summary does not say it again in
+   five lines (S4 r2: a two-screen S2 column ran off the wall); its
+   official warning reads as a warning, in amber. */
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wx-strip-on
+  .tt-rail-head
+  .tt-wx-approach {
+  display: none;
+}
+body.tt-body[data-view='screen'].tt-wall-shell .tt-rail-head .tt-wx-official {
+  color: var(--tt-attention);
+}
+/* Toggle rows are compact, so the row and its hold note stay whole in a
+   1440 or 1117 menu (S4 r2). */
+.tt-wst .tt-wst-opt.multi .tt-wall-seg button {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 14px;
+}
+@media (max-height: 1200px) {
+  .tt-wst-gnote.keep {
+    display: block;
+  }
+}

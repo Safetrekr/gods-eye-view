@@ -427,7 +427,8 @@ export function etaRange(min) {
   if (min < 5) return 'within 5 min';
   const lo = Math.floor((min * 0.8) / 5) * 5;
   const hi = Math.max(lo + 5, Math.ceil((min * 1.2) / 5) * 5);
-  return `${lo || '<5'}–${hi} min`;
+  // "under 10 min", never "<5–10" (S4 reviews).
+  return lo ? `${lo}–${hi} min` : `under ${hi} min`;
 }
 
 /** The range inside a sentence: "in 10–15 min", "within 5 min", "now". */

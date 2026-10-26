@@ -44,7 +44,7 @@ export const ROLES = Object.freeze({
     textScale: 1.75,
     label: 'Weather & alerts',
     kicker: 'WEATHER & ALERTS',
-    sub: 'Official alerts · sensed hazards',
+    sub: 'Official alerts · storm approach · sensed',
     canvas: true,
     scale: 'city',
     // Seen from across the room (review R7): the weather and heat layers.
@@ -273,7 +273,12 @@ export const SAFETY_LAYERS = Object.freeze([
  * S2 People. A wall carrying more than one role (one or two screens)
  * converts with them: a second card column (55-S2-PLAN §2).
  */
-export const WALL_LAYOUT_ROLES = new Set(['site', 'travelers', 'incident']);
+export const WALL_LAYOUT_ROLES = new Set([
+  'site',
+  'travelers',
+  'incident',
+  'weather',
+]);
 export const wallShellOn = (screen = {}) => WALL_LAYOUT_ROLES.has(screen.role);
 
 /**

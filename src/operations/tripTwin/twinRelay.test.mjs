@@ -389,6 +389,44 @@ test('S3 board: Map only needs a map — refused at the wall; Columns kept (S3 r
   );
 });
 
+test('S4: the demo storm keeps alert areas on at a wall (A5-S4-PLAN)', () => {
+  const relay = createRelay();
+  const launcher = fakeSocket();
+  relay.attach(launcher);
+  launcher.say({ t: 'setup', count: 4 });
+  const { setup } = launcher.last('setup');
+  const s4 = fakeSocket();
+  relay.attach(s4);
+  s4.say({ t: 'hello', id: 'S4', kind: 'screen', setup, slot: 4 });
+  const remote = fakeSocket();
+  relay.attach(remote);
+  remote.say({ t: 'hello', id: 'R', kind: 'remote', setup, name: 'iPad' });
+  let req = 0;
+  const wall = (patch) => {
+    s4.say({
+      t: 'screen-cmd',
+      reqId: ++req,
+      cmd: { type: 'screens', target: 4, patch },
+    });
+    return s4.last('ack');
+  };
+  // Calm: the wall may turn them off.
+  assert.equal(wall({ layers: { alertAreas: false } }).ok, true);
+  assert.equal(wall({ layers: { alertAreas: true } }).ok, true);
+  remote.say({
+    t: 'cmd',
+    reqId: ++req,
+    cmd: { type: 'session', patch: { simStorm: Date.now() } },
+  });
+  const r = wall({ layers: { alertAreas: false } });
+  assert.equal(r.ok, false);
+  assert.equal(r.code, 'SAFETY_LAYER');
+  // Heat is not held by a storm (only a fire or smoke warning, at the wall).
+  assert.equal(wall({ layers: { fires: false } }).ok, true);
+  // Weather layers stay free at the host; S4's hold is the wall's.
+  assert.equal(wall({ layers: { lightning: false } }).ok, true);
+});
+
 test("CF: a wall's keyboard changes share the per-device command limit (S-16) and carry no actor field from the page", () => {
   const relay = createRelay();
   const launcher = fakeSocket();

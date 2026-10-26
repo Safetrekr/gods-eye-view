@@ -2138,8 +2138,25 @@ async function main() {
     const boxes = ['tt-editor', 'tt-incident', 'tt-card', 'tt-st', 'tt-wst']
       .map(visibleBox)
       .filter(Boolean);
+    // S4's cards are a panel in the left column; its dock along the
+    // bottom (S4 reviews: labels under the cards, framing off-centre).
+    const box = (el) => {
+      if (!el || el.hidden) return null;
+      const r = el.getBoundingClientRect();
+      return r.width && r.height ? r : null;
+    };
+    // The panel is display: contents there; the column is the box.
+    const wxCards =
+      document.body.dataset.role === 'weather' &&
+      document.body.classList.contains('tt-wall-shell')
+        ? box($('tt-rcol'))
+        : null;
+    const dock = document.body.classList.contains('tt-wall-map')
+      ? box(document.querySelector('.tt-wxtl'))
+      : null;
     const leftBoxes = [
       visibleBox('tt-rail') || visibleBox('tt-advance'),
+      wxCards,
       ...boxes.filter((r) => r.left + r.width / 2 < mid),
     ].filter(Boolean);
     const left = leftBoxes.length
@@ -2157,7 +2174,8 @@ async function main() {
         ? innerWidth - Math.min(...right.map((r) => r.left))
         : 0,
       top: (visibleBox('tt-mapbar') || bar).bottom + 24,
-      bottom: innerHeight - tools.top,
+      bottom:
+        innerHeight - Math.min(tools.top, dock ? dock.top - 24 : Infinity),
     };
   });
   /** Any simulated feed on (review/phase5 J9). */
@@ -5657,9 +5675,18 @@ async function main() {
         text: `${src} alerts unavailable right now · not checked`,
       });
     else if (!wx.warnings.length)
-      list.push({
-        text: `${src} checked ${wx.warningsAt ? ago(wx.warningsAt) : 'at load'}: no active alerts returned for this point`,
-      });
+      list.push(
+        // Under the demo the real check is a note, not a second answer
+        // beside the simulated warning (A5-S4-PLAN).
+        a
+          ? {
+              note: true,
+              text: `Real ${src} under the demo: no active alerts returned · checked ${wx.warningsAt ? ago(wx.warningsAt) : 'at load'}`,
+            }
+          : {
+              text: `${src} checked ${wx.warningsAt ? ago(wx.warningsAt) : 'at load'}: no active alerts returned for this point`,
+            },
+      );
     else
       for (const w of nc.alerts?.length ? nc.alerts : wx.warnings)
         list.push({
@@ -5685,6 +5712,13 @@ async function main() {
     const s = simAlert();
     if (s) list.unshift({ ...s, untilText: untilText(s.ends) });
     return list;
+  }
+  /** Whether the lightning grid has answered (a null ltgLine then means
+   *  none near, not unknown; S4 every-time r2 N2). */
+  function ltgKnown() {
+    if (nc.sim?.strikes) return true;
+    const img = wx.images.lightning;
+    return Boolean(img) && !wx.imageErr?.lightning;
   }
   /** The nearest lightning: {point, distKm, dir, text, label} or null. */
   function ltgLine() {
@@ -5724,7 +5758,9 @@ async function main() {
       (r) => r.verdict?.bucket === 'Outside, nearby',
     );
     return rows.map((r) => ({
-      name: shortName(r.person.name),
+      id: r.person.id,
+      // The screen's name style (visitor mode: initials; A5-S4-PLAN).
+      name: styledName(r.person.name),
       distM: r.verdict.distM,
       walkMin: Number.isFinite(r.verdict.distM)
         ? Math.max(1, Math.round((r.verdict.distM * 1.3) / 80))
@@ -5875,7 +5911,11 @@ async function main() {
   sevKey.hidden = true;
   sevKey.setAttribute('aria-label', 'Storm colour key');
   function renderSevKey(show, simulated) {
-    const host = document.querySelector('.tt-compass');
+    // A converted map wall docks the key with the timeline (A5-S4-PLAN):
+    // the compass is in the map bar, by the alert zone.
+    const host = document.body.classList.contains('tt-wall-map')
+      ? document.querySelector('.tt-wxtl')
+      : document.querySelector('.tt-compass');
     if (host && sevKey.parentNode !== host) host.append(sevKey);
     sevKey.hidden = !show;
     if (!show) return;
@@ -6132,14 +6172,147 @@ async function main() {
     renderWeather();
   }
   /** OFFICIAL kicker plus the same lines as every other surface. */
+  /**
+   * S4's left cards (A5-S4-PLAN): Official · Storm approach · Outdoors now
+   * · Sensed · At the hotel, in the board-card recipe. The approach band
+   * owns the numeral and claim, so the approach card keeps the detail.
+   */
+  let lastLtgNear = 0;
+  function weatherCards(node) {
+    const card = (key, kicker, cls = '') => {
+      const sec = document.createElement('section');
+      sec.className = `tt-board-card tt-board-${key}${cls ? ` ${cls}` : ''}`;
+      const k = document.createElement('div');
+      k.className = 'tt-kicker';
+      k.textContent = kicker;
+      sec.append(k);
+      node.append(sec);
+      const add = (c, t) => {
+        const n = document.createElement('div');
+        n.className = c;
+        n.textContent = t;
+        sec.append(n);
+        return n;
+      };
+      add.sec = sec;
+      return add;
+    };
+    const lines = officialLines();
+    const warning = lines.some((l) => l.sim || l.official);
+    const ap = nc.text || approachLine();
+    const near = ['arriving', 'near', 'over'].includes(ap.status);
+    {
+      const add = card(
+        'official',
+        officialKicker(),
+        warning ? 'attention' : '',
+      );
+      for (const l of lines)
+        add(
+          l.note
+            ? 'tt-wall-note'
+            : `tt-wall-line${l.sim ? ' sim' : l.official ? ' official' : l.warn ? ' warn' : ''}`,
+          l.text,
+        );
+    }
+    {
+      const add = card(
+        'approach',
+        `STORM APPROACH · RADAR TRACK${nc.sim ? ' · SIMULATED' : ''}`,
+        !warning && ['near', 'over'].includes(ap.status) ? 'attention' : '',
+      );
+      // The band says the numeral and the claim; here the track's detail
+      // (and the claim only when there is no band, e.g. no storm).
+      // With the band showing, its numeral, claim and track are not said
+      // again: one row, where the core is and where it goes (S4 reviews:
+      // four repeated lines pushed lightning out).
+      const band = Boolean(ap.lead);
+      add(
+        'tt-wall-line',
+        band
+          ? String(ap.detail || ap.claim || ap.text)
+              .split(' · ')
+              .slice(0, 2)
+              .join(' · ')
+              .replace(/^./, (c) => c.toUpperCase())
+          : ap.claim || ap.text,
+      );
+      if (!band && ap.detail) add('tt-wall-note', ap.detail);
+      if (nc.realText)
+        add('tt-wall-note', `Real radar under the demo: ${nc.realText.text}`);
+      const pace = lastCtx?.weather?.pace;
+      if (lastCtx?.mode?.mode === 'incident' && pace)
+        add(
+          'tt-wall-line',
+          `If the group must move: allow ${pace.pct}% more walking time · ${pace.band} rain${pace.simulated ? ' (simulated)' : ''}`,
+        );
+    }
+    const out = outdoorsNow();
+    if (out.length && near) {
+      const add = card('outdoors', `OUTDOORS NOW · ${out.length}`, 'amber');
+      add.sec.dataset.total = String(out.length);
+      for (const o of out.slice(0, 6))
+        add(
+          'tt-wall-line',
+          `${o.name} · ${formatDistance(o.distM)} from the ${siteNounNow()}${o.walkMin ? ` · about ${o.walkMin} min walk` : ''}`,
+        );
+      if (out.length > 6)
+        add('tt-wall-note', `+${out.length - 6} more · on People`);
+    }
+    {
+      // Worst first: in a storm (or with lightning found) lightning leads,
+      // so a fold never keeps "heat · none" over it (S4 reviews, P0).
+      const ltg = ltgLine();
+      const add = card('sensed', 'SENSED', ltg || near ? 'keep' : '');
+      const lines = [
+        lastCtx?.fires?.line || 'Satellite heat detections · loading',
+        ltg?.text ||
+          (ltgKnown()
+            ? `Lightning: none within ${imperial() ? '19 mi' : '30 km'} in the latest grid`
+            : 'Lightning: grid not loaded · not checked'),
+      ];
+      if (ltg || near) lines.reverse();
+      for (const t of lines) add('tt-wall-line', t);
+    }
+    {
+      const add = card('hotel', `AT THE ${siteNounNow().toUpperCase()}`);
+      // From the chip's parts, said once: "Now · 73 °F · cloudy (SIMULATED)
+      // · temperature MET Norway" (S4 reviews: "SIM · … prototype").
+      const chip = $('tt-wx');
+      const q = (sel) => chip.querySelector(sel)?.textContent.trim() || '';
+      const sim =
+        Boolean(chip.querySelector('.wx-live.sim')) ||
+        q('.wx-live') === 'SIM' ||
+        Boolean(nc.simStart);
+      const parts = [
+        sim ? 'Now' : q('.wx-live'),
+        q('.wx-t'),
+        `${q('.wx-c').replace(/^SIMULATED\s*/i, '')}${sim ? ' (SIMULATED)' : ''}`,
+        q('.wx-src').replace(/^prototype\s*·\s*/i, ''),
+      ].filter((t) => t && t !== ' (SIMULATED)');
+      add(
+        'tt-wall-line',
+        q('.wx-t')
+          ? parts.join(' · ')
+          : chip.textContent || 'Weather · loading',
+      );
+      add(
+        'tt-wall-note',
+        'Sources and ages as shown · never a statement that conditions are fine',
+      );
+    }
+  }
+  /** "OFFICIAL · NWS", "· SIMULATED" over the demo warning (S4 IA P1-3). */
+  function officialKicker() {
+    return `OFFICIAL · ${WX.warnings === 'nws' ? 'NWS' : 'MeteoAlarm'}${simAlert() ? ' · SIMULATED' : ''}`;
+  }
   function officialInto(add) {
-    add(
-      'tt-kicker',
-      `OFFICIAL · ${WX.warnings === 'nws' ? 'NWS' : 'MeteoAlarm'}`,
-    );
+    add('tt-kicker', officialKicker());
     for (const l of officialLines())
       add(
-        `tt-wall-line${l.sim ? ' sim' : l.official ? ' official' : l.warn ? ' warn' : ''}`,
+        l.note
+          ? 'tt-wall-note'
+          : `tt-wall-line${l.sim ? ' sim' : l.official ? ' official' : l.warn ? ' warn' : ''}`,
         l.text,
       );
   }
@@ -7504,11 +7677,8 @@ async function main() {
         (l) => l.official || l.sim || l.warn,
       );
       if (official.length) {
-        const add = card(
-          'official',
-          `OFFICIAL · ${WX.warnings === 'nws' ? 'NWS' : 'MeteoAlarm'}`,
-          'keep',
-        );
+        // One look for a warning on every wall: amber (S4 brand P1-1).
+        const add = card('official', officialKicker(), 'keep attention');
         for (const l of official)
           add(
             `tt-wall-line${l.sim ? ' sim' : l.official ? ' official' : ' warn'}`,
@@ -7598,14 +7768,15 @@ async function main() {
         );
     },
     /** Weather & alerts: official first, then sensed, then now (S4). */
-    weatherPanel(node) {
+    weatherPanel(node, o = {}) {
+      node.replaceChildren();
+      if (o.cards) return weatherCards(node);
       const add = (cls, t) => {
         const n = document.createElement('div');
         n.className = cls;
         n.textContent = t;
         node.append(n);
       };
-      node.replaceChildren();
       officialInto(add);
       const ap = nc.text || approachLine();
       add(
@@ -7657,6 +7828,66 @@ async function main() {
         'Sources and ages as shown · never a statement that conditions are fine',
       );
     },
+    /** What a wall keeps on in weather (A5-S4-PLAN): {warning, sim, near}. */
+    weatherGuard() {
+      const ap = nc.text || approachLine();
+      // The 30-minute lightning rule (travel-risk advice, 25 Oct): the hold
+      // lasts until no lightning within ~10 mi for 30 min.
+      const ltg = ltgLine();
+      if (ltg && (ltg.inside || ltg.distKm <= 16)) lastLtgNear = Date.now();
+      // Not loaded is unknown, not clear: a hold already on stays on.
+      else if (!ltg && lastLtgNear && !ltgKnown()) lastLtgNear = Date.now();
+      const real = wx.warningsStatus !== 'unavailable' ? wx.warnings || [] : [];
+      return {
+        // Warnings for this point (the NWS point query: near the trip);
+        // an advisory or a statement is not a warning (S4 AIA P1-2).
+        warning:
+          Boolean(simAlert()) || real.some((w) => /warning/i.test(w.event)),
+        // Heat stays on for fire and smoke warnings, not a thunderstorm.
+        fireWarning: real.some(
+          (w) =>
+            /fire|smoke|red flag/i.test(w.event) && /warning/i.test(w.event),
+        ),
+        sim: Boolean(nc.simStart),
+        near:
+          ['near', 'over'].includes(ap?.status) ||
+          Date.now() - lastLtgNear < 30 * 60e3,
+      };
+    },
+    /** Everyone outdoors in view, from above (S4 tile). */
+    frameOutdoors() {
+      const ids = new Set(outdoorsNow().map((o) => o.id));
+      if (!ids.size || twin.state !== 'ready') return;
+      if (ids.size === 1)
+        return twin.selectPerson([...ids][0], { frame: true });
+      const pts = (lastCtx?.snapshot?.participants || [])
+        .filter((p) => ids.has(p.id) && p.coordinates)
+        .map((p) =>
+          Cesium.Cartesian3.fromDegrees(
+            p.coordinates.lng,
+            p.coordinates.lat,
+            twin.scene.hotelBase,
+          ),
+        );
+      if (!pts.length) return;
+      const sphere = Cesium.BoundingSphere.fromPoints(pts);
+      sphere.radius = Math.max(sphere.radius, 120);
+      twin.flySafe(sphere, {
+        heading: viewer.camera.heading,
+        pitch: -Cesium.Math.PI_OVER_TWO + 0.001,
+        range: Math.max(500, sphere.radius * 3.2),
+        duration: reducedMotion() ? 0 : 1.2,
+      });
+    },
+    outdoorsCount: () => outdoorsNow().length,
+    /** "Forecast 01:00" while the weather is not for now, else ''. */
+    wxTimeText: () =>
+      wx.at == null
+        ? ''
+        : `${wx.at > Date.now() ? 'Forecast' : 'Map at'} ${wxTime(wx.at)}`,
+    frameStorm: () => frameStorm(),
+    stormTracked: () =>
+      Boolean(ncView()?.ap?.core || lastCtx?.weather?.approach),
     /** Trips on watch (S6): every sample trip, by need. */
     tripsPanel(node) {
       const now = Date.now();

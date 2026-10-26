@@ -903,9 +903,9 @@ body[data-view='screen'][data-role='trips'] .tt-wxtl {
   white-space: normal;
 }
 .tt-wall-line.sim {
-  color: var(--tt-text-2);
-  border-left: 2px dashed var(--tt-text-2);
-  padding-left: 8px;
+  /* A simulated warning reads as a warning on every wall, in amber; the
+     word SIMULATED says what it is (S4 brand P1-1). */
+  color: var(--tt-attention);
 }
 .tt-kicker.attention {
   color: var(--tt-attention);

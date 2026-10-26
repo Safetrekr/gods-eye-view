@@ -141,7 +141,9 @@ export function wallPage(role, ctx) {
   if (page.options.length)
     groups.push({
       title: `${(ROLES[role]?.label || 'Page').toUpperCase()} OPTIONS`,
-      note: 'Saved for this screen',
+      // LAYOUT's note already says where these are saved.
+      note: page.note || (layout.length ? '' : 'Saved for this screen'),
+      keep: Boolean(page.note),
       options: page.options,
     });
   return {
@@ -204,6 +206,14 @@ function planTile(api) {
     action: () => api.planView(),
   };
 }
+
+/** S4's saved weather layers; alert areas, heat and clouds are in Layers. */
+const WX_LAYERS = [
+  ['precip', 'Rain map'],
+  ['radar3d', 'Storm shells'],
+  ['lightning', 'Lightning'],
+  // Clouds stays in Layers (L): the row stays whole in a 1117 menu.
+];
 
 const PAGES = {
   // S1 Site (05-S1-PLAN): Ways out is a saved layer; the tiles move the
@@ -330,10 +340,102 @@ const PAGES = {
       ],
     };
   },
-  weather: ({ api }) => ({
-    options: [],
-    tiles: [planTile(api), northTile(api), restoreTile(api)],
-  }),
+  // S4 Weather & alerts (A5-S4-PLAN): the timeline and four weather
+  // layers are saved; alert areas and heat stay in Layers (safety layers).
+  // Tiles: the storm, who is outdoors, the hotel / the shared bottom row.
+  weather({ screen, save, api }, { off, why }) {
+    const l = layoutValue(screen);
+    const outdoors = api.outdoorsCount?.() || 0;
+    // Held on while a warning is active or the storm is near (S4 AIA P1-1:
+    // the hold shows before a press).
+    const wg = api.weatherGuard?.() || {};
+    const hold = Boolean(wg.warning || wg.near);
+    const held = (k) =>
+      hold &&
+      (k === 'lightning' ||
+        ((k === 'precip' || k === 'radar3d') &&
+          layerValue(screen, k) &&
+          !layerValue(screen, k === 'precip' ? 'radar3d' : 'precip')));
+    return {
+      // Said above the toggles, so a short menu never hides it (S4 r2).
+      note: hold
+        ? `Held on: lightning, one storm picture (${wg.warning ? 'warning' : 'storm near'})`
+        : '',
+      options: [
+        {
+          // One row of toggles (the menu's middle holds it whole at 1440):
+          // the timeline (a layout field) and the four weather layers.
+          key: 'show',
+          label: 'Show',
+          multi: true,
+          choices: [
+            {
+              value: 'timeline',
+              label: 'Timeline',
+              on: !l.off.includes('timeline'),
+            },
+            ...WX_LAYERS.map(([value, label]) => ({
+              value,
+              label,
+              on: layerValue(screen, value),
+              held: held(value),
+            })),
+          ],
+          value: [
+            l.off.includes('timeline') ? 0 : 1,
+            ...WX_LAYERS.map(([k]) => (layerValue(screen, k) ? 1 : 0)),
+          ].join(''),
+          disabled: off,
+          reason: why,
+          pick: (k, on) =>
+            k === 'timeline'
+              ? save(
+                  {
+                    layout: {
+                      off: on
+                        ? l.off.filter((x) => x !== 'timeline')
+                        : [...new Set([...l.off, 'timeline'])],
+                    },
+                  },
+                  `Timeline ${on ? 'on' : 'off'}`,
+                )
+              : save(
+                  { layers: { [k]: on } },
+                  `${WX_LAYERS.find(([x]) => x === k)[1]} ${on ? 'on' : 'off'}`,
+                ),
+        },
+      ],
+      tiles: [
+        {
+          key: 'storm',
+          label: 'Frame the storm',
+          icon: ICON.storm,
+          title: 'The hotel and the storm core in view',
+          disabled: !api.stormTracked?.(),
+          reason: 'No storm on the radar track',
+          action: () => api.frameStorm(),
+        },
+        {
+          key: 'outdoors',
+          label: 'Frame who is outdoors',
+          icon: ICON.travelers,
+          title: 'Everyone outdoors near the hotel, from above',
+          disabled: !outdoors,
+          reason: 'No one outdoors',
+          action: () => api.frameOutdoors(),
+        },
+        {
+          key: 'frame',
+          label: 'Frame the hotel',
+          icon: MOVE_ICON.frame,
+          action: () => api.frameHotel(),
+        },
+        northTile(api),
+        planTile(api),
+        restoreTile(api, "Face north, at this screen's saved scale"),
+      ],
+    };
+  },
   day: ({ api }) => ({
     options: [],
     tiles: [planTile(api), northTile(api), restoreTile(api)],

@@ -351,18 +351,22 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     if (first) return;
     requestAnimationFrame(() => {
       api.refitRail?.();
-      if (b.classList.contains('tt-wall-board')) renderPanel();
+      if (b.classList.contains('tt-wall-board') || b.dataset.role === 'weather')
+        renderPanel();
     });
   }
 
   function renderPanel() {
     const role = document.body.dataset.role;
     // Off the board wall the panel goes back to the page.
+    const shellWx =
+      role === 'weather' && document.body.classList.contains('tt-wall-shell');
     if (
       panel.parentNode !== document.body &&
       !(
         role === 'incident' && document.body.classList.contains('tt-wall-board')
-      )
+      ) &&
+      !shellWx
     )
       document.body.append(panel);
     panel.hidden = !(
@@ -371,7 +375,13 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       role === 'incident' ||
       role === 'day'
     );
-    if (role === 'weather') api.weatherPanel(panel);
+    if (shellWx) {
+      // S4 in the new frame (A5-S4-PLAN): the cards sit in the left column.
+      const rcol = document.getElementById('tt-rcol');
+      if (rcol && panel.parentNode !== rcol) rcol.append(panel);
+      api.weatherPanel(panel, { cards: true });
+      fitWeather();
+    } else if (role === 'weather') api.weatherPanel(panel);
     else if (role === 'trips') api.tripsPanel(panel);
     else if (role === 'day') api.dayPanel?.(panel);
     else if (
@@ -469,13 +479,88 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         const more = el(
           'div',
           'tt-wall-note',
-          `+${total - 3} earlier · on the All-in-one`,
+          `+${total - 3} earlier · on the remote`,
         );
         ch.append(more);
       }
     }
     const paths = panel.querySelector('.tt-board-paths');
     if (paths && over()) paths.remove();
+  }
+
+  /**
+   * S4's cards never run off the wall silently (A5-S4-PLAN): the sources
+   * note goes, then At the hotel and Sensed fold to their first line,
+   * then Outdoors keeps three names and counts the rest. Official and the
+   * approach never step out.
+   */
+  function fitWeather() {
+    const rcol = document.getElementById('tt-rcol');
+    if (!rcol) return;
+    const over = () => rcol.scrollHeight > rcol.clientHeight + 2;
+    const steps = [
+      () => {
+        for (const n of panel.querySelectorAll(
+          '.tt-board-approach .tt-wall-note',
+        ))
+          n.remove();
+      },
+      () => panel.querySelector('.tt-board-hotel .tt-wall-note')?.remove(),
+      () => {
+        for (const n of [
+          ...panel.querySelectorAll('.tt-board-hotel .tt-wall-line'),
+        ].slice(1))
+          n.remove();
+      },
+      () => {
+        const lines = [
+          ...panel.querySelectorAll('.tt-board-sensed .tt-wall-line'),
+        ];
+        for (const n of lines.slice(1)) n.remove();
+        if (lines.length > 1)
+          panel
+            .querySelector('.tt-board-sensed')
+            ?.append(
+              el(
+                'div',
+                'tt-wall-note',
+                `+${lines.length - 1} more · on the remote`,
+              ),
+            );
+      },
+      () => {
+        const lines = [
+          ...panel.querySelectorAll('.tt-board-outdoors .tt-wall-line'),
+        ];
+        const total = Number(
+          panel.querySelector('.tt-board-outdoors')?.dataset.total || 0,
+        );
+        if (lines.length <= 3) return;
+        for (const n of lines.slice(3)) n.remove();
+        panel.querySelector('.tt-board-outdoors .tt-wall-note')?.remove();
+        panel
+          .querySelector('.tt-board-outdoors')
+          ?.append(
+            el(
+              'div',
+              'tt-wall-note',
+              `+${Math.max(total, lines.length) - 3} more · on People`,
+            ),
+          );
+      },
+      // Last: At the hotel folds to its kicker and a pointer.
+      () => {
+        const h = panel.querySelector('.tt-board-hotel');
+        if (!h) return;
+        for (const n of h.querySelectorAll('.tt-wall-line, .tt-wall-note'))
+          n.remove();
+        h.append(el('div', 'tt-wall-note', 'On the remote'));
+      },
+    ];
+    for (const step of steps) {
+      if (!over()) break;
+      step();
+    }
   }
 
   /**
@@ -1103,10 +1188,20 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     }
     if (safetyNote.parentNode !== bar) bar.prepend(safetyNote);
     const n = SAFETY_LAYERS.filter((k) => !layerValue(s, k)).length;
-    safetyNote.hidden = n === 0;
-    safetyNote.textContent = n
-      ? `${n} safety layer${n > 1 ? 's' : ''} off`
-      : '';
+    const parts = n ? [`${n} safety layer${n > 1 ? 's' : ''} off`] : [];
+    // S4 (A5-S4-PLAN, S4 AIA): what the map leaves out and when it is for.
+    if (s.role === 'weather') {
+      const t = api.wxTimeText?.() || '';
+      if (t) parts.unshift(`${t} · set on the remote`);
+      const wg = api.weatherGuard?.() || {};
+      if (wg.warning || wg.near) {
+        if (!layerValue(s, 'lightning')) parts.push('Lightning off');
+        if (!layerValue(s, 'precip') && !layerValue(s, 'radar3d'))
+          parts.push('Storm pictures off');
+      }
+    }
+    safetyNote.hidden = parts.length === 0;
+    safetyNote.textContent = parts.join(' · ');
   }
 
   // The menu open counts as hands on the wall (screens/05-S1-PLAN §12).
@@ -1195,9 +1290,9 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       return {
         layers: Object.fromEntries(
           Object.entries(s.layers || {}).filter(
-            // A safety layer that is off would get the whole Undo refused
-            // while a report is open (F39).
-            ([k, v]) => v || !api.incidentOpen() || !SAFETY_LAYERS.includes(k),
+            // A layer the wall would refuse now would get the whole Undo
+            // refused (F39; the weather rules too).
+            ([k, v]) => !layerRefusal({ [k]: v }, s),
           ),
         ),
         motion: { ...(s.motion || {}) },
@@ -1207,11 +1302,14 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       };
     const out = {};
     for (const [k, v] of Object.entries(cmd.patch || {})) {
-      if (k === 'layers')
+      if (k === 'layers') {
         out.layers = Object.fromEntries(
-          Object.keys(v).map((x) => [x, layerValue(s, x)]),
+          Object.keys(v)
+            .map((x) => [x, layerValue(s, x)])
+            .filter(([x, old]) => !layerRefusal({ [x]: old }, s)),
         );
-      else if (k === 'motion')
+        if (!Object.keys(out.layers).length) delete out.layers;
+      } else if (k === 'motion')
         out.motion = Object.fromEntries(
           Object.keys(v).map((x) => [x, s.motion?.[x] !== false]),
         );
@@ -1221,6 +1319,39 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       } else out[k] = s[k] ?? null;
     }
     return out;
+  }
+
+  /**
+   * Why a layers patch would be refused at this wall, or ''. A report from
+   * any source keeps the safety layers on (F6). Weather (A5-S4-PLAN):
+   * alert areas and heat stay on under an official warning or the demo
+   * storm (as the host); on S4, while a warning is active or the storm is
+   * near, lightning and one storm picture stay on too.
+   */
+  function layerRefusal(lay, s) {
+    const offs = Object.keys(lay).filter(
+      (k) => lay[k] === false && SAFETY_LAYERS.includes(k),
+    );
+    if (offs.length && api.incidentOpen())
+      return 'A report is open · safety layers stay on at the wall';
+    const wg = api.weatherGuard?.() || {};
+    // Alert areas under a warning or the demo storm; heat only under a
+    // fire or smoke warning (travel-risk advice, 25 Oct).
+    if (offs.includes('alertAreas') && (wg.warning || wg.sim))
+      return `${wg.warning ? 'An official warning is active' : 'The demo storm is running (SIMULATED)'} · alert areas stay on at the wall`;
+    if (offs.includes('fires') && wg.fireWarning)
+      return 'A fire or smoke warning is active · heat detections stay on at the wall';
+    if (s?.role === 'weather' && (wg.warning || wg.near)) {
+      const val = (k) => (k in lay ? lay[k] : layerValue(s, k));
+      if (
+        lay.lightning === false ||
+        (('precip' in lay || 'radar3d' in lay) &&
+          !val('precip') &&
+          !val('radar3d'))
+      )
+        return `${wg.warning ? 'A warning is active' : 'The storm is near'} · lightning and one storm picture stay on`;
+    }
+    return '';
   }
 
   /**
@@ -1235,15 +1366,10 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       return { ok: false, error: g.why };
     }
     if (saving) return { ok: false, error: 'Saving…' };
-    // A report from any source, the trip's own data too, keeps the safety
-    // layers on at the wall (F6; the relay refuses session reports too).
-    const offs = Object.entries(cmd.patch?.layers || {}).filter(
-      ([k, v]) => v === false && SAFETY_LAYERS.includes(k),
-    );
-    if (offs.length && api.incidentOpen()) {
-      const why = 'A report is open · safety layers stay on at the wall';
-      note(why, '');
-      return { ok: false, error: why };
+    const refusal = layerRefusal(cmd.patch?.layers || {}, me());
+    if (refusal) {
+      note(refusal, '');
+      return { ok: false, error: refusal };
     }
     if (cmd.type === 'screens') cmd = { ...cmd, target: mySlot };
     const old = undo ? before(cmd) : null;
