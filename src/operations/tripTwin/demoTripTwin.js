@@ -816,15 +816,27 @@ export function tripTwinDemoSnapshot(
     reported_incidents:
       sc === 'a'
         ? [
-            {
-              id: 'rep-smoke-9',
-              place_id: placeId,
-              kind: 'smoke',
-              floor_label: 9,
-              source: 'hotel desk',
-              reported_at: toIso(-120),
-              verified: false,
-            },
+            // London's sample report is its own event (Jesse, 26 Oct): on
+            // Trips on watch it never reads as Austin's floor 9 twice.
+            cityKey === 'london'
+              ? {
+                  id: 'rep-fire-4',
+                  place_id: placeId,
+                  kind: 'fire',
+                  floor_label: 4,
+                  source: 'hotel desk',
+                  reported_at: toIso(-120),
+                  verified: false,
+                }
+              : {
+                  id: 'rep-smoke-9',
+                  place_id: placeId,
+                  kind: 'smoke',
+                  floor_label: 9,
+                  source: 'hotel desk',
+                  reported_at: toIso(-120),
+                  verified: false,
+                },
           ]
         : [],
     scenario: {

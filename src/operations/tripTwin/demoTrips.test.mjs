@@ -32,7 +32,10 @@ test('tiles: the trip with a reported incident comes first; never "all clear"', 
   );
   const sorted = sortTiles(tiles);
   assert.equal(sorted[0].id, 'trip-youth-london');
-  assert.match(sorted[0].incident, /floor 9 \(hotel desk, .* not verified\)/);
+  assert.match(
+    sorted[0].incident,
+    /^Fire reported, floor 4 \(hotel desk, .* not verified\)/,
+  );
   for (const t of tiles) {
     assert.ok(t.people > 0);
     assert.match(t.localTime, /^\d\d:\d\d$/);

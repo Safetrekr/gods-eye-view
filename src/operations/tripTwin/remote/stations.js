@@ -451,7 +451,11 @@ function tripsOnWatch(ctx) {
                 simStorm: null,
               },
             },
-            `Every screen → ${x.title} (screens reload into its city)`,
+            // The confirm names the open report the switch closes (Jesse,
+            // 26 Oct: allow, never lock out the duty officer, but say it).
+            ctx.state.session.report
+              ? `Every screen → ${x.title} · this closes ${t.title}'s open report (${ctx.state.session.report.kind || 'report'}${ctx.state.session.report.floor != null ? `, floor ${ctx.state.session.report.floor}` : ''}) on every wall`
+              : `Every screen → ${x.title} (screens reload into its city)`,
           ),
         x.id === t.id,
       ),
