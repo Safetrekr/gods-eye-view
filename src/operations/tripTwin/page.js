@@ -867,7 +867,7 @@ async function main() {
   function defaultPlanDay() {
     const evs = advEvents();
     const today = todayDay();
-    const now = Date.now();
+    const now = planNow();
     const left = evs.filter(
       (e) => e.day === today && Number.isFinite(e.epoch) && e.epoch > now,
     );
@@ -916,7 +916,7 @@ async function main() {
     return heroRow(parts[1] || '—', parts[2] || 'at the site');
   }
   function dayHero(day) {
-    const now = Date.now();
+    const now = planNow();
     const next =
       advEvents().find(
         (e) => e.day === day && Number.isFinite(e.epoch) && e.epoch > now,
@@ -1545,20 +1545,26 @@ async function main() {
     lastChips = chips;
     const max = 4;
     const selId = selection?.kind === 'place' ? selection.place.id : null;
-    const list = chips.slice(0, max).map((c) => {
-      const b = document.createElement(c.onClick ? 'button' : 'span');
-      if (c.onClick) {
-        b.type = 'button';
-        b.addEventListener('click', c.onClick);
-      }
-      b.className = `tt-chip${c.wx ? ` wx ${c.wx}` : ''}${c.draft || c.missing ? ' draft' : ''}${c.hazard ? ' hazard' : ''}${c.people ? ' people' : ''}${c.site ? ' site' : ''}${c.id && c.id === selId ? ' on' : ''}`;
-      if (c.id && c.id === selId) b.setAttribute('aria-current', 'true');
-      b.textContent =
-        c.missing || c.people || c.plain
-          ? c.label
-          : `${c.label} ${c.distance} ${c.bearing}`;
-      return b;
-    });
+    // S5's shown stop is among the four shown, first (S5 r2).
+    const list = [...chips]
+      .sort((x, y) => (y.shown ? 1 : 0) - (x.shown ? 1 : 0))
+      .slice(0, max)
+      .map((c) => {
+        const b = document.createElement(c.onClick ? 'button' : 'span');
+        if (c.onClick) {
+          b.type = 'button';
+          b.addEventListener('click', c.onClick);
+        }
+        b.className = `tt-chip${c.wx ? ` wx ${c.wx}` : ''}${c.draft || c.missing ? ' draft' : ''}${c.hazard ? ' hazard' : ''}${c.people ? ' people' : ''}${c.site ? ' site' : ''}${c.shown ? ' shown' : ''}${c.id && c.id === selId ? ' on' : ''}`;
+        if (c.id && c.id === selId) b.setAttribute('aria-current', 'true');
+        b.textContent =
+          c.missing || c.people || c.plain
+            ? c.label
+            : // "Long Center · Day 2 · 0.8 mi W": a label ending in a number
+              // gets a dot, so "Day 2 0.8" never reads as one figure (S5 IA).
+              `${c.label}${/\d$/.test(c.label) ? ' ·' : ''} ${c.distance} ${c.bearing}`;
+        return b;
+      });
     if (chips.length > max) {
       const more = document.createElement('span');
       more.className = 'tt-chip draft';
@@ -1830,6 +1836,11 @@ async function main() {
         const pt = x.anchors?.inside || x.center;
         return {
           label: `${x.short}${x.day ? ` · Day ${x.day}` : ' · hotel'}`,
+          // S5: the shown stop's chip is marked and steps out last.
+          shown:
+            document.body.classList.contains('tt-wall-shell') &&
+            appMode === 'advance' &&
+            advEvents().find((e) => e.key === adv.eventKey)?.siteKey === x.key,
           distance: formatDistance(haversineM(here2, pt)),
           bearing: bearingLabel(here2, pt),
           site: true,
@@ -2147,15 +2158,17 @@ async function main() {
     };
     // The panel is display: contents there; the column is the box.
     const wxCards =
-      document.body.dataset.role === 'weather' &&
+      ['weather', 'day'].includes(document.body.dataset.role) &&
       document.body.classList.contains('tt-wall-shell')
         ? box($('tt-rcol'))
         : null;
     const dock = document.body.classList.contains('tt-wall-map')
-      ? box(document.querySelector('.tt-wxtl'))
+      ? box(document.querySelector('.tt-wxtl')) ||
+        box(document.querySelector('.tt-wxdock'))
       : null;
+    // On S5 the Advance panel steps away for the cards (B5-S5-PLAN).
     const leftBoxes = [
-      visibleBox('tt-rail') || visibleBox('tt-advance'),
+      visibleBox('tt-rail') || (wxCards ? null : visibleBox('tt-advance')),
       wxCards,
       ...boxes.filter((r) => r.left + r.width / 2 < mid),
     ].filter(Boolean);
@@ -3018,7 +3031,7 @@ async function main() {
     scrub.append(range, list);
     const box = el('section', 'tt-adv-brief');
     box.append(
-      el('div', 'tt-kicker', `SITE BRIEF · DAY ${ev.day} · ${ev.start}`),
+      el('div', 'tt-kicker', `STOP BRIEF · DAY ${ev.day} · ${ev.start}`),
       el('div', 'tt-adv-title', site.label),
     );
     if (site.key !== siteKey)
@@ -3193,8 +3206,12 @@ async function main() {
   function syncAdvanceWeather() {
     const ev = advEvents().find((e) => e.key === adv.eventKey);
     const last = wx.steps[wx.steps.length - 1];
+    // S5 shows the weather now during a warning, a near storm or this
+    // trip's report: a calm forecast never stands in for a live storm
+    // (B5-S5-PLAN).
     const ok =
       appMode === 'advance' &&
+      !adv.wxNow &&
       ev?.epoch &&
       last &&
       ev.epoch >= Date.now() - 3600e3 &&
@@ -3411,8 +3428,34 @@ async function main() {
   function todayDay() {
     const start = lastCtx?.snapshot?.trips?.[0]?.start_date;
     if (!start) return 1;
-    const today = Date.parse(new Date().toISOString().slice(0, 10));
+    // The trip's own calendar day, not UTC's (S5 every-time P0-1).
+    const today = Date.parse(
+      new Date().toLocaleDateString('en-CA', { timeZone: city.timezone }),
+    );
     return Math.floor((today - Date.parse(start)) / 86400000) + 1;
+  }
+  /**
+   * "Now" for the plan: today at the clock every wall header shows (the
+   * sample clock), as S6's Next uses — so S5 and S6 agree (S5 reviews,
+   * P0). Jesse's two-clocks answer changes this one place.
+   */
+  function planNow() {
+    const snap = lastCtx?.snapshot;
+    if (!snap?.scenario?.clock) return Date.now();
+    const iso = new Date().toLocaleDateString('en-CA', {
+      timeZone: city.timezone,
+    });
+    return zonedToEpoch(iso, sampleClock(snap), city.timezone);
+  }
+  /** Where this trip's open report is (a site key), else null. */
+  function reportSiteKey() {
+    const m = lastCtx?.mode?.mode;
+    if (m === 'incident') return siteKey;
+    if (m !== 'incident_elsewhere') return null;
+    const snap = lastCtx.snapshot;
+    const here = twin.activePlace()?.id;
+    const r = (snap?.reported_incidents || []).find((x) => x.place_id !== here);
+    return snap?.places?.find((p) => p.id === r?.place_id)?.site_key || null;
   }
   /** Live shows today's saved paths; Advance the selected day (H14). */
   const shownDay = () =>
@@ -5910,13 +5953,28 @@ async function main() {
   sevKey.className = 'tt-wx-key';
   sevKey.hidden = true;
   sevKey.setAttribute('aria-label', 'Storm colour key');
+  const keyDock = document.createElement('div');
+  keyDock.className = 'tt-wxdock';
+  keyDock.hidden = true;
   function renderSevKey(show, simulated) {
     // A converted map wall docks the key with the timeline (A5-S4-PLAN):
     // the compass is in the map bar, by the alert zone.
-    const host = document.body.classList.contains('tt-wall-map')
-      ? document.querySelector('.tt-wxtl')
+    // With no timeline showing (S5's Advance, S4's Timeline off) the key
+    // docks in its own element, in the same place (S4 W8, B5-S5-PLAN).
+    const tl = document.querySelector('.tt-wxtl');
+    const wall = document.body.classList.contains('tt-wall-map');
+    const tlShown =
+      tl &&
+      !tl.hidden &&
+      !document.body.dataset.wallOff?.split(' ').includes('timeline');
+    if (wall && !tlShown && !keyDock.isConnected) document.body.append(keyDock);
+    const host = wall
+      ? tlShown
+        ? tl
+        : keyDock
       : document.querySelector('.tt-compass');
     if (host && sevKey.parentNode !== host) host.append(sevKey);
+    keyDock.hidden = !(wall && !tlShown && show);
     sevKey.hidden = !show;
     if (!show) return;
     const k = simulated ? 'RAIN · SIMULATED' : 'RAIN · RADAR';
@@ -6300,6 +6358,269 @@ async function main() {
         'tt-wall-note',
         'Sources and ages as shown · never a statement that conditions are fine',
       );
+    }
+  }
+  /** A day's first stop still ahead (today), else its first (B5-S5-PLAN). */
+  function nextStop(day) {
+    const evs = advEvents().filter((e) => e.day === day);
+    const today = todayDay();
+    if (day < today) return null;
+    if (day > today) return evs[0] || null;
+    // Today: the first stop still ahead on the plan's clock; none left,
+    // none (never a past stop tagged NEXT: S5 reviews).
+    const now = planNow();
+    return evs.find((e) => Number.isFinite(e.epoch) && e.epoch > now) || null;
+  }
+  const dayDate = (iso) =>
+    iso
+      ? new Date(`${iso}T12:00:00Z`)
+          .toLocaleDateString('en-GB', {
+            weekday: 'short',
+            day: 'numeric',
+            month: 'short',
+            timeZone: 'UTC',
+          })
+          .replace(',', '')
+          .toUpperCase()
+      : '';
+  const localHm = (ms) =>
+    new Date(ms).toLocaleTimeString('en-GB', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: city.timezone,
+    });
+  /**
+   * S5 in the new frame (B5-S5-PLAN): the day's Schedule, the shown stop's
+   * brief, and Official while a warning is active. o = {chosen, report:
+   * {board, people}, weatherWall} — a stop picked at the wall; this trip's
+   * report and which walls carry its board and its people.
+   */
+  function dayCards(node, o = {}) {
+    node.replaceChildren();
+    const card = (key, kicker, cls = '') => {
+      const sec = document.createElement('section');
+      sec.className = `tt-board-card tt-board-${key}${cls ? ` ${cls}` : ''}`;
+      const k = document.createElement('div');
+      k.className = 'tt-kicker';
+      k.textContent = kicker;
+      sec.append(k);
+      node.append(sec);
+      const add = (c, t) => {
+        const n = document.createElement('div');
+        n.className = c;
+        if (t != null) n.textContent = t;
+        sec.append(n);
+        return n;
+      };
+      add.sec = sec;
+      return add;
+    };
+    const ev = advEvents().find((e) => e.key === adv.eventKey);
+    if (!ev || !lastCtx?.snapshot) {
+      card('schedule', 'SCHEDULE')('tt-wall-line', 'Plan loading');
+      return;
+    }
+    const day = ev.day;
+    const today = day === todayDay();
+    const dayWord = today ? 'TODAY' : dayDate(ev.date);
+    const evs = advEvents().filter((e) => e.day === day);
+    const next = nextStop(day);
+    const now = planNow();
+    // This trip's report and where it is (any site of the trip: S5 P0-4).
+    const repKey = o.report ? reportSiteKey() : null;
+    const repSite = o.report
+      ? SITES.find((x) => x.key === repKey) || { label: 'this trip' }
+      : null;
+    const repHere = Boolean(repKey && repKey === ev.siteKey);
+    const site = SITES.find((x) => x.key === ev.siteKey) || SITES[0];
+    // The fit keeps what the situation needs (S5 P0-2).
+    const warning = officialLines().some((l) => l.sim || l.official);
+    node.dataset.ctx = repHere ? 'report' : warning ? 'warning' : '';
+    // 1 · Schedule: the day in time order, the shown stop marked.
+    {
+      const add = card('schedule', `SCHEDULE · DAY ${day} · ${dayWord}`);
+      if (repSite) {
+        add(
+          'tt-wall-line tt-day-report',
+          `Report open · ${repSite.label} · details on ${o.report.board || 'the remote'}`,
+        );
+        add(
+          'tt-wall-note keep',
+          `Traveler positions are not on this wall${o.report.people ? ` · ${o.report.people}` : ''}`,
+        );
+      }
+      // One sunset for the wall: the shown stop's, as its Light row says.
+      let sunset = null;
+      try {
+        const c = site.anchors?.inside || site.center;
+        sunset = sunTimes(ev.date, c.lat, c.lon ?? c.lng).set || null;
+      } catch {
+        /* no sunset row */
+      }
+      const rows = evs.map((e) => ({ e, t: e.epoch }));
+      if (sunset) rows.push({ sun: true, t: +new Date(sunset) });
+      rows.sort((x, y) => (x.t ?? 0) - (y.t ?? 0));
+      for (const r of rows) {
+        if (r.sun) {
+          add('tt-wall-line tt-day-row sun', null).append(
+            Object.assign(document.createElement('span'), {
+              className: 't',
+              textContent: localHm(r.t),
+            }),
+            ' · Sunset',
+          );
+          continue;
+        }
+        const e = r.e;
+        const es = SITES.find((x) => x.key === e.siteKey);
+        const shown = e.key === ev.key;
+        const past = today && Number.isFinite(e.epoch) && e.epoch < now;
+        const line = add(
+          `tt-wall-line tt-day-row${shown ? ' shown' : ''}${past && !shown ? ' past' : ''}`,
+          null,
+        );
+        line.dataset.stop = e.key;
+        const t = document.createElement('span');
+        t.className = 't';
+        t.textContent = `${e.start}${e.end ? `–${e.end}` : ''}`;
+        line.append(
+          t,
+          ` · ${e.title}${es && !String(e.title).includes(es.short || '§') ? ` · ${es.short || es.label || ''}` : ''}`,
+        );
+        const tags = [];
+        if (repKey && e.siteKey === repKey) tags.push(['rep', 'REPORT HERE']);
+        // NEXT only on the next stop; the shown one says why it is shown.
+        if (e.key === next?.key) tags.push(['', 'NEXT']);
+        else if (shown && o.chosen) tags.push(['', 'CHOSEN HERE']);
+        else if (past) tags.push(['dim', 'EARLIER']);
+        for (const [c, txt] of tags) {
+          const g = document.createElement('span');
+          g.className = `tag${c ? ` ${c}` : ''}`;
+          g.textContent = txt;
+          line.append(g);
+        }
+      }
+      if (today && !next) {
+        const later = advEvents().find((e) => e.day > day);
+        add(
+          'tt-wall-note keep',
+          `No stops left today${later ? ` · next: Day ${later.day} ${later.start}` : ''}`,
+        );
+      }
+    }
+    // 2 · Stop brief: label-led rows; no tick boxes, no review state
+    // (reviews live at the All-in-one; a wall cannot see them).
+    {
+      const brief = briefFor(ev);
+      const items = brief.items.map((it) => ({ ...it }));
+      // Alerts: the warning every surface reads, timed against the stop
+      // (S5 reviews): covering it needs a look; ending before it does not.
+      const warns = [];
+      const a = simAlert();
+      if (a) warns.push({ sim: true, event: a.event, ends: a.ends });
+      if (wx.warningsStatus !== 'unavailable')
+        for (const w of wx.warnings || [])
+          if (/warning/i.test(w.event)) warns.push(w);
+      const alerts = items.find((it) => it.key === 'alerts');
+      const src = WX.warnings === 'nws' ? 'NWS' : 'MeteoAlarm';
+      if (alerts && warns.length && ev.epoch) {
+        const parts = warns.map((w) => {
+          const start =
+            Date.parse(w.onset || w.effective || '') ||
+            Number.NEGATIVE_INFINITY;
+          const endRaw = Date.parse(w.ends || w.expires || '');
+          const end = Number.isFinite(endRaw) ? endRaw : Infinity;
+          const tag = w.sim ? ' (SIMULATED)' : '';
+          const cover = start <= ev.epoch && ev.epoch <= end;
+          const endTxt = Number.isFinite(endRaw)
+            ? `until ${today ? '' : 'today '}${localHm(endRaw)}`
+            : 'until further notice';
+          return cover
+            ? {
+                cover,
+                t: `${w.event}${tag} · covers ${ev.start}${o.weatherWall ? ` · on ${o.weatherWall}` : ''}`,
+              }
+            : {
+                // The event's name is on the Official card above (S5 r2).
+                t: `Warning now${tag} · ${endTxt}, before ${today ? 'the stop' : `Day ${day}`}`,
+              };
+        });
+        alerts.text = parts.map((x) => x.t).join(' · ');
+        alerts.warn = parts.some((x) => x.cover);
+        // A live warning is never folded into the "No flags" line.
+        alerts.keep = true;
+      } else if (alerts && wx.warningsStatus !== 'unavailable') {
+        // "Checked now" never ages on a wall (S5 AIA): say when.
+        alerts.text = `None on file for ${ev.start} · ${src} checked ${wx.warningsAt ? ago(wx.warningsAt) : 'at load'} · alerts are issued close to the time`;
+      }
+      const look = items.filter((it) => it.warn).length;
+      // Never "READY": the wall cannot vouch for a stop (S5 reviews, P0).
+      const state = repHere
+        ? `REPORT OPEN HERE · ${o.report.board || 'REMOTE'}`
+        : look
+          ? `${look} NEED${look > 1 ? '' : 'S'} A LOOK`
+          : 'NOTHING FLAGGED';
+      const add = card(
+        'brief',
+        `STOP BRIEF · ${ev.start} · ${state}${o.chosen && ev.key !== next?.key ? ' · CHOSEN HERE' : ''}`,
+        repHere ? 'rep' : '',
+      );
+      add(
+        'tt-wall-line tt-day-title',
+        String(ev.title).includes(site.short || '§') ||
+          String(ev.title).includes(site.label)
+          ? ev.title
+          : `${site.label} · ${ev.title}`,
+      );
+      for (const it of items) {
+        const wxRow = ['forecast', 'alerts'].includes(it.key);
+        const line = add(
+          `tt-wall-line tt-day-check${it.warn ? ` look${wxRow ? ' wx' : ''}` : it.keep ? ' keep' : ' ok'}`,
+          null,
+        );
+        line.dataset.label = it.label.replace(/^Nearest /, '');
+        line.dataset.key = it.key;
+        const lab = document.createElement('b');
+        lab.textContent = `${it.label}: `;
+        line.append(
+          lab,
+          `${String(it.text)
+            .replace(/ straight line/g, '')
+            .replace(/ \(estimate ×1\.3 for streets\)/, '')
+            // The hospital row in two lines, not five (S5 UI P1-2): the
+            // name up to " at ", and a short source.
+            .replace(
+              ' · emergency department listed in OpenStreetMap',
+              ' · emergency dept. listed (OSM)',
+            )
+            .replace(
+              /^([^·]+?) at [^·]+ ·/,
+              it.key === 'hospital' ? '$1 ·' : '$&',
+            )}${it.warn ? ' · needs a look' : ''}`,
+        );
+      }
+      add(
+        'tt-wall-note tt-day-foot',
+        'Distances are straight lines from OpenStreetMap · reviews and notes are made at the All-in-one, not shown on walls',
+      );
+    }
+    // Official, only while a warning is active (one amber outline), right
+    // under the Schedule: a warning reads before the stop's facts.
+    if (warning) {
+      const add = card('official', officialKicker(), 'attention keep');
+      for (const l of officialLines()) {
+        const n = add(
+          l.note
+            ? 'tt-wall-note'
+            : `tt-wall-line${l.sim ? ' sim' : l.official ? ' official' : l.warn ? ' warn' : ''}`,
+          l.text,
+        );
+        // One line when the column is short (S5 r2): what, until when,
+        // where the full story is.
+        if (!l.note)
+          n.dataset.short = `${l.text.split(' · ').slice(0, 3).join(' · ')}${o.weatherWall ? ` · ${o.weatherWall}` : ''}`;
+      }
+      node.querySelector('.tt-board-schedule')?.after(add.sec);
     }
   }
   /** "OFFICIAL · NWS", "· SIMULATED" over the demo warning (S4 IA P1-3). */
@@ -7159,8 +7480,9 @@ async function main() {
     setMode(mode, day) {
       setAppMode(mode === 'advance' ? 'advance' : 'live', { confirmed: true });
       if (mode === 'advance') {
-        const d = day ?? todayDay();
-        const ev = advEvents().find((e) => e.day === d);
+        const d = day ?? defaultPlanDay();
+        // The day's next stop, not its first (B5-S5-PLAN).
+        const ev = nextStop(d) || advEvents().find((e) => e.day === d) || null;
         if (ev) selectEvent(ev.key);
       }
     },
@@ -7421,6 +7743,15 @@ async function main() {
         ? `Every active trip · in focus: ${focusTrip.title}`
         : `${focusTrip.title} · ${city.short || city.label}`,
     dayLabel: () => `DAY ${currentAdvanceDay() ?? todayDay()}`,
+    /** S5's badge: TODAY · DAY 1, or PLAN · DAY 2 · TUE 27 OCT. */
+    planBadge() {
+      const ev = advEvents().find((e) => e.key === adv.eventKey);
+      const d = ev?.day ?? currentAdvanceDay() ?? todayDay();
+      // Another day reads as Advance, as on S1–S4 and the remote (S5 IA).
+      return d === todayDay()
+        ? `TODAY · DAY ${d}`
+        : `ADVANCE · DAY ${d}${ev?.date ? ` · ${dayDate(ev.date)}` : ''}`;
+    },
     todayDay: () => todayDay(),
     clockText: () =>
       lastCtx?.snapshot
@@ -7880,6 +8211,121 @@ async function main() {
       });
     },
     outdoorsCount: () => outdoorsNow().length,
+    /** S5's cards (B5-S5-PLAN). */
+    dayCards: (node, o) => dayCards(node, o),
+    /** The shown day's stops: {day, keys, shown, next}. */
+    dayStops() {
+      const ev = advEvents().find((e) => e.key === adv.eventKey);
+      if (!ev) return null;
+      const keys = advEvents()
+        .filter((e) => e.day === ev.day)
+        .map((e) => e.key);
+      return { day: ev.day, keys, shown: ev.key, next: nextStop(ev.day)?.key };
+    },
+    /** Show a stop on S5; frame: fly to its place. */
+    selectStop(key, { frame = false } = {}) {
+      const ev = advEvents().find((e) => e.key === key);
+      if (!ev) return;
+      selectEvent(key);
+      const site = SITES.find((x) => x.key === ev.siteKey);
+      if (!frame || !site || twin.state !== 'ready') return;
+      const c = site.anchors?.inside || site.center;
+      twin.flySafe(
+        new Cesium.BoundingSphere(
+          Cesium.Cartesian3.fromDegrees(
+            c.lon ?? c.lng,
+            c.lat,
+            twin.scene.hotelBase,
+          ),
+          150,
+        ),
+        {
+          heading: viewer.camera.heading,
+          pitch: viewer.camera.pitch,
+          range: 900,
+          duration: reducedMotion() ? 0 : 1.2,
+        },
+      );
+    },
+    /** Weather now on S5 (warning, near storm, report), else the stop's. */
+    planWeatherNow(on) {
+      // The stop's time again once the forecast has loaded (it may arrive
+      // after the stop was picked), checked at most every 10 s.
+      const late =
+        !on && wx.at == null && Date.now() - (adv.wxTried || 0) > 10e3;
+      if (Boolean(adv.wxNow) === Boolean(on) && !late) return;
+      adv.wxNow = Boolean(on);
+      adv.wxTried = Date.now();
+      syncAdvanceWeather();
+    },
+    planWeatherIsNow: () => Boolean(adv.wxNow),
+    /** The map bar's caption on S5: the plan's time, never "in n min". */
+    planCaption() {
+      // From the same guard that turned the weather to now, worst first
+      // (S5 every-time P0-3): report › storm › warning › lightning. The
+      // plan's time stays (S5 reviews); short, so the bar keeps its
+      // compass at 1728 with the menu open.
+      const ev = advEvents().find((e) => e.key === adv.eventKey);
+      if (!ev) return '';
+      const stop = `stop ${ev.start}`;
+      if (adv.wxNow) {
+        const report = ['incident', 'incident_elsewhere'].includes(
+          lastCtx?.mode?.mode,
+        );
+        const ap = nc.text || approachLine();
+        const sa = simAlert();
+        const real = (wx.warnings || []).find((w) => /warning/i.test(w.event));
+        const what = report
+          ? 'report open'
+          : ['arriving', 'near', 'over'].includes(ap?.status)
+            ? `storm ${ap.status === 'over' ? 'over' : 'near'}${nc.simStart ? ' (SIMULATED)' : ''}`
+            : sa
+              ? 'warning (SIMULATED)'
+              : real
+                ? 'warning'
+                : 'lightning near';
+        return `Weather now · ${what} · ${stop}`;
+      }
+      if (wx.at == null) return `Weather now · no forecast map for ${ev.start}`;
+      // The plan's clock decides "earlier" (S5 r2): the weather itself is
+      // still the real forecast for that hour.
+      return `Map at Day ${ev.day} · ${ev.start} · ${ev.epoch < planNow() ? 'earlier stop' : wx.at > Date.now() ? 'forecast' : 'past'}`;
+    },
+    /** S5's caption is a weather fact (amber) only for a weather reason. */
+    planCaptionWeather: () =>
+      Boolean(adv.wxNow) &&
+      !['incident', 'incident_elsewhere'].includes(lastCtx?.mode?.mode),
+    /** The day's stops and the hotel in one view (S5 tile). */
+    frameDay({ tilt = false } = {}) {
+      const ev = advEvents().find((e) => e.key === adv.eventKey);
+      if (!ev || twin.state !== 'ready') return;
+      const keys = new Set(
+        advEvents()
+          .filter((e) => e.day === ev.day)
+          .map((e) => e.siteKey),
+      );
+      keys.add(SITES[0].key);
+      const pts = SITES.filter((x) => keys.has(x.key)).map((x) => {
+        const c = x.anchors?.inside || x.center;
+        return Cesium.Cartesian3.fromDegrees(
+          c.lon ?? c.lng,
+          c.lat,
+          twin.scene.hotelBase,
+        );
+      });
+      const sphere = Cesium.BoundingSphere.fromPoints(pts);
+      sphere.radius = Math.max(sphere.radius, 250);
+      // tilt: the wall's own framing of the day (S5 r1), at its angle and
+      // never closer than the neighborhood.
+      twin.flySafe(sphere, {
+        heading: viewer.camera.heading,
+        pitch: tilt
+          ? Math.min(viewer.camera.pitch, -0.6)
+          : -Cesium.Math.PI_OVER_TWO + 0.001,
+        range: Math.max(tilt ? 2200 : 900, sphere.radius * 3.2),
+        duration: reducedMotion() ? 0 : 1.2,
+      });
+    },
     /** "Forecast 01:00" while the weather is not for now, else ''. */
     wxTimeText: () =>
       wx.at == null

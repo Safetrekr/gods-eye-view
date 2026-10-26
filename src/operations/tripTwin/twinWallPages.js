@@ -18,6 +18,8 @@ const MOVE_ICON = {
   restore: svg(
     '<path d="M4.5 10a5.5 5.5 0 1 0 1.8-4.1"/><path d="M4 3.5v3.2h3.2"/>',
   ),
+  prev: svg('<path d="M12.5 4.5 7 10l5.5 5.5"/>'),
+  next: svg('<path d="M7.5 4.5 13 10l-5.5 5.5"/>'),
   frame: svg(
     '<path d="M3 7V3h4M13 3h4v4M17 13v4h-4M7 17H3v-4"/><rect x="7" y="6.5" width="6" height="7" rx=".8"/>',
   ),
@@ -213,6 +215,12 @@ const WX_LAYERS = [
   ['radar3d', 'Storm shells'],
   ['lightning', 'Lightning'],
   // Clouds stays in Layers (L): the row stays whole in a 1117 menu.
+];
+
+/** S5's saved path layers (safety resources and avoid-areas: Layers). */
+const DAY_LAYERS = [
+  ['paths', 'Suggested paths'],
+  ['savedPaths', 'Saved paths'],
 ];
 
 const PAGES = {
@@ -436,8 +444,71 @@ const PAGES = {
       ],
     };
   },
-  day: ({ api }) => ({
-    options: [],
-    tiles: [planTile(api), northTile(api), restoreTile(api)],
-  }),
+  // S5 Day plan (B5-S5-PLAN): the paths are saved layers; safety
+  // resources and avoid-areas stay in Layers (safety layers). The stop
+  // moves are this wall's own, never saved; day and time are the remote's.
+  day({ screen, save, api }, { off, why }) {
+    const d = api.stopInfo?.();
+    const i = d ? d.keys.indexOf(d.shown) : -1;
+    return {
+      options: [
+        {
+          key: 'paths',
+          label: 'Paths',
+          multi: true,
+          choices: DAY_LAYERS.map(([value, label]) => ({
+            value,
+            label,
+            on: layerValue(screen, value),
+          })),
+          value: DAY_LAYERS.map(([k]) => (layerValue(screen, k) ? 1 : 0)).join(
+            '',
+          ),
+          disabled: off,
+          reason: why,
+          pick: (k, on) =>
+            save(
+              { layers: { [k]: on } },
+              `${DAY_LAYERS.find(([x]) => x === k)[1]} ${on ? 'on' : 'off'}`,
+            ),
+        },
+      ],
+      tiles: [
+        {
+          key: 'prevStop',
+          label: 'Earlier stop',
+          icon: MOVE_ICON.prev,
+          kbd: '[',
+          title:
+            'Show the stop before this one, at this screen only (no earlier stop when disabled)',
+          disabled: !d || i <= 0,
+          reason: 'None',
+          action: () => api.stepStop(-1),
+        },
+        {
+          key: 'nextStop',
+          label: 'Later stop',
+          icon: MOVE_ICON.next,
+          kbd: ']',
+          title:
+            'Show the stop after this one, at this screen only (no later stop when disabled)',
+          disabled: !d || i < 0 || i >= d.keys.length - 1,
+          reason: 'None',
+          action: () => api.stepStop(1),
+        },
+        {
+          key: 'frameDay',
+          label: 'Frame the day',
+          icon: MOVE_ICON.frame,
+          title: "The day's stops and the hotel in view",
+          disabled: !d,
+          reason: 'No plan for this day',
+          action: () => api.frameDay(),
+        },
+        northTile(api),
+        planTile(api),
+        restoreTile(api),
+      ],
+    };
+  },
 };

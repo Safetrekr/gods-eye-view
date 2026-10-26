@@ -187,6 +187,10 @@ export function createScreenMode({ api, slot = null, setup = null }) {
   let restoredAt = null; // a cached state shown before the link connects
   // Assigned below; the client reports status while it is being created.
   let sync = null;
+  // S5: a stop chosen at this wall (local, never saved); the shown stop
+  // to frame once the twin can fly.
+  let wallStop = null;
+  let stopFramePending = false;
 
   const me = () => (state && mySlot ? state.screens[mySlot] : null);
   /** Stop the idle drift at once and restart its 60 s clock (F2). */
@@ -351,7 +355,10 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     if (first) return;
     requestAnimationFrame(() => {
       api.refitRail?.();
-      if (b.classList.contains('tt-wall-board') || b.dataset.role === 'weather')
+      if (
+        b.classList.contains('tt-wall-board') ||
+        ['weather', 'day'].includes(b.dataset.role)
+      )
         renderPanel();
     });
   }
@@ -361,12 +368,15 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     // Off the board wall the panel goes back to the page.
     const shellWx =
       role === 'weather' && document.body.classList.contains('tt-wall-shell');
+    const shellDay =
+      role === 'day' && document.body.classList.contains('tt-wall-shell');
     if (
       panel.parentNode !== document.body &&
       !(
         role === 'incident' && document.body.classList.contains('tt-wall-board')
       ) &&
-      !shellWx
+      !shellWx &&
+      !shellDay
     )
       document.body.append(panel);
     panel.hidden = !(
@@ -381,6 +391,37 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       if (rcol && panel.parentNode !== rcol) rcol.append(panel);
       api.weatherPanel(panel, { cards: true });
       fitWeather();
+    } else if (shellDay) {
+      // S5 in the new frame (B5-S5-PLAN): Schedule, Stop brief, Official
+      // in a warning, in the left column.
+      const rcol = document.getElementById('tt-rcol');
+      if (rcol && panel.parentNode !== rcol) rcol.append(panel);
+      const roles = Object.entries(state?.screens || {});
+      const slotOf = (r) => roles.find(([, x]) => x?.role === r)?.[0];
+      // A report at any site of this trip (S5 every-time P0-4).
+      const open = api.incidentOpen();
+      // With no stop picked here, the shown stop follows the next one as
+      // the plan's clock moves (S5 reviews).
+      if (!wallStop) {
+        const d = api.dayStops?.();
+        if (d?.next && d.next !== d.shown) {
+          api.selectStop(d.next);
+          stopFramePending = true;
+        }
+      }
+      api.dayCards(panel, {
+        chosen: Boolean(wallStop),
+        weatherWall: slotOf('weather') ? `S${slotOf('weather')}` : '',
+        report: open
+          ? {
+              board: slotOf('incident')
+                ? `S${slotOf('incident')}`
+                : 'the remote',
+              people: slotOf('travelers') ? `S${slotOf('travelers')}` : '',
+            }
+          : null,
+      });
+      fitDay();
     } else if (role === 'weather') api.weatherPanel(panel);
     else if (role === 'trips') api.tripsPanel(panel);
     else if (role === 'day') api.dayPanel?.(panel);
@@ -564,6 +605,137 @@ export function createScreenMode({ api, slot = null, setup = null }) {
   }
 
   /**
+   * S5 never cuts silently (B5-S5-PLAN): the foot shortens, rows needing
+   * no look fold into one line naming them, then the Schedule folds to
+   * the shown stop and its neighbours with "+n more stops".
+   */
+  function fitDay() {
+    const rcol = document.getElementById('tt-rcol');
+    // Not laid out yet: the next render (every 5 s) fits it.
+    if (!rcol || rcol.clientWidth < 200) return;
+    const over = () => rcol.scrollHeight > rcol.clientHeight + 2;
+    // What the situation needs stays (S5 reviews P0-2): in this trip's
+    // report the way-out rows; in a warning the hospital and the rally
+    // point, and the forecast and light go first. The hospital never folds.
+    const ctx = panel.dataset.ctx || '';
+    const order =
+      ctx === 'report'
+        ? ['police', 'light', 'forecast', 'alerts']
+        : ctx === 'warning'
+          ? ['light', 'forecast', 'police', 'fire_station', 'numbering']
+          : [
+              'police',
+              'fire_station',
+              'numbering',
+              'light',
+              'forecast',
+              'rally',
+              'from_hotel',
+              'alerts',
+            ];
+    const steps = [
+      () => {
+        const f = panel.querySelector('.tt-day-foot');
+        if (f)
+          f.textContent =
+            'Straight-line distances · reviews at the All-in-one, not on walls';
+      },
+      // The Official card's demo note (S4 carries the full story).
+      () => panel.querySelector('.tt-board-official .tt-wall-note')?.remove(),
+      // Its warning in one line: what, until when, where.
+      () => {
+        for (const n of panel.querySelectorAll(
+          '.tt-board-official .tt-wall-line[data-short]',
+        ))
+          n.textContent = n.dataset.short;
+      },
+      // The Schedule to the shown stop and its neighbours.
+      () => {
+        const rows = [
+          ...panel.querySelectorAll('.tt-board-schedule .tt-day-row'),
+        ];
+        const i = rows.findIndex((n) => n.classList.contains('shown'));
+        if (i < 0) return;
+        const keep = new Set(rows.slice(Math.max(0, i - 1), i + 2));
+        let gone = 0;
+        for (const n of rows)
+          if (!keep.has(n) && !n.querySelector('.tag:not(.dim)')) {
+            if (n.dataset.stop) gone += 1;
+            n.remove();
+          }
+        if (gone)
+          panel
+            .querySelector('.tt-board-schedule')
+            ?.append(
+              el(
+                'div',
+                'tt-wall-note',
+                `+${gone} more stop${gone > 1 ? 's' : ''} · on the remote`,
+              ),
+            );
+      },
+      // Unflagged rows one at a time, in the situation's order, into one
+      // line naming them.
+      () => {
+        const ok = [...panel.querySelectorAll('.tt-day-check.ok')]
+          .filter((n) => order.includes(n.dataset.key))
+          .sort(
+            (x, y) =>
+              order.indexOf(x.dataset.key) - order.indexOf(y.dataset.key),
+          );
+        if (!ok.length) return;
+        const brief = panel.querySelector('.tt-board-brief');
+        const also = el('div', 'tt-wall-line tt-day-check also');
+        const names = [];
+        brief.querySelector('.tt-day-foot')?.before(also);
+        for (const n of ok) {
+          if (!over()) break;
+          names.push(n.dataset.label.toLowerCase());
+          n.remove();
+          also.replaceChildren(
+            el('b', '', 'No flags: '),
+            `${names.join(', ')} · rows on the All-in-one`,
+          );
+        }
+        if (!names.length) also.remove();
+      },
+      // Last resort, never a silent cut and never a flagged row (S5 r2):
+      // unflagged rows go into one "+n" line, the "No flags" line with
+      // them; the hospital, a live warning and rows that need a look stay.
+      () => {
+        const also = panel.querySelector('.tt-day-check.also');
+        const rows = [
+          ...panel.querySelectorAll('.tt-board-brief .tt-day-check.ok'),
+        ].filter((n) => n.dataset.key !== 'hospital');
+        const named = also
+          ? also.textContent
+              .replace(/^No flags: /, '')
+              .replace(/ · rows on the All-in-one$/, '')
+              .split(', ')
+              .filter(Boolean)
+          : [];
+        if (!rows.length && !named.length) return;
+        const more = el('div', 'tt-wall-note keep');
+        (also || panel.querySelector('.tt-day-foot'))?.replaceWith(more);
+        panel.querySelector('.tt-day-foot')?.remove();
+        let gone = named.length;
+        const paint = () =>
+          (more.textContent = `+${gone} more row${gone > 1 ? 's' : ''}, no flags · on the All-in-one`);
+        paint();
+        while (over() && rows.length) {
+          rows.pop().remove();
+          gone += 1;
+          paint();
+        }
+      },
+    ];
+    for (const step of steps) {
+      if (!over()) break;
+      step();
+    }
+  }
+
+  /**
    * S3's board never runs off the screen silently (walls-live W3): the
    * last lines go, and a line says how many.
    */
@@ -665,7 +837,18 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       const dayRole = s.role === 'day';
       const mode = dayRole ? 'advance' : s.mode || 'live';
       const key = `${mode}:${s.day}:${s.role}`;
-      if (key !== applied.modeKey) api.setMode(mode, s.day);
+      if (key !== applied.modeKey) {
+        const was = applied.modeKey;
+        api.setMode(mode, s.day);
+        // S5: the remote picked another day: its next stop in view, and a
+        // stop chosen here lets go (B5-S5-PLAN).
+        // On load too: the day's stop in view, retried until the twin can
+        // fly (S5 reviews P1).
+        if (dayRole) {
+          if (was) wallStop = null;
+          stopFramePending = true;
+        }
+      }
       applied.modeKey = key;
       for (const [k, v] of Object.entries(s.layers || {}))
         if (applied.layers?.[k] !== v) api.setLayer(k, v);
@@ -833,10 +1016,12 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     const advance = s?.mode === 'advance';
     const dayPlan = s?.role === 'day';
     // The day plan in Live shows today's plan: say so, not "Advance".
-    const badgeText = advance
-      ? `ADVANCE · ${api.dayLabel()}`
-      : dayPlan
-        ? `TODAY'S PLAN · ${api.dayLabel()}`
+    // S5 says which day it shows (B5-S5-PLAN): TODAY · DAY 1 only when
+    // the day is today.
+    const badgeText = dayPlan
+      ? api.planBadge?.() || `PLAN · ${api.dayLabel()}`
+      : advance
+        ? `ADVANCE · ${api.dayLabel()}`
         : ss.simStorm
           ? 'LIVE · DEMO STORM'
           : 'LIVE';
@@ -856,8 +1041,18 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     badge.classList.toggle('adv', advance || dayPlan);
     document.body.classList.toggle('tt-dayplan-live', dayPlan && !advance);
     const m = api.modeChip?.();
+    // This trip's report shows on S5 too (Advance hid it; B5-S5-PLAN).
     const showMode =
-      Boolean(m) && m.mode !== 'monitoring' && !advance && !dayPlan;
+      Boolean(m) &&
+      m.mode !== 'monitoring' &&
+      ((!advance && !dayPlan) || (dayPlan && api.incidentOpen()));
+    // S5's weather goes to now in a warning, a near storm or a report.
+    if (dayPlan) {
+      const wg = api.weatherGuard?.() || {};
+      api.planWeatherNow?.(
+        Boolean(wg.warning || wg.near || api.incidentOpen()),
+      );
+    }
     modePill.hidden = !showMode;
     if (showMode) {
       modePill.textContent =
@@ -969,7 +1164,11 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     // The approach (arriving, near or over) and the lens line, every wall:
     // a big lead figure, the claim, then the detail (phase 12 review).
     const ap = api.approachLine?.();
-    const lens = api.lensLine?.() || '';
+    // S5 says its time in the map bar's caption (B5-S5-PLAN).
+    const lens =
+      s?.role === 'day' && document.body.classList.contains('tt-wall-shell')
+        ? ''
+        : api.lensLine?.() || '';
     const showAp = ['arriving', 'near', 'over'].includes(ap?.status);
     wxStrip.hidden = !(showAp || lens);
     document.body.classList.toggle('tt-wx-strip-on', !wxStrip.hidden);
@@ -1120,7 +1319,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       pageMore.dataset.n ??= pageMore.textContent.match(/\d+/)[0];
       pageMore.textContent = `+${pageMore.dataset.n} more`;
     }
-    bar.classList.remove('tight');
+    bar.classList.remove('tight', 'tighter');
     const over = () =>
       box.scrollWidth > box.clientWidth + 1 ||
       bar.scrollWidth > bar.clientWidth + 1;
@@ -1129,6 +1328,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       // People beyond the area, hazards and weather hide last; approved
       // places next; the trip's other sites first (70-S2-FIX-LIST G14).
       const keep = (c) =>
+        c.classList.contains('shown') ||
         c.classList.contains('people') ||
         c.classList.contains('hazard') ||
         c.classList.contains('wx')
@@ -1152,7 +1352,27 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         more.textContent = `+${base + hidden} more`;
       }
       if (!hidden && !pageMore) more.remove();
-    }
+      // Still too wide (1728 with the menu open): the scale shows its
+      // current step only, so the compass is never pushed off (S5 build).
+      bar.classList.toggle('tighter', over());
+      // Tight: the stop time and the scale gave room back; chips return
+      // while they fit, the shown stop's first (S5 r3).
+      if (bar.classList.contains('tighter') || hidden) {
+        const back = order
+          .filter((c) => c.classList.contains('tt-chip-fit'))
+          .reverse();
+        for (const c of back) {
+          c.classList.remove('tt-chip-fit');
+          if (over()) {
+            c.classList.add('tt-chip-fit');
+            break;
+          }
+          hidden -= 1;
+          if (hidden > 0 || base) more.textContent = `+${base + hidden} more`;
+          else if (!pageMore) more.remove();
+        }
+      }
+    } else bar.classList.remove('tighter');
     chipsWatch.observe(box, { childList: true });
   }
 
@@ -1189,6 +1409,11 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     if (safetyNote.parentNode !== bar) bar.prepend(safetyNote);
     const n = SAFETY_LAYERS.filter((k) => !layerValue(s, k)).length;
     const parts = n ? [`${n} safety layer${n > 1 ? 's' : ''} off`] : [];
+    // S5: the plan's time, in every state (B5-S5-PLAN).
+    if (s.role === 'day') {
+      const t = api.planCaption?.() || '';
+      if (t) parts.unshift(t);
+    }
     // S4 (A5-S4-PLAN, S4 AIA): what the map leaves out and when it is for.
     if (s.role === 'weather') {
       const t = api.wxTimeText?.() || '';
@@ -1201,7 +1426,31 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       }
     }
     safetyNote.hidden = parts.length === 0;
-    safetyNote.textContent = parts.join(' · ');
+    const text = parts.join(' · ');
+    // S5: "· stop 19:00" is its own span, the first to go in a tight bar
+    // (S5 r2: the compass left the bar at 1728 with the menu open).
+    const cut = s.role === 'day' ? text.lastIndexOf(' · stop ') : -1;
+    if (safetyNote.dataset.text !== text) {
+      safetyNote.dataset.text = text;
+      // A new caption length: the chips fit again.
+      requestAnimationFrame(fitChips);
+      if (cut > 0)
+        safetyNote.replaceChildren(
+          el('span', 'main', text.slice(0, cut)),
+          el('span', 'stop', text.slice(cut)),
+        );
+      else safetyNote.textContent = text;
+    }
+    // S5's plan time is a fact, not a warning: steel, unless the map shows
+    // the weather now or a safety layer is off (B5-S5-PLAN).
+    // S4's forecast time alone is a fact too (S5 brand question): steel.
+    safetyNote.classList.toggle(
+      'plain',
+      (s.role === 'day' && !n && !api.planCaptionWeather?.()) ||
+        (s.role === 'weather' &&
+          parts.length === 1 &&
+          parts[0].endsWith('set on the remote')),
+    );
   }
 
   // The menu open counts as hands on the wall (screens/05-S1-PLAN §12).
@@ -1494,7 +1743,24 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         ...o,
       }),
     faceNorth: () => api.faceNorth?.(),
+    // S5 (B5-S5-PLAN): another stop at this wall only; back to the next
+    // stop 60 s after the hand leaves.
+    stepStop(dir) {
+      const d = api.dayStops?.();
+      if (!d) return;
+      const i = d.keys.indexOf(d.shown) + dir;
+      if (i < 0 || i >= d.keys.length) return;
+      wallStop = d.keys[i] === d.next ? null : d.keys[i];
+      api.selectStop(d.keys[i], { frame: true });
+      renderPanel();
+    },
+    stopInfo: () => api.dayStops?.() || null,
     restoreView: () => {
+      // S5: back to the next stop too (S5 every-time P2).
+      if (me()?.role === 'day' && wallStop) {
+        wallStop = null;
+        renderPanel();
+      }
       // People rests straight down on the whole group, north up.
       if (me()?.role === 'travelers')
         return api.frameGroup?.({
@@ -1618,6 +1884,16 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         e.preventDefault();
         e.stopPropagation();
         setRail(false);
+      } else if (
+        (e.key === '[' || e.key === ']') &&
+        me()?.role === 'day' &&
+        document.body.classList.contains('tt-wall-shell') &&
+        !viewOnly()
+      ) {
+        // S5's stop moves (B5-S5-PLAN), this wall only.
+        e.preventDefault();
+        e.stopPropagation();
+        viewApi.stepStop(e.key === ']' ? 1 : -1);
       }
     },
     true,
@@ -1708,6 +1984,32 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     // Only the wall's own pick returns; a report postpones it until the
     // report ends; with the remote's spotlight set, the wall goes back to
     // the spotlighted person (70-S2-FIX-LIST G10).
+    // S5: a stop chosen here goes back to the next stop 60 s after the
+    // hand leaves (B5-S5-PLAN).
+    if (
+      stopFramePending &&
+      s0()?.role === 'day' &&
+      api.twinReady?.() &&
+      !handsOn()
+    ) {
+      stopFramePending = false;
+      // The day's stops and the hotel, at the wall's angle (S5 r1).
+      api.frameDay?.({ tilt: true });
+    }
+    // Never during a report (the S2 rule).
+    if (
+      wallStop &&
+      s0()?.role === 'day' &&
+      !handsOn() &&
+      !api.incidentOpen() &&
+      handsEndedAt &&
+      now - handsEndedAt > 60000
+    ) {
+      wallStop = null;
+      const d = api.dayStops?.();
+      if (d?.next) api.selectStop(d.next, { frame: true });
+      renderPanel();
+    }
     const picked = api.selectedPersonId?.() || null;
     if (handsOn() && picked) wallPick = picked;
     if (

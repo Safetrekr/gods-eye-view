@@ -55,7 +55,7 @@ export const ROLES = Object.freeze({
     textScale: 1.75,
     label: 'Day plan',
     kicker: 'DAY PLAN',
-    sub: 'Schedule · places · paths',
+    sub: 'Stops · stop brief · paths',
     canvas: true,
     scale: 'city',
   },
@@ -219,9 +219,11 @@ export const CARD_CATALOG = Object.freeze({
     { key: 'weather', label: 'Weather & alerts', lock: true },
     { key: 'timeline', label: 'Timeline' },
   ],
+  // Both locked (B5-S5-PLAN): a day-plan wall is its schedule and the
+  // shown stop's brief.
   day: [
-    { key: 'brief', label: 'Site brief' },
-    { key: 'schedule', label: 'Schedule' },
+    { key: 'schedule', label: 'Schedule', lock: true },
+    { key: 'brief', label: 'Stop brief', lock: true },
   ],
   trips: [{ key: 'trips', label: 'Trips on watch', lock: true }],
 });
@@ -278,6 +280,7 @@ export const WALL_LAYOUT_ROLES = new Set([
   'travelers',
   'incident',
   'weather',
+  'day',
 ]);
 export const wallShellOn = (screen = {}) => WALL_LAYOUT_ROLES.has(screen.role);
 

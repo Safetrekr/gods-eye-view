@@ -637,23 +637,7 @@ body[data-view='screen'] {
   animation: none !important;
   opacity: 0.35;
 }
-/* F8: S5 gains a right panel; S6 tiles carry a count grid. */
-body[data-view='screen'][data-role='day'] {
-  --wall-right: calc(30vw + 24px);
-}
-body[data-view='screen'][data-role='day'] .tt-wall-panel {
-  top: calc((96px + 12px) / var(--wall-scale));
-  right: calc(12px / var(--wall-scale));
-  bottom: calc(40px / var(--wall-scale));
-  width: calc(30vw / var(--wall-scale));
-}
-body[data-view='screen'][data-role='day'] .tt-wall-panel .tt-wall-line {
-  font-size: calc(28px / var(--wall-scale));
-  padding: 9px 0;
-}
-body[data-view='screen'][data-role='day'] .tt-wall-panel .tt-kicker {
-  margin-top: 16px;
-}
+/* F8: S6 tiles carry a count grid (S5's right panel went: B5-S5-PLAN). */
 .tt-trip .stats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -864,8 +848,7 @@ body[data-view='screen'].tt-wx-strip-on .tt-chips {
   top: calc((182px + 12px) / var(--wall-scale));
 }
 body[data-view='screen'][data-role='incident'] .tt-wall-panel,
-body[data-view='screen'][data-role='weather'] .tt-wall-panel,
-body[data-view='screen'][data-role='day'] .tt-wall-panel {
+body[data-view='screen'][data-role='weather'] .tt-wall-panel {
   top: calc((var(--wall-top) + 12px) / var(--wall-scale)) !important;
 }
 body[data-view='screen'][data-role='trips'] .tt-wall-panel {

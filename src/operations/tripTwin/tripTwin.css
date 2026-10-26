@@ -3554,7 +3554,6 @@ body[data-view='screen'][data-role='site']:not([data-merged~='travelers'])
 body[data-view='screen'][data-role='weather'] .tt-rail,
 body[data-view='screen'][data-role='trips'] .tt-rail,
 body[data-view='screen'][data-role='weather'] .tt-rcol,
-body[data-view='screen'][data-role='day'] .tt-rcol,
 body[data-view='screen'][data-role='trips'] .tt-rcol,
 body[data-view='screen'][data-role='travelers'] #tt-card,
 body[data-view='screen'][data-role='travelers']:not([data-merged~='incident'])
@@ -3596,9 +3595,6 @@ body[data-view='screen'][data-role='trips'] .tt-wall-panel {
   left: calc(16px / var(--wall-scale));
   right: calc(16px / var(--wall-scale));
   bottom: calc(40px / var(--wall-scale));
-}
-body[data-view='screen'][data-role='day'] .tt-rail {
-  width: calc(36vw / var(--wall-scale));
 }
 .tt-trips {
   display: grid;
@@ -3815,9 +3811,6 @@ body[data-view='screen'] {
 body[data-view='screen'][data-role='travelers'],
 body[data-view='screen'][data-role='site'][data-merged~='travelers'] {
   --wall-left: calc(var(--rail) * var(--wall-scale) + 24px);
-}
-body[data-view='screen'][data-role='day'] {
-  --wall-left: calc(36vw + 24px);
 }
 body[data-view='screen'][data-role='site'],
 body[data-view='screen'][data-role='travelers'][data-merged~='incident'] {

@@ -1982,15 +1982,18 @@ body.tt-body[data-view='screen'].tt-wall-board
   min-width: 12ch;
 }
 
-/* ====================== S4 · Weather & alerts (A5-S4-PLAN) ======================
+/* ====================== S4 · Weather & alerts (A5-S4-PLAN) · S5 shares the column (B5-S5-PLAN) ====
    The map is the whole screen; the weather cards are the left column;
    the timeline and the rain key share a dock along the map's bottom. */
 body.tt-body[data-view='screen'].tt-wall-shell[data-role='weather']
+  #cesiumContainer,
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='day']
   #cesiumContainer {
   left: 0;
   right: 0;
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='weather'] .tt-rcol {
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='weather'] .tt-rcol,
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='day'] .tt-rcol {
   display: flex !important;
   flex-direction: column;
   gap: 10px;
@@ -2006,10 +2009,16 @@ body.tt-body[data-view='screen'].tt-wall-shell[data-role='weather'] .tt-rcol {
 }
 body.tt-body[data-view='screen'].tt-wall-shell[data-role='weather']
   .tt-rcol
+  > :not(.tt-wall-panel),
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='day']
+  .tt-rcol
   > :not(.tt-wall-panel) {
   display: none !important;
 }
 body.tt-body[data-view='screen'].tt-wall-shell[data-role='weather']
+  .tt-rcol
+  > .tt-wall-panel,
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='day']
   .tt-rcol
   > .tt-wall-panel {
   position: static !important;
@@ -2033,6 +2042,10 @@ body.tt-body[data-view='screen'].tt-wall-shell[data-role='weather']
 body.tt-body[data-view='screen'][data-role='weather']
   .tt-rcol
   .tt-board-card
+  .tt-kicker,
+body.tt-body[data-view='screen'][data-role='day']
+  .tt-rcol
+  .tt-board-card
   .tt-kicker {
   font: 500 11px/14px var(--tt-mono);
   letter-spacing: 0.08em;
@@ -2040,6 +2053,10 @@ body.tt-body[data-view='screen'][data-role='weather']
   margin: 0 0 6px;
 }
 body.tt-body[data-view='screen'][data-role='weather']
+  .tt-rcol
+  .tt-board-card
+  .tt-wall-line,
+body.tt-body[data-view='screen'][data-role='day']
   .tt-rcol
   .tt-board-card
   .tt-wall-line {
@@ -2051,10 +2068,18 @@ body.tt-body[data-view='screen'][data-role='weather']
 body.tt-body[data-view='screen'][data-role='weather']
   .tt-rcol
   .tt-board-card
+  .tt-wall-line:last-child,
+body.tt-body[data-view='screen'][data-role='day']
+  .tt-rcol
+  .tt-board-card
   .tt-wall-line:last-child {
   border-bottom: 0;
 }
 body.tt-body[data-view='screen'][data-role='weather']
+  .tt-rcol
+  .tt-board-card
+  .tt-wall-note,
+body.tt-body[data-view='screen'][data-role='day']
   .tt-rcol
   .tt-board-card
   .tt-wall-note {
@@ -2075,10 +2100,18 @@ body.tt-body[data-view='screen'][data-role='weather']
 body.tt-body[data-view='screen'][data-role='weather']
   .tt-rcol
   .tt-board-card.amber
+  .tt-kicker,
+body.tt-body[data-view='screen'][data-role='day']
+  .tt-rcol
+  .tt-board-card.amber
   .tt-kicker {
   color: var(--tt-attention);
 }
 body.tt-body[data-view='screen'][data-role='weather']
+  .tt-rcol
+  .tt-board-card
+  .tt-wall-line.sim,
+body.tt-body[data-view='screen'][data-role='day']
   .tt-rcol
   .tt-board-card
   .tt-wall-line.sim {
@@ -2205,6 +2238,9 @@ body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-map.tt-wst-open
    as S1's card does (S4 UI P1-2: a wrapping panel blocked the blur). */
 body.tt-body[data-view='screen'].tt-wall-shell[data-role='weather']
   .tt-rcol
+  > .tt-wall-panel,
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='day']
+  .tt-rcol
   > .tt-wall-panel {
   display: contents;
 }
@@ -2252,4 +2288,159 @@ body.tt-body[data-view='screen'].tt-wall-shell .tt-rail-head .tt-wx-official {
   .tt-wst-gnote.keep {
     display: block;
   }
+}
+
+/* ====================== S5 · Day plan (B5-S5-PLAN) ======================
+   The map is the whole screen; the Schedule and the Stop brief are the
+   left column (S4's column and card recipe); the Advance panel and the
+   old right panel step away. */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='day'] #tt-advance,
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='day'] .tt-rail {
+  display: none !important;
+}
+.tt-board-schedule .tt-day-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.35em;
+}
+.tt-board-schedule .tt-day-row .t {
+  font-family: var(--tt-mono);
+  font-variant-numeric: tabular-nums;
+}
+.tt-board-schedule .tt-day-row.shown {
+  box-shadow: inset 3px 0 0 var(--tt-text);
+  padding-left: 12px !important;
+  color: var(--tt-text);
+}
+.tt-board-schedule .tt-day-row.past,
+.tt-board-schedule .tt-day-row.sun {
+  color: var(--tt-text-2);
+}
+.tt-board-schedule .tt-day-row .tag {
+  margin-left: auto;
+  font: 500 11px/16px var(--tt-mono);
+  letter-spacing: 0.08em;
+  padding: 1px 6px;
+  border: 1px solid var(--tt-border);
+  border-radius: 4px;
+  color: var(--tt-text);
+}
+.tt-board-schedule .tt-day-row .tag + .tag {
+  margin-left: 6px;
+}
+/* This trip's report: S5's only red (B5-S5-PLAN). */
+.tt-board-schedule .tt-day-row .tag.rep {
+  border-color: var(--tt-hazard);
+  color: var(--tt-hazard-text);
+}
+.tt-board-schedule .tt-day-report {
+  color: var(--tt-hazard-text);
+  box-shadow: inset 3px 0 0 var(--tt-hazard);
+  padding-left: 12px !important;
+}
+.tt-board-brief .tt-day-title {
+  font-weight: 600;
+}
+.tt-board-brief .tt-day-check b {
+  font-weight: 500;
+  color: var(--tt-text-2);
+}
+.tt-board-brief .tt-day-check.look b {
+  font-weight: 600;
+  color: var(--tt-text);
+}
+/* Amber only for weather: a forecast or an alert that needs a look. */
+.tt-board-brief .tt-day-check.look.wx,
+.tt-board-brief .tt-day-check.look.wx b,
+.tt-board-brief .tt-day-check.sim {
+  color: var(--tt-attention);
+}
+/* Map only keeps the Schedule (and Official in a warning). */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='day'][data-wall-cards='map']
+  .tt-rcol
+  .tt-board-brief {
+  display: none;
+}
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='day'][data-wall-cards='map']
+  .tt-mapbar {
+  left: calc((var(--w-g) * 2 + var(--w-col)) / var(--wall-scale));
+}
+
+/* The rain key's own dock (S4 W8, S5): where the timeline would be,
+   when no timeline shows. */
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-map .tt-wxdock {
+  position: fixed;
+  z-index: 12;
+  zoom: var(--wall-scale);
+  left: calc((var(--w-g) * 2 + var(--w-col)) / var(--wall-scale));
+  bottom: calc((var(--w-bot) + var(--w-g)) / var(--wall-scale));
+}
+.tt-wxdock[hidden] {
+  display: none !important;
+}
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-map
+  .tt-wxdock
+  .tt-wx-key {
+  position: static;
+  width: 262px;
+}
+/* S4 with Timeline off: the key has its dock; the empty card goes. */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='weather'][data-wall-off~='timeline']
+  .tt-wxtl {
+  display: none;
+}
+/* S5's plan time: a steel caption, not a warning (B5-S5-PLAN). */
+body.tt-body[data-view='screen'].tt-wall-map .tt-mapbar-note.plain {
+  color: var(--tt-text);
+  border-color: var(--tt-border);
+}
+/* A map bar still too wide once the chips have stepped out: the scale
+   keeps its current step, so the compass stays (S5 build, 1728 + menu). */
+body.tt-body[data-view='screen'].tt-wall-map
+  .tt-mapbar.tighter
+  .tt-scale
+  [data-scale]:not(.on) {
+  display: none;
+}
+body.tt-body[data-view='screen'].tt-wall-map
+  .tt-mapbar.tighter
+  .tt-mapbar-note {
+  letter-spacing: 0.02em;
+}
+body.tt-body[data-view='screen'].tt-wall-map .tt-mapbar.tighter {
+  gap: 8px;
+}
+body.tt-body[data-view='screen'].tt-wall-map .tt-mapbar.tighter .tt-chips {
+  flex: none;
+  min-width: 0;
+}
+/* S5 round 1: an earlier stop's tag is dim; the shown stop's chip is
+   marked; a report at the shown stop names it in red in the brief. */
+.tt-board-schedule .tt-day-row .tag.dim {
+  color: var(--tt-text-2);
+  border-color: var(--tt-hair);
+}
+body.tt-body[data-view='screen'] .tt-mapbar .tt-chip.shown {
+  border-color: var(--tt-text);
+  color: var(--tt-text);
+}
+.tt-board-brief.rep > .tt-kicker {
+  color: var(--tt-hazard-text);
+}
+/* A tight bar: S5's stop time goes first; the caption may shorten with an
+   ellipsis, never the compass (S5 r2). */
+body.tt-body[data-view='screen'].tt-wall-map
+  .tt-mapbar.tighter
+  .tt-mapbar-note
+  .stop {
+  display: none;
+}
+body.tt-body[data-view='screen'].tt-wall-map
+  .tt-mapbar.tighter
+  .tt-mapbar-note {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

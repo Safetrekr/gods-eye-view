@@ -18,7 +18,8 @@ export function createSiteBeacons(viewer, site) {
         if (s.key === activeKey) continue;
         const p = s.anchors?.inside || s.center;
         const n = counts[s.key] ?? 0;
-        const when = s.kind === 'lodging' ? 'hotel' : `Day ${s.day} ${s.start}`;
+        const when =
+          s.kind === 'lodging' ? 'hotel' : `Day ${s.day} · ${s.start}`;
         ds.entities.add({
           id: `twin-site:${s.key}`,
           position: Cesium.Cartesian3.fromDegrees(p.lon, p.lat, base + 120),
