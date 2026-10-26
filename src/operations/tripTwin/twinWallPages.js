@@ -142,13 +142,38 @@ function northTile(api) {
     action: () => api.faceNorth(),
   };
 }
-function restoreTile(api) {
+function restoreTile(api, title = "Face north, at this screen's saved scale") {
   return {
     key: 'restore',
     label: 'Restore view',
     icon: MOVE_ICON.restore,
-    title: "Face north, at this screen's saved scale",
+    title,
     action: () => api.restoreView(),
+  };
+}
+function nextTile(api, needs) {
+  const at = api.checkPosition?.() || '';
+  return {
+    key: 'next',
+    label: at ? `Next to check · ${at}` : 'Next to check',
+    icon: ICON.next,
+    kbd: ']',
+    title: 'Select and frame the next person who needs attention',
+    disabled: needs === 0,
+    reason: 'No one to check',
+    action: () => api.nextToCheck(),
+  };
+}
+function firstTile(api, needs) {
+  return {
+    key: 'first',
+    label: 'First to check',
+    icon: ICON.next,
+    kbd: 'A',
+    title: 'Select and frame the first person who needs attention',
+    disabled: needs === 0,
+    reason: 'No one to check',
+    action: () => api.firstToCheck(),
   };
 }
 function planTile(api) {
@@ -186,6 +211,8 @@ const PAGES = {
         },
       ],
       tiles: [
+        // First to check in slot 1 on every People-bearing wall (G17).
+        firstTile(api, needs),
         {
           key: 'floors',
           label: 'Floors',
@@ -196,34 +223,72 @@ const PAGES = {
           reason: 'Floors not mapped',
           action: () => api.viewFloors(),
         },
-        {
-          // F frames the selection; this tile always frames the hotel (F15).
-          key: 'frame',
-          label: 'Frame the hotel',
-          icon: MOVE_ICON.frame,
-          action: () => api.frameHotel(),
-        },
+        // A one-screen wall carries Needs attention: its list ends "Next
+        // to check walks them", so the tile is here (S2 round 2, b).
+        (screen.merged || []).includes('incident')
+          ? nextTile(api, needs)
+          : {
+              // F frames the selection; this tile always frames the hotel (F15).
+              key: 'frame',
+              label: 'Frame the hotel',
+              icon: MOVE_ICON.frame,
+              action: () => api.frameHotel(),
+            },
+        // Bottom row, the same on every map wall (55-S2-PLAN §5).
+        northTile(api),
         planTile(api),
+        restoreTile(api, "Face north, at this screen's saved scale"),
+      ],
+    };
+  },
+  // S2 People (55-S2-PLAN): Floor estimates is a saved safety layer; the
+  // tiles walk the people who need attention and move the camera.
+  travelers({ screen, save, api }, { off, why }) {
+    const floors = layerValue(screen, 'floors');
+    const needs = api.needsCount?.() || 0;
+    const plan = api.isPlanView?.();
+    return {
+      options: [
+        {
+          key: 'floors',
+          label: 'Floor estimates',
+          value: floors ? 'on' : 'off',
+          choices: [
+            { value: 'on', label: 'On' },
+            { value: 'off', label: 'Off' },
+          ],
+          disabled: off,
+          reason: why,
+          pick: (v) =>
+            save({ layers: { floors: v === 'on' } }, `Floor estimates ${v}`),
+        },
+      ],
+      tiles: [
+        firstTile(api, needs),
+        nextTile(api, needs),
+        {
+          key: 'group',
+          label: 'Frame the group',
+          icon: ICON.travelers,
+          title: 'Every located person in view, from above',
+          action: () => api.frameGroup(),
+        },
         northTile(api),
         {
-          key: 'first',
-          label: 'First to check',
-          icon: ICON.next,
-          kbd: 'A',
-          title: 'Select and frame the first person who needs attention',
-          disabled: needs === 0,
-          reason: 'No one to check',
-          action: () => api.firstToCheck(),
+          // Plan view is S2's resting view: the tile tilts it and back.
+          key: 'plan',
+          label: plan ? 'Tilt view' : 'Plan view',
+          icon: ICON.topdown,
+          title: plan
+            ? 'Tilt to see the buildings and floors'
+            : 'Look straight down; the heading stays',
+          action: () => api.togglePlan(),
         },
-        restoreTile(api),
+        restoreTile(api, 'Straight down, north up, the whole group'),
       ],
     };
   },
   // The others until their turn: the shared view moves on map walls.
-  travelers: ({ api }) => ({
-    options: [],
-    tiles: [planTile(api), northTile(api), restoreTile(api)],
-  }),
   weather: ({ api }) => ({
     options: [],
     tiles: [planTile(api), northTile(api), restoreTile(api)],

@@ -161,6 +161,9 @@ export function createScreenMode({ api, slot = null, setup = null }) {
   let seen = null;
   let lastCtl = null;
   let myRef = null; // this wall's attribution ref, once it has made a change
+  let handsEndedAt = null; // when the last hand left (S2 back-to-group)
+  let wallPick = null; // a person selected by a hand at this wall
+  const s0 = () => (state && mySlot ? state.screens[mySlot] : null);
   // Why the next pair card asks again: {kind, at} (lost, link, slot).
   let pairNote = null;
   let cardOn = null; // the card shown, or null
@@ -292,7 +295,12 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     b.dataset.merged = (s.merged || []).join(' ');
     // The new frame, role by role (05-S1-PLAN): S1 first; a one-screen
     // (merged) wall keeps its old layout until S2's turn (F21).
-    b.classList.toggle('tt-wall-shell', wallShellOn(s));
+    const shell = wallShellOn(s);
+    b.classList.toggle('tt-wall-shell', shell);
+    // A map wall in the new frame: the map bar and the compass top right.
+    b.classList.toggle('tt-wall-map', shell && Boolean(ROLES[s.role]?.canvas));
+    // More than one role on this wall: a second card column (S2 plan §2).
+    b.classList.toggle('tt-wall-two', shell && (s.merged || []).length > 0);
     setWallScale(s.textScale);
     applyLayout(s);
     renderPanel();
@@ -415,10 +423,16 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     const s = me();
     const ss = next.session;
     // Where the full attention list is (a wall list ends "+n · all on S3").
+    // …or the wall that carries Incident & attention on one or two
+    // screens (S2 round 2, a).
     document.body.dataset.boardSlot =
       Object.keys(next.screens).find(
         (k) => next.screens[k].role === 'incident',
-      ) || '';
+      ) ||
+      Object.keys(next.screens).find((k) =>
+        (next.screens[k].merged || []).includes('incident'),
+      ) ||
+      '';
     // A trip in another city needs that city's twin: reload into it —
     // only on live state from the relay. A cached state may name the old
     // trip; acting on it bounced walls between cities (Jesse, 16 Oct).
@@ -805,8 +819,17 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       document.body.classList.toggle('tt-report-open', repOpen);
       requestAnimationFrame(() => api.refitRail?.());
     }
+    // The second card column shows something (a body class, not :has —
+    // a card hidden by CSS still has no hidden attribute; G9).
+    const rcol = document.getElementById('tt-rcol');
+    document.body.classList.toggle(
+      'tt-rcol-on',
+      Boolean(rcol) &&
+        [...rcol.children].some((c) => c.getClientRects().length > 0),
+    );
     measureZones();
     paintSafetyNote(s);
+    paintCheckNote(s);
     fitChips();
     paintRail();
   }
@@ -903,12 +926,16 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       bar.scrollWidth > bar.clientWidth + 1;
     if (shell && over()) {
       bar.classList.add('tight');
+      // People beyond the area, hazards and weather hide last; approved
+      // places next; the trip's other sites first (70-S2-FIX-LIST G14).
       const keep = (c) =>
-        c.classList.contains('hazard') || c.classList.contains('wx')
-          ? 2
+        c.classList.contains('people') ||
+        c.classList.contains('hazard') ||
+        c.classList.contains('wx')
+          ? 3
           : c.classList.contains('site')
             ? 1
-            : 0;
+            : 2;
       const items = chips.filter((c) => c !== pageMore);
       const order = items
         .map((c, i) => ({ c, i }))
@@ -927,6 +954,27 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       if (!hidden && !pageMore) more.remove();
     }
     chipsWatch.observe(box, { childList: true });
+  }
+
+  /**
+   * People: who the wall is checking, in the map bar, so a person picked
+   * with Next to check is always named (70-S2-FIX-LIST G7).
+   */
+  let checkNote = null;
+  function paintCheckNote(s) {
+    const bar = document.getElementById('tt-mapbar');
+    if (!bar) return;
+    if (!checkNote) {
+      checkNote = el('span', 'tt-mapbar-check');
+      checkNote.setAttribute('role', 'status');
+    }
+    if (checkNote.parentNode !== bar) bar.prepend(checkNote);
+    const at = s?.role === 'travelers' ? api.checkPosition?.() || '' : '';
+    const who = at
+      ? (api.selectionText?.() || '').replace(/^selected /, '')
+      : '';
+    checkNote.hidden = !at;
+    checkNote.textContent = at ? `Checking · ${who} · ${at}` : '';
   }
 
   /** "2 safety layers off" in the map bar while any is off (aia §3). */
@@ -958,6 +1006,8 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     if (e.type === 'pointermove') return;
     if (e.type === 'pointerdown') dragging = true;
     lastInput = Date.now();
+    // A hand is back: the back-to-group count starts again when it leaves.
+    handsEndedAt = null;
     stopDrift('input');
     if (!b.classList.contains('tt-hands-on')) {
       b.classList.add('tt-hands-on');
@@ -1196,8 +1246,20 @@ export function createScreenMode({ api, slot = null, setup = null }) {
 
   const viewApi = {
     ...api,
+    // The remote's spotlight stays through Frame the group (G11).
+    frameGroup: (o = {}) =>
+      api.frameGroup?.({
+        keepSelection: Boolean(state?.session?.spotlight),
+        ...o,
+      }),
     faceNorth: () => api.faceNorth?.(),
     restoreView: () => {
+      // People rests straight down on the whole group, north up.
+      if (me()?.role === 'travelers')
+        return api.frameGroup?.({
+          north: true,
+          keepSelection: Boolean(state?.session?.spotlight),
+        });
       api.faceNorth?.();
       api.scale(me()?.scale || ROLES[me()?.role]?.scale);
     },
@@ -1397,7 +1459,31 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       pendingCamera = [];
       for (const fn of run) fn();
     }
+    // People: a selection made at the wall goes back to the group 60 s
+    // after the hand leaves — never during a report, never over the
+    // remote's spotlight (55-S2-PLAN; Reduce motion lands at once).
+    // Only the wall's own pick returns; a report postpones it until the
+    // report ends; with the remote's spotlight set, the wall goes back to
+    // the spotlighted person (70-S2-FIX-LIST G10).
+    const picked = api.selectedPersonId?.() || null;
+    if (handsOn() && picked) wallPick = picked;
+    if (
+      handsEndedAt &&
+      now - handsEndedAt > 60000 &&
+      s0()?.role === 'travelers' &&
+      !handsOn() &&
+      !api.incidentOpen()
+    ) {
+      handsEndedAt = null;
+      const sp = state?.session?.spotlight;
+      if (wallPick && picked === wallPick) {
+        if (sp) api.spotlight(sp);
+        else api.frameGroup?.();
+      }
+      wallPick = null;
+    }
     if (!handsOn() && b.classList.contains('tt-hands-on')) {
+      handsEndedAt = now;
       b.classList.remove('tt-hands-on');
       paint();
       requestAnimationFrame(() => api.refitRail?.());

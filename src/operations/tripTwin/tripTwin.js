@@ -1582,6 +1582,10 @@ export function createTripTwin({
     refresh() {
       refresh();
     },
+    /** The person selected on this screen, or null (screens S2 plan). */
+    get selectedPersonId() {
+      return selectedPersonId;
+    },
     get floorFocus() {
       return floorFocus;
     },

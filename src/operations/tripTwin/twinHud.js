@@ -22,6 +22,14 @@ let nameStyle = (n) => n;
 const wallList = () => {
   if (document.body.dataset.view !== 'screen')
     return 'listed under Needs attention';
+  // A wall carrying Incident & attention has the list beside the card
+  // (screens/70-S2-FIX-LIST G2).
+  const b = document.body;
+  if (b.dataset.role === 'incident') return 'listed under Needs attention';
+  if (/\bincident\b/.test(b.dataset.merged || ''))
+    return b.classList.contains('tt-wall-shell')
+      ? 'Next to check walks them'
+      : 'listed under Needs attention';
   const n = document.body.dataset.boardSlot;
   const here = new URLSearchParams(location.search).get('slot');
   if (n && n === here) return 'listed under Needs attention';
@@ -219,6 +227,9 @@ export function createHud({
   const sum = el('div', 'tt-sum');
   head.append(sum);
   const wall = () => document.body.dataset.view === 'screen';
+  // A wall in the new frame (screens/55-S2-PLAN): the All-in-one's cards.
+  const shellRail = () =>
+    wall() && document.body.classList.contains('tt-wall-shell');
   const onWall = new URLSearchParams(location.search).get('view') === 'screen';
   let openState = {};
   let incidentNow = false;
@@ -389,22 +400,32 @@ export function createHud({
         : said;
     // All-in-one: a big thin count leads the calm and watch states (shell
     // review 02-ui §5). Incident, delayed data and walls keep the sentence.
-    const hero = !wall() && m.mode !== 'incident' && !m.degraded && m.total > 0;
+    // A wall in the new frame leads with it too, the trip in the kicker
+    // (55-S2-PLAN; walls-live W1 still names the trip).
+    const big = !wall() || shellRail();
+    const hero = big && m.mode !== 'incident' && !m.degraded && m.total > 0;
     if (hero) {
       const box = el('div', `tt-sum-hero ${m.mode}`);
       const n = el('span', 'tt-sum-n', String(m.total));
       const txt = el('div', 'tt-sum-txt');
+      const head = wall() ? said : status;
       txt.append(
-        el('div', 'tt-sum-k', 'to check on'),
+        el(
+          'div',
+          'tt-sum-k',
+          wall() && ctx.tripTitle
+            ? `to check on · ${ctx.tripTitle}`
+            : 'to check on',
+        ),
         el(
           'div',
           `tt-topline ${m.mode}`,
-          m.mode === 'watch' ? status : status.split(' · ')[0],
+          m.mode === 'watch' ? head : head.split(' · ')[0],
         ),
       );
       box.append(n, txt);
       sum.replaceChildren(box);
-    } else if (!wall() && m.mode === 'incident') {
+    } else if (big && m.mode === 'incident') {
       // Incident: a red numeral leads, the sentence below in plain weight
       // (review/shell 12-ui §9). Red stays on the numeral and the border.
       const above = m.groups.find((g) => g.key === 'at_or_above');
@@ -444,7 +465,8 @@ export function createHud({
     if (m.subLine) sum.append(el('div', 'tt-subline', m.subLine));
     // Walls keep the group split in the head; the All-in-one moves it into
     // People, where the counts it repeats live (04-ia §2).
-    if (ctx.siteLine && wall())
+    // (A wall in the new frame has the People card for it.)
+    if (ctx.siteLine && wall() && !shellRail())
       sum.append(el('div', 'tt-subline tt-site-line', ctx.siteLine));
     if (ctx.weather?.approach)
       sum.append(
@@ -506,7 +528,31 @@ export function createHud({
     chap.textContent = `Chaperones ${ch.length} · ${cur} current${ch.length - cur ? ` · ${ch.length - cur} not current` : ''}`;
     siteSplit.textContent = !wall() && ctx.siteLine ? ctx.siteLine : '';
     siteSplit.hidden = !siteSplit.textContent;
-    {
+    if (shellRail()) {
+      // A wall's one line names every group, so it adds up to the whole
+      // trip (screens/70-S2-FIX-LIST G5).
+      const c = a.counts;
+      const line = peopleCard.line;
+      const short = {
+        'Inside (likely)': 'inside',
+        'At hotel, undetermined': `at ${ctx.siteNoun || 'hotel'}, undetermined`,
+        'Outside, nearby': 'outside',
+        Away: 'away',
+        'Not current': 'not current',
+        'Not located': 'not located',
+      };
+      const parts = [];
+      for (const b of ROSTER_BUCKETS) {
+        const n = b === 'Inside (likely)' && ctx.hotelApproximate ? '—' : c[b];
+        if (!n) continue;
+        const warn = b === 'Not current' || b === 'Not located';
+        parts.push(el('span', warn ? 'warn' : '', `${n} ${short[b] || b}`));
+      }
+      line.replaceChildren(
+        ...parts.flatMap((p, i) => (i ? [' · ', p] : [p])),
+        ` · of ${a.rows.length}`,
+      );
+    } else {
       const c = a.counts;
       const inside = ctx.hotelApproximate ? '—' : c['Inside (likely)'];
       const line = peopleCard.line;
@@ -634,7 +680,7 @@ export function createHud({
       );
     }
 
-    fitWall();
+    // (fitted after the cards open, below — G18)
 
     // ---- Sources ----
     sourcesCard.cnt.textContent = String(ctx.sources.length);
@@ -675,6 +721,7 @@ export function createHud({
           : '';
     }
     for (const c of Object.values(cards)) applyCard(c);
+    fitWall();
     scroll.scrollTop = top;
     // A new selection (A, ] and [, a click on the map) brings its row into
     // view in Needs attention (Jesse, 23 Oct).
@@ -1043,26 +1090,43 @@ export function createHud({
     if (!wall()) return;
     const needs = needsCard.body;
     needs.querySelector('.tt-wall-more')?.remove();
+    const ppl = peopleCard.sec;
+    ppl.classList.remove('tt-fit-compact', 'tt-fit-fold');
+    head.classList.remove('tt-fit-lean');
     // Hidden column (a role without the rail): nothing to measure.
     if (!scroll.clientHeight) return;
     // Only Needs attention counts: cards below it may run off the wall.
     // Where the wall rail fades out its last tenth (F5), stop above it.
+    // The whole card is measured, its padding too (G6).
     const masked = getComputedStyle(scroll).maskImage !== 'none';
+    const box = shellRail() ? needsCard.sec : needs;
     const over = () => {
       const r = scroll.getBoundingClientRect();
       return (
-        needs.getBoundingClientRect().bottom >
+        box.getBoundingClientRect().bottom >
         r.bottom - (masked ? Math.max(24, r.height * 0.1) : 8)
       );
     };
     let hidden = 0;
     // Trim the biggest group first, so every group keeps its first name
     // (a not-located traveler is never hidden behind four not-current);
-    // people at or above a reported floor (.p1) go last.
-    const drop = () => {
+    // people at or above a reported floor (.p1) go last; the person
+    // selected here is never trimmed (G7). A group whose last name goes
+    // keeps its heading and count (G6).
+    const drop = (calmOnly = false) => {
       const groups = [...needs.querySelectorAll('.tt-group')];
-      const n = (g) => g.querySelectorAll('.tt-rowbtn').length;
-      if (groups.reduce((a, g) => a + n(g), 0) <= 1) return false;
+      const rowsOf = (g) =>
+        [...g.querySelectorAll('.tt-rowbtn')].filter(
+          (b) => !b.classList.contains('on') && !b.hidden,
+        );
+      const n = (g) => rowsOf(g).length;
+      const all = groups.reduce(
+        (x, g) =>
+          x +
+          [...g.querySelectorAll('.tt-rowbtn')].filter((b) => !b.hidden).length,
+        0,
+      );
+      if (all <= 1 || !groups.some(n)) return false;
       const pick = (list) => {
         const big = list.filter((g) => n(g) > 1);
         if (!big.length) return null;
@@ -1070,28 +1134,72 @@ export function createHud({
         return big.filter((g) => n(g) === max).at(-1);
       };
       const calm = groups.filter((g) => !g.classList.contains('p1'));
-      const g =
-        pick(calm) || pick(groups) || calm.filter(n).at(-1) || groups.at(-1);
-      [...g.querySelectorAll('.tt-rowbtn')].at(-1).remove();
-      if (!n(g)) g.remove();
+      // People at or above a reported floor go last: in the new frame
+      // they are only trimmed after every step has run (round 2, d).
+      const g = calmOnly
+        ? pick(calm) || calm.filter(n).at(-1)
+        : pick(calm) ||
+          pick(groups) ||
+          calm.filter(n).at(-1) ||
+          groups.filter(n).at(-1);
+      if (!g) return false;
+      const r = rowsOf(g).at(-1);
+      if (shellRail()) r.hidden = true;
+      else r.remove();
       hidden += 1;
       return true;
     };
-    while (over() && drop()) {
-      // trimmed one row
-    }
-    if (!hidden) return;
     const board = document.body.dataset.boardSlot;
-    const here = document.body.dataset.role === 'incident';
-    const more = el(
-      'div',
-      'tt-wall-more',
-      `+${hidden} more${board && !here ? ` · all on S${board}` : ' · not shown on this screen'}`,
-    );
+    const b = document.body;
+    // This wall is the board (its own Incident wall, or the wall that
+    // carries the list on one or two screens).
+    const here =
+      b.dataset.role === 'incident' ||
+      board === new URLSearchParams(location.search).get('slot');
+    const carries = here || /\bincident\b/.test(b.dataset.merged || '');
+    const more = el('div', 'tt-wall-more');
+    const say = () => {
+      more.textContent = `+${hidden} more${
+        board && !here
+          ? ` · all on S${board}`
+          : carries
+            ? shellRail()
+              ? ' · Next to check walks them'
+              : ' · not shown on this screen'
+            : ' · all on the remote'
+      }`;
+    };
+    // The "+n more" line takes its room while measuring (G6).
+    hidden = 0;
+    say();
     needs.append(more);
-    // The line itself may push one more row out.
-    if (over() && drop())
-      more.textContent = more.textContent.replace(/^\+\d+/, `+${hidden}`);
+    const rows = () =>
+      [...needs.querySelectorAll('.tt-rowbtn')].filter((r) => !r.hidden).length;
+    if (shellRail()) {
+      // The new frame (55-S2-PLAN, 70 G6): try each step in turn — full,
+      // People compact, the Summary's detail out, People folded — and keep
+      // the first where Needs shows at least three rows; only then Needs
+      // gives way below three. Rows are hidden, not removed, so the room
+      // a step frees goes back to names (round 2). A report starts compact.
+      const steps = [
+        [],
+        ['compact'],
+        ['compact', 'lean'],
+        ['compact', 'lean', 'fold'],
+      ];
+      for (let k = incidentNow ? 1 : 0; k < steps.length; k++) {
+        for (const r of needs.querySelectorAll('.tt-rowbtn')) r.hidden = false;
+        hidden = 0;
+        say();
+        ppl.classList.toggle('tt-fit-compact', steps[k].includes('compact'));
+        ppl.classList.toggle('tt-fit-fold', steps[k].includes('fold'));
+        head.classList.toggle('tt-fit-lean', steps[k].includes('lean'));
+        while (over() && rows() > 3 && drop(true)) say();
+        if (!over()) break;
+      }
+      while (over() && drop()) say();
+    } else while (over() && drop()) say();
+    if (!hidden) more.remove();
   }
 
   return {

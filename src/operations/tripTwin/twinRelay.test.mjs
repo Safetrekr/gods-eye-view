@@ -301,11 +301,13 @@ test("a wall's menu: layout from the allowlist; pinned, visitor and safety layer
     true,
   );
   assert.deepEqual(screen(1).layout, { cards: 'map', off: ['hotel'] });
-  // S2 People is not in the new frame yet (and is merged here): its
-  // layout is not accepted (screens/20-S1-FIX-LIST F18).
-  const s2Layout = wall(s2, 2, { layout: { off: ['people'] } });
-  assert.equal(s2Layout.ok, false);
-  assert.equal(s2Layout.code, 'VALIDATION_COMMAND');
+  // S2 People is in the new frame (55-S2-PLAN): its cards are locked
+  // (70-S2-FIX-LIST G15) — layout is accepted, no card is hidden.
+  assert.equal(
+    wall(s2, 2, { layout: { width: 'wide', off: ['summary', 'people'] } }).ok,
+    true,
+  );
+  assert.deepEqual(screen(2).layout, { width: 'wide', off: [] });
   // A merge, not a replace: width joins what the wall already set.
   wall(s1, 1, { layout: { width: 'wide' } });
   assert.deepEqual(screen(1).layout, {

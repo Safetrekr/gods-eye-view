@@ -27,7 +27,13 @@ import {
   simNowcast,
   simulatedAlert,
 } from '../twinNowcastLoad.js';
-import { STATIONS, FOOT_STATIONS, btn, stationOf } from './stations.js';
+import {
+  STATIONS,
+  FOOT_STATIONS,
+  attentionScreen,
+  btn,
+  stationOf,
+} from './stations.js';
 import { weatherPill } from '../twinStations.js';
 import {
   STATUS,
@@ -285,7 +291,7 @@ async function copyResponders(report) {
     `${t.title} — reported ${report.kind || 'incident'}, floor ${report.floor} (not verified)`,
     `Site: ${data?.snapshot?.trips?.[0]?.destination || ''}`,
     `Group: ${people.length} people (sample trip, fictional)`,
-    'Floor estimates and who may still be inside: see the Incident & attention screen.',
+    `Floor estimates and who may still be inside: see ${attentionScreen(ui.state)}.`,
   ].join('\n');
   try {
     await navigator.clipboard.writeText(text);

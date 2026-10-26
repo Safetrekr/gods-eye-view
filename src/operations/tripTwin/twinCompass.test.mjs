@@ -33,3 +33,11 @@ test('caption says where you stand and where you look', async () => {
   assert.equal(compassCaption(180), 'Viewing from N · looking S');
   assert.equal(compassCaption(270), 'Viewing from E · looking W');
 });
+
+test('plan view: the caption says which way is up (screens/55-S2-PLAN)', async () => {
+  const { planCaption } = await import('./twinCompass.js');
+  assert.equal(planCaption(0), 'Plan view · north up');
+  assert.equal(planCaption(357), 'Plan view · north up');
+  assert.equal(planCaption(45), 'Plan view · up is NE');
+  assert.equal(planCaption(180), 'Plan view · up is S');
+});

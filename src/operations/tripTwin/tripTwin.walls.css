@@ -401,11 +401,11 @@ body.tt-body[data-view='screen'] .tt-mapbar-note {
 
 /* ====================== S1 · Site ====================== */
 /* The map is the whole screen; the card floats over it on the left. */
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'] {
+body.tt-body[data-view='screen'].tt-wall-map {
   --wall-left: 0px;
   --wall-right: 0px;
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'] .tt-mapbar {
+body.tt-body[data-view='screen'].tt-wall-map .tt-mapbar {
   display: flex;
   zoom: var(--wall-scale);
   top: calc((var(--w-top) + var(--w-g)) / var(--wall-scale));
@@ -421,23 +421,19 @@ body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'] .tt-mapbar {
   pointer-events: none;
   transition: right 0.32s var(--fog-in, ease);
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'].tt-wst-open
-  .tt-mapbar {
+body.tt-body[data-view='screen'].tt-wall-map.tt-wst-open .tt-mapbar {
   right: calc((var(--w-g) * 2 + var(--w-st)) / var(--wall-scale));
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'][data-wall-cards='map']:not(
-    .tt-report-open
-  )
+body.tt-body[data-view='screen'].tt-wall-map[data-role='site']:not(
+    [data-merged~='travelers']
+  )[data-wall-cards='map']:not(.tt-report-open)
   .tt-mapbar {
   left: calc(var(--w-g) / var(--wall-scale));
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'].tt-hands-on
-  .tt-mapbar {
+body.tt-body[data-view='screen'].tt-wall-map.tt-hands-on .tt-mapbar {
   pointer-events: auto;
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
-  .tt-mapbar
-  .tt-chips {
+body.tt-body[data-view='screen'].tt-wall-map .tt-mapbar .tt-chips {
   position: static;
   zoom: 1;
   flex: 1 1 auto;
@@ -450,9 +446,7 @@ body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
   gap: 6px;
   inset: auto;
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
-  .tt-mapbar
-  .tt-scale {
+body.tt-body[data-view='screen'].tt-wall-map .tt-mapbar .tt-scale {
   display: block;
   position: static;
   zoom: 1;
@@ -465,15 +459,10 @@ body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
-  .tt-mapbar
-  .tt-scale
-  .tt-tb {
+body.tt-body[data-view='screen'].tt-wall-map .tt-mapbar .tt-scale .tt-tb {
   font-size: 13px;
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
-  .tt-mapbar
-  .tt-compass {
+body.tt-body[data-view='screen'].tt-wall-map .tt-mapbar .tt-compass {
   position: relative;
   inset: auto;
   top: auto;
@@ -485,9 +474,7 @@ body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
   zoom: 0.68;
   margin-left: calc(176px / 0.68);
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
-  .tt-mapbar
-  .tt-compass-caption {
+body.tt-body[data-view='screen'].tt-wall-map .tt-mapbar .tt-compass-caption {
   top: 50%;
   left: auto;
   right: calc(100% + 10px);
@@ -499,8 +486,7 @@ body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
   color: var(--tt-text-2);
   white-space: nowrap;
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
-  .tt-mapbar-note {
+body.tt-body[data-view='screen'].tt-wall-map .tt-mapbar-note {
   display: inline-block;
   flex: none;
   order: 2;
@@ -526,10 +512,16 @@ body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'] .tt-rcol {
     (100vh - var(--w-top) - var(--w-bot) - var(--w-g) * 2) / var(--wall-scale)
   );
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+body.tt-body[data-view='screen']:is(
+    .tt-wall-shell[data-role='site'],
+    .tt-wall-two
+  )
   .tt-rcol
   > .tt-panel,
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+body.tt-body[data-view='screen']:is(
+    .tt-wall-shell[data-role='site'],
+    .tt-wall-two
+  )
   .tt-rcol
   > .tt-incident {
   background: var(--tt-glass);
@@ -594,9 +586,7 @@ body.tt-body[data-view='screen']:not(.tt-hands-on) .tt-cut-plate.hint {
 body.tt-body[data-view='screen'] .tt-mapbar.tight .tt-compass-caption {
   display: none;
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
-  .tt-mapbar.tight
-  .tt-compass {
+body.tt-body[data-view='screen'].tt-wall-map .tt-mapbar.tight .tt-compass {
   margin-left: 0;
 }
 
@@ -707,25 +697,37 @@ body.tt-body[data-view='screen'] .tt-wall-sheet {
 }
 /* F3: during a report the report card leads and fits; the hotel card
    folds to its kicker and name. Map only keeps the report card. */
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'].tt-report-open
+body.tt-body[data-view='screen']:is(
+    .tt-wall-shell[data-role='site'],
+    .tt-wall-two
+  ).tt-report-open
   .tt-rcol {
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'].tt-report-open
+body.tt-body[data-view='screen']:is(
+    .tt-wall-shell[data-role='site'],
+    .tt-wall-two
+  ).tt-report-open
   .tt-rcol
   > .tt-incident {
   flex: 0 1 auto;
   min-height: 0;
   overflow: hidden;
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'].tt-report-open
+body.tt-body[data-view='screen']:is(
+    .tt-wall-shell[data-role='site'],
+    .tt-wall-two
+  ).tt-report-open
   .tt-rcol
   > .tt-card {
   flex: none;
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'].tt-report-open
+body.tt-body[data-view='screen']:is(
+    .tt-wall-shell[data-role='site'],
+    .tt-wall-two
+  ).tt-report-open
   .tt-rcol
   > .tt-card
   > :not(.tt-kicker):not(.tt-card-name):not(.tt-card-head) {
@@ -737,7 +739,10 @@ body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'][data-wall-cards
   display: none !important;
 }
 /* F1: the report card keeps its hazard edge and outline (Jesse, 23 Oct). */
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+body.tt-body[data-view='screen']:is(
+    .tt-wall-shell[data-role='site'],
+    .tt-wall-two
+  )
   .tt-rcol
   > .tt-incident:not([hidden]) {
   border-color: var(--tt-hazard);
@@ -749,21 +754,38 @@ body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
     inset 0 1px 0 var(--tt-light);
 }
 /* F13: the floor rows are S1's main content, not its smallest type. */
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'] .tt-cut-floor {
+body.tt-body[data-view='screen']:is(
+    .tt-wall-shell[data-role='site'],
+    .tt-wall-two
+  )
+  .tt-cut-floor {
   min-height: 20px;
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+body.tt-body[data-view='screen']:is(
+    .tt-wall-shell[data-role='site'],
+    .tt-wall-two
+  )
   .tt-cut-floor
   .t {
   font-size: 14px;
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+body.tt-body[data-view='screen']:is(
+    .tt-wall-shell[data-role='site'],
+    .tt-wall-two
+  )
   .tt-cut-floor
   .g {
   font-size: 13px;
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'] .tt-cut-head,
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+body.tt-body[data-view='screen']:is(
+    .tt-wall-shell[data-role='site'],
+    .tt-wall-two
+  )
+  .tt-cut-head,
+body.tt-body[data-view='screen']:is(
+    .tt-wall-shell[data-role='site'],
+    .tt-wall-two
+  )
   .tt-rcol
   .tt-kicker {
   font-size: 14px;
@@ -778,30 +800,20 @@ body.tt-body[data-view='screen'] .tt-rcol .tt-link-ish {
 }
 /* F8, F29: the bar takes clicks whenever the cursor shows; "+n" is never
    cut; the bar's type at 14 px. */
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'] .tt-mapbar {
+body.tt-body[data-view='screen'].tt-wall-map .tt-mapbar {
   pointer-events: auto;
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'].tt-idle-cursor
-  .tt-mapbar {
+body.tt-body[data-view='screen'].tt-wall-map.tt-idle-cursor .tt-mapbar {
   pointer-events: none;
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
-  .tt-mapbar
-  .tt-chips {
+body.tt-body[data-view='screen'].tt-wall-map .tt-mapbar .tt-chips {
   min-width: 6.5em;
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
-  .tt-mapbar
-  .tt-chip,
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
-  .tt-mapbar
-  .tt-scale
-  .tt-tb {
+body.tt-body[data-view='screen'].tt-wall-map .tt-mapbar .tt-chip,
+body.tt-body[data-view='screen'].tt-wall-map .tt-mapbar .tt-scale .tt-tb {
   font-size: 14px;
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
-  .tt-mapbar
-  .tt-compass-caption {
+body.tt-body[data-view='screen'].tt-wall-map .tt-mapbar .tt-compass-caption {
   font-size: calc(14px / 0.68);
 }
 body.tt-body[data-view='screen'] .tt-chip.tt-chip-fit {
@@ -959,7 +971,10 @@ body.tt-body[data-view='screen'].tt-unpaired .tt-wst-toast {
 
 /* F3: during a report the report card holds the floors; the hotel card
    would only repeat the hotel. Hand-only controls stay out at rest. */
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'].tt-report-open
+body.tt-body[data-view='screen']:is(
+    .tt-wall-shell[data-role='site'],
+    .tt-wall-two
+  ).tt-report-open
   .tt-rcol
   > .tt-card {
   display: none !important;
@@ -1022,20 +1037,30 @@ body.tt-body[data-view='screen'] .tt-incident .tt-inc-names li.more {
   color: var(--tt-text-2);
 }
 /* The reported floor's row reads whole: it may wrap (ui N1). */
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+body.tt-body[data-view='screen']:is(
+    .tt-wall-shell[data-role='site'],
+    .tt-wall-two
+  )
   .tt-cut-floor
   .t {
   white-space: normal;
   overflow: visible;
   text-overflow: clip;
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site'] .tt-cut-floor {
+body.tt-body[data-view='screen']:is(
+    .tt-wall-shell[data-role='site'],
+    .tt-wall-two
+  )
+  .tt-cut-floor {
   /* The row grows with its words (its JS height is a desk size). */
   height: auto !important;
   min-height: 20px;
   align-items: center;
 }
-body.tt-body[data-view='screen'].tt-wall-shell[data-role='site']
+body.tt-body[data-view='screen']:is(
+    .tt-wall-shell[data-role='site'],
+    .tt-wall-two
+  )
   .tt-cut-floor
   .t {
   line-height: 1.25;
@@ -1133,4 +1158,457 @@ body.tt-body[data-view='screen'].tt-wall-viewonly .tt-wst,
 body.tt-body[data-view='screen'].tt-wall-viewonly .tt-wst-ap,
 body.tt-body[data-view='screen'].tt-wall-viewonly .tt-wst-hint {
   display: none !important;
+}
+
+/* ====================== S2 · People (55-S2-PLAN) ====================== */
+/* The rail column: the All-in-one's cards — Summary, People, Needs
+   attention — each its own glass card, a gap between, Needs last (it is
+   the one list that trims). Sizes are before the wall scale. */
+body.tt-body[data-view='screen'].tt-wall-shell .tt-rail {
+  left: calc(var(--w-g) / var(--wall-scale));
+  top: calc((var(--w-top) + var(--w-g)) / var(--wall-scale));
+  bottom: calc((var(--w-bot) + var(--w-g)) / var(--wall-scale));
+  width: calc(var(--w-col) / var(--wall-scale));
+  gap: 10px;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  overflow: visible;
+}
+body.tt-body[data-view='screen'].tt-wall-shell .tt-rail > .tt-rail-head,
+body.tt-body[data-view='screen'].tt-wall-shell .tt-rail .tt-sec {
+  background: var(--tt-glass);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  box-shadow:
+    var(--tt-depth-1),
+    inset 0 1px 0 var(--tt-light);
+}
+body.tt-body[data-view='screen'].tt-wall-shell .tt-rail > .tt-rail-head {
+  flex: none;
+  padding: 14px 16px;
+}
+body.tt-body[data-view='screen'].tt-wall-shell .tt-rail .tt-rail-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: visible;
+  padding: 0;
+  -webkit-mask-image: none;
+  mask-image: none;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+body.tt-body[data-view='screen'].tt-wall-shell .tt-rail .tt-sec {
+  margin: 0;
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--tt-border);
+  flex: none;
+}
+body.tt-body[data-view='screen'].tt-wall-shell .tt-rail .tt-sec-people {
+  order: -1;
+}
+body.tt-body[data-view='screen'].tt-wall-shell .tt-rail .tt-sec-needs {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+/* State outlines, as on the All-in-one: amber attention, red hazard. */
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-rail
+  .tt-sec[data-state='attention'],
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-rail
+  > .tt-rail-head[data-state='attention'] {
+  border-color: rgba(245, 158, 11, 0.75);
+  box-shadow:
+    0 0 0 1px rgba(245, 158, 11, 0.18),
+    0 0 18px rgba(245, 158, 11, 0.16),
+    var(--tt-depth-1),
+    inset 0 1px 0 var(--tt-light);
+}
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-rail
+  .tt-sec[data-state='hazard'],
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-rail
+  > .tt-rail-head[data-state='hazard'] {
+  border-color: var(--tt-hazard);
+  box-shadow:
+    0 0 0 1px rgba(238, 119, 137, 0.25),
+    0 0 22px rgba(238, 119, 137, 0.24),
+    var(--tt-depth-1),
+    inset 0 1px 0 var(--tt-light);
+}
+/* Summary: the big numeral, the trip in the kicker. */
+body.tt-body[data-view='screen'].tt-wall-shell .tt-sum-hero .tt-sum-n {
+  font: 200 44px/42px var(--tt-display);
+}
+body.tt-body[data-view='screen'].tt-wall-shell .tt-sum-hero .tt-sum-k {
+  font: 500 10px/14px var(--tt-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--tt-text-dim);
+}
+body.tt-body[data-view='screen'].tt-wall-shell .tt-sum-hero .tt-topline {
+  font: 300 18px/23px var(--tt-display);
+}
+body.tt-body[data-view='screen'].tt-wall-shell .tt-topdetail .kbd {
+  display: none;
+}
+body.tt-body[data-view='screen'].tt-wall-shell.tt-hands-on .tt-topdetail .kbd {
+  display: inline-block;
+}
+/* People: headcounts read across the room, on their own baseline. */
+body.tt-body[data-view='screen'].tt-wall-shell .tt-people-asof {
+  display: none;
+}
+body.tt-body[data-view='screen'].tt-wall-shell .tt-roster {
+  align-items: baseline;
+  row-gap: 0;
+}
+body.tt-body[data-view='screen'].tt-wall-shell .tt-roster .cnt {
+  font: 300 36px/40px var(--tt-display);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+body.tt-body[data-view='screen'].tt-wall-shell .tt-roster .lbl {
+  font-size: 15px;
+  line-height: 40px;
+}
+body.tt-body[data-view='screen'].tt-wall-shell .tt-roster .cnt.zero {
+  color: var(--tt-text-dim);
+}
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-rail
+  .tt-sec-people
+  .tt-people-foot {
+  font-size: 12px;
+  line-height: 17px;
+}
+/* Compact (fitting step 2) and folded (step 4). */
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-sec-people.tt-fit-compact
+  .tt-roster {
+  row-gap: 0;
+}
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-sec-people.tt-fit-compact
+  .tt-roster
+  .cnt {
+  font-size: 24px;
+  line-height: 27px;
+}
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-sec-people.tt-fit-compact
+  .tt-roster
+  .lbl {
+  font-size: 13px;
+  line-height: 27px;
+}
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-sec-people.tt-fit-compact
+  .tt-people-foot {
+  display: none;
+}
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-sec-people.tt-fit-fold
+  .tt-sec-body {
+  display: none !important;
+}
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-sec-people.tt-fit-fold
+  .tt-sec-line {
+  display: block !important;
+  font-size: 14px;
+  line-height: 20px;
+}
+/* Needs attention: the reason may take a second line; never an ellipsis. */
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-rail
+  .tt-rowbtn
+  > span:not(.ini) {
+  display: block;
+}
+body.tt-body[data-view='screen'].tt-wall-shell .tt-rail .tt-rowbtn .why {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-rail
+  .tt-sec-needs
+  .tt-wall-more {
+  font: 400 13px/18px var(--tt-font);
+  letter-spacing: 0;
+  color: var(--tt-text-2);
+}
+/* Map only: the Summary stays (the first locked card); a report keeps
+   everything on screen. */
+body.tt-body[data-view='screen'].tt-wall-shell[data-role='travelers'][data-wall-cards='map']:not(
+    .tt-report-open
+  )
+  .tt-rail
+  .tt-rail-scroll {
+  display: none;
+}
+
+/* ---- one or two screens: the second card column (55-S2-PLAN §2) ---- */
+body.tt-body[data-view='screen'].tt-wall-two .tt-rcol {
+  left: calc((var(--w-g) * 2 + var(--w-col)) / var(--wall-scale)) !important;
+  right: auto !important;
+  top: calc((var(--w-top) + var(--w-g)) / var(--wall-scale));
+  width: calc(var(--w-col) / var(--wall-scale));
+  max-height: calc(
+    (100vh - var(--w-top) - var(--w-bot) - var(--w-g) * 2) / var(--wall-scale)
+  );
+}
+body.tt-body[data-view='screen'].tt-wall-two .tt-rcol > .tt-panel,
+body.tt-body[data-view='screen'].tt-wall-two .tt-rcol > .tt-incident {
+  background: var(--tt-glass);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  box-shadow:
+    var(--tt-depth-1),
+    inset 0 1px 0 var(--tt-light);
+}
+/* The map bar starts after the second column while it shows a card. */
+body.tt-body[data-view='screen'].tt-wall-map.tt-wall-two.tt-rcol-on .tt-mapbar {
+  left: calc((var(--w-g) * 3 + var(--w-col) * 2) / var(--wall-scale));
+}
+
+/* Fitting step 3: the Summary's small lines step out (the numeral, the
+   state and First: stay). */
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-rail-head.tt-fit-lean
+  .tt-subline:not(.tt-wx-approach) {
+  display: none;
+}
+/* A report in the Summary: the numeral and the edge carry the red; the
+   sentence is steel, one size down, so it does not take three lines. */
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-sum-hero.incident
+  .tt-topline {
+  font: 300 15px/20px var(--tt-display);
+  color: var(--tt-text);
+}
+/* Needs attention is always the last card: it is the one list that trims,
+   so nothing may sit below it. Hazards and Safety & paths (one-screen and
+   two-screen walls) come before it; Sources is in the credits line. It
+   never shrinks, so the fit sees it overflow — never a silent cut. */
+body.tt-body[data-view='screen'].tt-wall-shell .tt-rail .tt-sec-people {
+  order: -3;
+}
+body.tt-body[data-view='screen'].tt-wall-shell .tt-rail .tt-sec-hazards {
+  order: -2;
+}
+body.tt-body[data-view='screen'].tt-wall-shell .tt-rail .tt-sec-safety {
+  order: -1;
+}
+body.tt-body[data-view='screen'].tt-wall-shell .tt-rail .tt-sec-sources {
+  display: none !important;
+}
+body.tt-body[data-view='screen'].tt-wall-shell .tt-rail .tt-sec-needs {
+  flex: none;
+  overflow: visible;
+}
+/* A narrow wall during a report (1728, S2 review shots): the lockup and
+   role never give way; the status zone shrinks, the OTHER TRIP chip
+   ellipsises first, then the trip crumb goes. */
+body.tt-body[data-view='screen'] .tt-wall-bar {
+  grid-template-columns: minmax(min-content, 1.3fr) minmax(0, auto) minmax(
+      0,
+      0.7fr
+    );
+}
+.tt-wall-bar .tt-brand {
+  flex: none;
+}
+.tt-wall-bar .tt-bar-status {
+  min-width: 0;
+  overflow: hidden;
+}
+.tt-wall-bar .tt-wall-badge,
+.tt-wall-bar .tt-wall-mode,
+.tt-wall-bar .tt-wall-clockrow {
+  flex: none;
+}
+
+/* ================= S2 round 1 (70-S2-FIX-LIST) ================= */
+/* G9: Map only on a wall with the People rail hides its lower cards too
+   (the Summary stays); a report keeps everything. */
+body.tt-body[data-view='screen'].tt-wall-shell[data-merged~='travelers'][data-wall-cards='map']:not(
+    .tt-report-open
+  )
+  .tt-rail
+  .tt-rail-scroll {
+  display: none;
+}
+/* G4: beside the report card (two screens), the Summary steps back to its
+   red numeral and kicker; the card carries the sentence and the floors. */
+body.tt-body[data-view='screen'].tt-wall-two.tt-rcol-on.tt-report-open
+  .tt-rail-head
+  > :not(.tt-sum) {
+  display: none;
+}
+body.tt-body[data-view='screen'].tt-wall-two.tt-rcol-on.tt-report-open
+  .tt-sum
+  > :not(.tt-sum-hero) {
+  display: none;
+}
+body.tt-body[data-view='screen'].tt-wall-two.tt-rcol-on.tt-report-open
+  .tt-sum-hero
+  .tt-topline {
+  display: none;
+}
+/* G8: walls — People's amber numbers carry Not current / Not located; the
+   amber outline is for Needs attention only. */
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-rail
+  .tt-sec-people[data-state='attention'] {
+  border-color: var(--tt-border);
+  box-shadow:
+    var(--tt-depth-1),
+    inset 0 1px 0 var(--tt-light);
+}
+/* G13: inside a red Needs card, the at-or-above group is red. */
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-rail
+  .tt-group.p1
+  .tt-rowbtn {
+  border-left-color: var(--tt-hazard);
+}
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-rail
+  .tt-sec-needs[data-state='hazard']
+  .tt-sec-count {
+  color: var(--tt-hazard-text);
+}
+/* G6: the Summary's detail steps out in the lean step; official warnings
+   and the approach never do. */
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-rail-head.tt-fit-lean
+  .tt-topdetail,
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-rail-head.tt-fit-lean
+  .tt-subline:not(.tt-wx-approach):not(.tt-wx-official) {
+  display: none;
+}
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-rail-head.tt-fit-lean
+  .tt-wx-official {
+  display: block !important;
+}
+/* A group whose names all went keeps its heading and count. */
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-rail
+  .tt-group:not(:has(.tt-rowbtn)) {
+  padding-bottom: 2px;
+}
+/* G12: the type rule at the ends of the text-size range. */
+body.tt-body[data-view='screen'].tt-wall-shell .tt-roster .lbl {
+  font-size: min(15px, calc(28px / var(--wall-scale)));
+}
+body.tt-body[data-view='screen'].tt-wall-shell .tt-rail .tt-rowbtn .who {
+  font-size: min(15px, calc(28px / var(--wall-scale)));
+}
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-sec-people.tt-fit-fold
+  .tt-sec-line,
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-rail
+  .tt-sec-needs
+  .tt-wall-more {
+  font-size: min(14px, calc(28px / var(--wall-scale)));
+}
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-sum-hero.incident
+  .tt-topline,
+body.tt-body[data-view='screen'].tt-wall-shell .tt-sum-hero .tt-topline {
+  font-size: max(15px, calc(26px / var(--wall-scale)));
+}
+/* G14: "+n more" is neutral, never the approved green. */
+body.tt-body[data-view='screen'] .tt-mapbar .tt-chip-more,
+body.tt-body[data-view='screen'] .tt-mapbar .tt-chip.draft {
+  color: var(--tt-text-2);
+  border: 1px dashed var(--tt-edge-ctl);
+}
+/* G7: who the People wall is checking, in the map bar. */
+body.tt-body[data-view='screen'] .tt-mapbar-check {
+  flex: none;
+  order: 2;
+  font: 500 13px/1 var(--tt-font);
+  color: var(--tt-text);
+  padding: 4px 8px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px rgba(238, 245, 243, 0.6);
+}
+body.tt-body[data-view='screen'] .tt-mapbar-check[hidden] {
+  display: none;
+}
+/* G16: a name is a control: no underline at rest. */
+body.tt-body[data-view='screen']:not(.tt-hands-on) .tt-namebtn {
+  text-decoration: none;
+}
+/* G3: the report card in the second column keeps its hazard edge (after
+   the column's card recipe, which would reset it). */
+body.tt-body[data-view='screen'].tt-wall-two
+  .tt-rcol
+  > .tt-incident:not([hidden]) {
+  border-color: var(--tt-hazard);
+  border-top: 2px solid var(--tt-hazard);
+  box-shadow:
+    0 0 0 1px rgba(238, 119, 137, 0.25),
+    0 0 22px rgba(238, 119, 137, 0.24),
+    var(--tt-depth-1),
+    inset 0 1px 0 var(--tt-light);
+}
+/* The folded People line reads whole: it may take two lines (G5). */
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-sec-people.tt-fit-fold
+  .tt-sec-line {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+/* Map bar order: chips · who is being checked · safety note · scale ·
+   compass at the right end, always. */
+body.tt-body[data-view='screen'].tt-wall-map .tt-mapbar .tt-scale {
+  order: 8;
+}
+body.tt-body[data-view='screen'].tt-wall-map .tt-mapbar .tt-compass {
+  order: 9;
+}
+/* Every People line on a wall reads whole (UX round 2: the closed line on
+   a two-screen wall was still cut). */
+body.tt-body[data-view='screen'].tt-wall-shell .tt-sec-people .tt-sec-line {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/* fitWall hides rows (round 2): a hidden row takes no room. */
+body.tt-body[data-view='screen'].tt-wall-shell .tt-rail .tt-rowbtn[hidden] {
+  display: none !important;
+}
+/* The Summary sentence at rest keeps its size; the report form is one
+   step down (UI round 2), both inside the type rule. */
+body.tt-body[data-view='screen'].tt-wall-shell .tt-sum-hero .tt-topline {
+  font-size: max(18px, calc(26px / var(--wall-scale)));
+}
+body.tt-body[data-view='screen'].tt-wall-shell
+  .tt-sum-hero.incident
+  .tt-topline {
+  font-size: max(15px, calc(26px / var(--wall-scale)));
+}
+/* People rows a touch tighter, so the full roster stays at rest. */
+body.tt-body[data-view='screen'].tt-wall-shell .tt-roster .cnt,
+body.tt-body[data-view='screen'].tt-wall-shell .tt-roster .lbl {
+  line-height: 34px;
 }

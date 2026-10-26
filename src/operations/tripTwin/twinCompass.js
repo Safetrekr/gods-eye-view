@@ -28,6 +28,17 @@ export function compassCaption(headingDeg) {
   return `Viewing from ${wind(headingDeg + 180)} · looking ${wind(headingDeg)}`;
 }
 
+/**
+ * Straight down there is no side to view from (screens/55-S2-PLAN): the
+ * caption says plan view and which way is up — "north up" within 5°.
+ */
+export function planCaption(headingDeg) {
+  const h = norm(headingDeg);
+  return Math.min(h, 360 - h) <= 5
+    ? 'Plan view · north up'
+    : `Plan view · up is ${wind(h)}`;
+}
+
 /** Rotate the view by ±90° around the target (keys , and .). */
 export const rotated = (headingDeg, dir) => norm(headingDeg + 90 * dir);
 
@@ -74,10 +85,13 @@ export function createCompass({ onView, onNorthUp }) {
   let last = null;
   return {
     el: root,
-    update(headingDeg) {
+    /** pitch (radians, optional): near straight down reads as plan view. */
+    update(headingDeg, pitch = null) {
       const h = Math.round(norm(headingDeg));
-      if (h === last) return;
-      last = h;
+      const plan = pitch != null && pitch < -1.4; // steeper than ~80°
+      const key = `${h}|${plan}`;
+      if (key === last) return;
+      last = key;
       // Screen-up is the look direction, so north sits at -heading.
       dial.style.transform = `rotate(${-h}deg)`;
       const on = currentSide(h).key;
@@ -86,7 +100,8 @@ export function createCompass({ onView, onNorthUp }) {
         b.classList.toggle('on', side.key === on);
         b.setAttribute('aria-pressed', String(side.key === on));
       }
-      caption.textContent = compassCaption(h);
+      caption.textContent = plan ? planCaption(h) : compassCaption(h);
+      root.classList.toggle('plan', plan);
     },
   };
 }

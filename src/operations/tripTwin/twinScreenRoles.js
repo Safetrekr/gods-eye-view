@@ -206,7 +206,9 @@ export const CARD_CATALOG = Object.freeze({
   site: [{ key: 'hotel', label: 'Group hotel · floors' }],
   travelers: [
     { key: 'summary', label: 'Summary', lock: true },
-    { key: 'people', label: 'People' },
+    // Locked too (70-S2-FIX-LIST G15): a People wall without its counts
+    // makes no sense, and no control offers hiding it.
+    { key: 'people', label: 'People', lock: true },
     { key: 'attention', label: 'Needs attention', lock: true },
   ],
   incident: [
@@ -264,13 +266,13 @@ export const SAFETY_LAYERS = Object.freeze([
 ]);
 
 /**
- * Roles already in the new wall frame (screens/05-S1-PLAN): their layout
- * options do something. One role at a time (Jesse); S1 Site first. A
- * one-screen wall (merged roles) keeps its old layout until S2's turn.
+ * Roles already in the new wall frame (screens/05-S1-PLAN, 55-S2-PLAN):
+ * their layout options do something. One role at a time (Jesse): S1 Site,
+ * S2 People. A wall carrying more than one role (one or two screens)
+ * converts with them: a second card column (55-S2-PLAN §2).
  */
-export const WALL_LAYOUT_ROLES = new Set(['site']);
-export const wallShellOn = (screen = {}) =>
-  WALL_LAYOUT_ROLES.has(screen.role) && !(screen.merged || []).length;
+export const WALL_LAYOUT_ROLES = new Set(['site', 'travelers']);
+export const wallShellOn = (screen = {}) => WALL_LAYOUT_ROLES.has(screen.role);
 
 /**
  * Text size on a wall (screens/20-S1-FIX-LIST F12): inside this range the

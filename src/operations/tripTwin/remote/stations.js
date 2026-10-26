@@ -78,6 +78,18 @@ const slotWithRole = (state, role) =>
   Number(
     Object.keys(state.screens).find((k) => state.screens[k].role === role),
   ) || null;
+/** Where Incident & attention is shown: its own wall, else the wall that
+ *  carries it (one or two screens; screens/70-S2-FIX-LIST IA round 2). */
+export const attentionScreen = (state) => {
+  const own = slotWithRole(state, 'incident');
+  if (own) return `S${own} Incident & attention`;
+  const k = Object.keys(state?.screens || {}).find((n) =>
+    (state.screens[n].merged || []).includes('incident'),
+  );
+  return k
+    ? `S${k} ${ROLES[state.screens[k].role]?.label || ''} (Needs attention)`
+    : 'the Needs attention list';
+};
 const dayText = (date) =>
   new Date(`${date}T12:00:00Z`).toLocaleDateString('en-GB', {
     weekday: 'short',
@@ -183,7 +195,7 @@ function incident(ctx) {
       el(
         'div',
         'rm-note',
-        'Copied text stays on this device; it is never shown on a wall. Who may still be inside, by floor, is on the Incident & attention screen.',
+        `Copied text stays on this device; it is never shown on a wall. Who may still be inside, by floor, is on ${attentionScreen(state)}.`,
       ),
     );
   }

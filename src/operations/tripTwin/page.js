@@ -2080,10 +2080,20 @@ async function main() {
     return r.width && r.height ? r : null;
   };
   twin.setSafeArea(() => {
-    const left = visibleBox('tt-rail') || visibleBox('tt-advance');
-    const right = ['tt-editor', 'tt-incident', 'tt-card', 'tt-st']
+    // Each panel counts on the side of the screen it sits on: a wall puts
+    // its cards on the left (screens/70-S2-FIX-LIST G1).
+    const mid = innerWidth / 2;
+    const boxes = ['tt-editor', 'tt-incident', 'tt-card', 'tt-st', 'tt-wst']
       .map(visibleBox)
       .filter(Boolean);
+    const leftBoxes = [
+      visibleBox('tt-rail') || visibleBox('tt-advance'),
+      ...boxes.filter((r) => r.left + r.width / 2 < mid),
+    ].filter(Boolean);
+    const left = leftBoxes.length
+      ? { right: Math.max(...leftBoxes.map((r) => r.right)) }
+      : null;
+    const right = boxes.filter((r) => r.left + r.width / 2 >= mid);
     const bar = $('tt-bar').getBoundingClientRect();
     // The dock hides while the stations rail is open: use the footer then.
     const tools = visibleBox('tt-toolbar') || {
@@ -4212,7 +4222,8 @@ async function main() {
     mapbar.append($('tt-chips'), $('tt-scale'), compass.el);
     document.body.append(mapbar);
   }
-  const onPostRender = () => compass.update(twin.headingDeg);
+  const onPostRender = () =>
+    compass.update(twin.headingDeg, viewer.camera.pitch);
   viewer.scene.postRender.addEventListener(onPostRender);
   cleanups.push(() =>
     viewer.scene.postRender.removeEventListener(onPostRender),
@@ -6759,10 +6770,12 @@ async function main() {
     }
     const list = flatNeeds();
     if (!list.length) return;
+    // ] and [ go on from the person selected now (S2 round 2, c).
+    const at = list.findIndex((r) => r.person.id === twin.selectedPersonId);
+    const base = at >= 0 ? at : attentionIndex;
     if (k === 'a' || k === 'A') attentionIndex = 0;
-    else if (k === ']') attentionIndex = (attentionIndex + 1) % list.length;
-    else if (k === '[')
-      attentionIndex = (attentionIndex - 1 + list.length) % list.length;
+    else if (k === ']') attentionIndex = (base + 1) % list.length;
+    else if (k === '[') attentionIndex = (base - 1 + list.length) % list.length;
     else return;
     twin.selectPerson(list[attentionIndex].person.id, { frame: true });
   });
@@ -6974,6 +6987,64 @@ async function main() {
     },
     floorsAvailable: () => Boolean(lastOcc?.available),
     needsCount: () => flatNeeds().length,
+    /** ] : the next person who needs attention, wrapping (S2 tiles). */
+    nextToCheck() {
+      const list = flatNeeds();
+      if (!list.length) return;
+      // From the person selected now, else from the last one walked.
+      const i = list.findIndex((r) => r.person.id === twin.selectedPersonId);
+      attentionIndex = ((i >= 0 ? i : attentionIndex) + 1) % list.length;
+      twin.selectPerson(list[attentionIndex].person.id, { frame: true });
+    },
+    /** Which of the list the selection is ("2 of 6"), or ''. */
+    checkPosition() {
+      const list = flatNeeds();
+      const i = list.findIndex((r) => r.person.id === twin.selectedPersonId);
+      return i >= 0 ? `${i + 1} of ${list.length}` : '';
+    },
+    hasSelection: () => Boolean(twin.selectedPersonId),
+    selectedPersonId: () => twin.selectedPersonId || null,
+    /** Straight down within ~10°. */
+    isPlanView: () => Boolean(viewer) && viewer.camera.pitch < -1.4,
+    /** Every located person in view, from straight above; no selection. */
+    frameGroup({ north = false, keepSelection = false } = {}) {
+      if (twin.state !== 'ready') return;
+      // A remote's spotlight stays (70-S2-FIX-LIST G11).
+      if (!keepSelection) twin.select(null);
+      // The group here, not a traveler at the airport: within 2 km.
+      const c0 = twin.site.center;
+      const here = { lat: c0.lat, lng: c0.lon ?? c0.lng };
+      const pts = (lastCtx?.snapshot?.participants || [])
+        .map((p) => p.coordinates)
+        .filter(
+          (c) =>
+            c &&
+            Number.isFinite(c.lat) &&
+            Number.isFinite(c.lng) &&
+            haversineM(here, c) < 2000,
+        )
+        .map((c) =>
+          Cesium.Cartesian3.fromDegrees(c.lng, c.lat, twin.scene.hotelBase),
+        );
+      if (!pts.length) return screenApi.frame({ kind: 'topdown' });
+      const sphere = Cesium.BoundingSphere.fromPoints(pts);
+      sphere.radius = Math.max(sphere.radius, 120);
+      // Into the map area the cards leave free.
+      twin.flySafe(sphere, {
+        heading: north ? 0 : viewer.camera.heading,
+        pitch: -Cesium.Math.PI_OVER_TWO + 0.001,
+        range: Math.max(500, sphere.radius * 3.2),
+        duration: reducedMotion() ? 0 : 1.2,
+      });
+    },
+    /** Plan view ↔ the saved scale's tilted view (one S2 tile). */
+    togglePlan() {
+      if (screenApi.isPlanView()) {
+        const sc = document.querySelector('.tt-tb.on[data-scale]')?.dataset
+          .scale;
+        flyScale(sc || 'neighborhood');
+      } else screenApi.frame({ kind: 'topdown' });
+    },
     setLayer(key, on) {
       if (key in wx.layers) {
         wx.layers[key] = on;
