@@ -98,6 +98,8 @@ export function createSafetyLayer(viewer, site) {
   // The place whose card is open glows like a selected building: white glow
   // on its beacon and ring, a larger glyph and a brighter label (phase 5b).
   let selectedId = null;
+  let lastSig = null;
+  let lastChips = [];
   let lastArgs = null;
   const glowMat = (a = 0.95, power = 0.25) =>
     new Cesium.PolylineGlowMaterialProperty({
@@ -114,8 +116,30 @@ export function createSafetyLayer(viewer, site) {
     /** Returns edge chips for points beyond the hologram. */
     update(points = [], { show = true, covers = null } = {}) {
       lastArgs = [points, { show, covers }];
+      // Unchanged places are not redrawn: clearing and rebuilding the rings
+      // every feed tick made them blink (Jesse, 27 Oct).
+      const sig = JSON.stringify([
+        show,
+        selectedId,
+        points.map((p) => [
+          p.id,
+          p.category,
+          p.approval_status,
+          p.name,
+          p.coordinates?.lat,
+          p.coordinates?.lng,
+          p.coordinates
+            ? Boolean(
+                covers?.({ lat: p.coordinates.lat, lon: p.coordinates.lng }),
+              )
+            : null,
+        ]),
+      ]);
+      if (sig === lastSig) return lastChips;
+      lastSig = sig;
       ds.entities.removeAll();
       const chips = [];
+      lastChips = chips;
       if (!show) return chips;
       // The selected place is drawn last so its glyph sits on top.
       const ordered = [...points].sort(

@@ -22,8 +22,35 @@ function circle(projector, x, y, r, n = 48) {
 export { floorText, UNKNOWN_TEXT };
 
 export function createPeopleLayer(viewer, site, twin) {
-  const ds = new Cesium.CustomDataSource('trip-twin-people');
+  let ds = new Cesium.CustomDataSource('trip-twin-people');
   viewer.dataSources.add(ds);
+  // Each update draws into a fresh data source and keeps the last one until
+  // the new one is drawn: ground polygons build in the background, so
+  // clearing first left a frame or more with no circles — a blink every
+  // feed tick, held on screen by idle rendering (Jesse, 27 Oct).
+  const retiring = new Set();
+  let swapWatch = null;
+  function retire(old) {
+    retiring.add({ old, since: performance.now(), next: ds });
+    if (swapWatch) return;
+    swapWatch = viewer.scene.postRender.addEventListener(() => {
+      const display = viewer.dataSourceDisplay;
+      for (const r of [...retiring]) {
+        const inNow = viewer.dataSources.contains(r.next);
+        const ready = inNow && display.ready;
+        if (ready || performance.now() - r.since > 2000) {
+          viewer.dataSources.remove(r.old, true);
+          retiring.delete(r);
+        }
+      }
+      if (retiring.size) viewer.scene.requestRender();
+      else {
+        swapWatch();
+        swapWatch = null;
+      }
+    });
+    viewer.scene.requestRender();
+  }
   const { projector, field } = site;
   const hotelRing = site.hotel.building.xy[0];
   const lobbyH = twin.lobbyH;
@@ -362,8 +389,49 @@ export function createPeopleLayer(viewer, site, twin) {
   const focusDs = new Cesium.CustomDataSource('trip-twin-floor-focus');
   viewer.dataSources.add(focusDs);
 
+  /** The approximate hotel drawn up to z: a top outline and corner lines. */
+  function extension(z0, z1) {
+    const ring = hotelRing.map(([x, y]) => projector.toLL(x, y));
+    const faint = new Cesium.PolylineDashMaterialProperty({
+      color: Cesium.Color.fromCssColorString('#b8c3c7').withAlpha(0.6),
+      dashLength: 10,
+    });
+    ds.entities.add({
+      polyline: {
+        positions: ring.map((p) => toCart(p, z1)),
+        width: 2,
+        arcType: Cesium.ArcType.NONE,
+        material: new Cesium.PolylineDashMaterialProperty({
+          color: Cesium.Color.fromCssColorString('#b8c3c7').withAlpha(0.8),
+          dashLength: 10,
+        }),
+      },
+    });
+    // A faint wall so the extension reads as building, not scaffolding.
+    ds.entities.add({
+      polygon: {
+        hierarchy: ring.map((p) => toCart(p, z1)),
+        perPositionHeight: true,
+        extrudedHeight: z0,
+        material: Cesium.Color.fromCssColorString('#b8c3c7').withAlpha(0.05),
+        outline: false,
+      },
+    });
+    for (const p of ring)
+      ds.entities.add({
+        polyline: {
+          positions: [toCart(p, z0), toCart(p, z1)],
+          width: 1,
+          arcType: Cesium.ArcType.NONE,
+          material: faint,
+        },
+      });
+  }
   return {
-    dataSource: ds,
+    /** The data source shown now (it changes with each update). */
+    get dataSource() {
+      return ds;
+    },
     floorZ(level) {
       return { z0: zBase(level), z1: zTop(level) };
     },
@@ -441,7 +509,11 @@ export function createPeopleLayer(viewer, site, twin) {
         covers = null,
       } = {},
     ) {
-      ds.entities.removeAll();
+      const old = ds;
+      ds = new Cesium.CustomDataSource('trip-twin-people');
+      ds.show = old.show;
+      viewer.dataSources.add(ds);
+      retire(old);
       const attentionIds = new Set(
         assessment.needs.map((n) => n.row.person.id),
       );
@@ -465,6 +537,17 @@ export function createPeopleLayer(viewer, site, twin) {
           dim: Boolean(focusIds) && !focusIds.has(row.person.id),
         });
       }
+      // A hotel whose height is not mapped is drawn at a guess (three
+      // levels). A floor estimate above it would hang in the air, so the
+      // guess is drawn taller, faint and dashed, up to the highest estimate
+      // (Jesse, 27 Oct: "DS floating in air").
+      if (floorsOn && site.hotel.building.source === 'default') {
+        let top = 0;
+        for (const row of assessment.rows)
+          if (row.pos.located && row.floor.kind === 'band')
+            top = Math.max(top, zTop(row.floor.est.level_high));
+        if (top > twin.hotelTop + 0.5) extension(twin.hotelTop, top);
+      }
       const reportedLevel = Number.isFinite(reportedLabel)
         ? reportedLabel - groundLabel
         : null;
@@ -475,6 +558,9 @@ export function createPeopleLayer(viewer, site, twin) {
     },
     dispose() {
       if (!viewer.isDestroyed()) {
+        swapWatch?.();
+        for (const r of retiring) viewer.dataSources.remove(r.old, true);
+        retiring.clear();
         viewer.dataSources.remove(ds, true);
         viewer.dataSources.remove(focusDs, true);
       }
