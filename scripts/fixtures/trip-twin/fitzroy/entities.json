@@ -51,6 +51,38 @@
       "all": "every demo"
     }
   },
+  "controls": {
+    "undo_last": [
+      "undo",
+      "undo that",
+      "take that back"
+    ],
+    "mute_voice": [
+      "mute voice",
+      "stop listening"
+    ],
+    "stop_speaking": [
+      "stop",
+      "quiet",
+      "that's enough"
+    ],
+    "reply_yes": [
+      "yes",
+      "confirm",
+      "do it"
+    ],
+    "reply_cancel": [
+      "cancel",
+      "no",
+      "never mind"
+    ]
+  },
+  "allScreensWords": [
+    "all screens",
+    "every screen",
+    "all the screens",
+    "everywhere"
+  ],
   "trips": [
     {
       "id": "trip-choir-austin",

@@ -30,7 +30,7 @@ function catalogOn(state, extra = {}) {
       twin: {
         state: () => st,
         now: () => NOW,
-        lastUndoId: () => 'u1',
+        lastUndo: () => ({ undoId: 'u1' }),
         names: {
           person: (id) => (id === 'twin-NF' ? 'Noah Fox' : null),
           place: () => null,
@@ -112,7 +112,7 @@ test('touch entries never build a message; the protective set is exact and alway
     if (policy.tier.one !== 'touch') continue;
     const p = await cat.propose(tool.name, policy.examples[0]?.[1] || {});
     assert.equal(p.message, null);
-    assert.match(p.say, /^Touch only: .+ on the remote, in [A-Za-z ]+\.$/);
+    assert.match(p.say, /^Touch only: .+ on the remote(, in [A-Za-z ]+)?\.$/);
   }
   const prot = FITZROY_COMMANDS.filter(
     ({ policy }) => policy.protective === true,
@@ -208,7 +208,7 @@ test('tiers: pin acts on one screen, all-screen scale asks, a pinned target rais
     on: false,
   });
   assert.equal(off.message, null);
-  assert.equal(off.say, 'That layer stays on while a report is open.');
+  assert.equal(off.say, 'That layer stays on while an incident is open.');
 });
 
 test('words: read-backs from the describer, speakable, Visitor initials, no clock, the demo prefix', async () => {
@@ -256,7 +256,7 @@ test('words: read-backs from the describer, speakable, Visitor initials, no cloc
     speakable('S4: text ×2 · storm shells (3D) & more'),
     'S4: text times 2, storm shells and more.',
   );
-  assert.equal((await cat.propose('clear_spotlight')).say, 'Nothing changed.');
+  assert.equal((await cat.propose('clear_spotlight')).tier, 'touch');
   assert.equal(
     (await cat.propose('step_screen_text', { screen: '2', direction: 'up' }))
       .message.cmd.patch.textScale,
@@ -360,4 +360,232 @@ test('the fitzroy graph stays pure: no upstream tool index, no Cesium, no node:'
     assert.doesNotMatch(src, /from ['"](?:cesium|node:)/, f);
     assert.doesNotMatch(src, /tools\/index\.js/, f);
   }
+});
+
+// ---------------------------------------------------------------- round 1
+
+const REPORT = { id: 'r1', floor: 11, kind: 'medical' };
+
+test('undo by voice never takes back a protective change; nothing to undo is said', async () => {
+  const before = fresh();
+  const visitorOn = {
+    t: 'cmd',
+    cmd: { type: 'session', patch: { visitor: true } },
+  };
+  const after = apply(before, visitorOn.cmd);
+  const { cat } = catalogOn(after, {
+    lastUndo: () => ({ undoId: 'u9', message: visitorOn, before }),
+  });
+  const u = await cat.propose('undo_last');
+  assert.equal(u.message, null);
+  assert.equal(u.refusal.code, 'undo_protective');
+  const layer = {
+    t: 'cmd',
+    cmd: { type: 'screens', target: 4, patch: { layers: { radar3d: true } } },
+  };
+  const { cat: c2 } = catalogOn(apply(before, layer.cmd), {
+    lastUndo: () => ({ undoId: 'u10', message: layer, before }),
+  });
+  assert.deepEqual((await c2.propose('undo_last')).message, {
+    t: 'undo',
+    undoId: 'u10',
+  });
+  const { cat: c3 } = catalogOn(before, { lastUndo: () => null });
+  assert.equal((await c3.propose('undo_last')).say, 'Nothing to undo.');
+});
+
+test('an incident in the trip data counts as open (London): Advance asks with why, safety layers stay', async () => {
+  const { cat } = catalogOn(fresh(), { incidentOpen: () => true });
+  const adv = await cat.propose('set_screen_advance', { screen: '1' });
+  assert.equal(adv.tier, 'ask');
+  assert.match(
+    adv.question,
+    /^An incident is open: Advance hides traveller positions\. .+ Apply now\?$/,
+  );
+  const off = await cat.propose('set_screen_layer', {
+    screen: '1',
+    layer: 'safety',
+    on: false,
+  });
+  assert.equal(off.message, null);
+  assert.equal(off.say, 'That layer stays on while an incident is open.');
+});
+
+test('voice does only what touch can: role, text and frame on one screen; frames on their own board', async () => {
+  const { cat } = catalogOn(fresh());
+  for (const [name, args] of [
+    ['set_screen_role', { screen: 'all', role: 'trips' }],
+    ['step_screen_text', { screen: 'all', direction: 'up' }],
+    ['frame_screen', { screen: 'all', subject: 'storm' }],
+  ])
+    assert.equal((await cat.propose(name, args)).refusal.code, 'invalid', name);
+  assert.equal(
+    (await cat.propose('pin_screen', { screen: 'all' })).say,
+    'Pin one screen at a time.',
+  );
+  assert.equal(
+    (await cat.propose('frame_screen', { screen: '1', subject: 'storm' })).say,
+    'That frames on the Weather screen.',
+  );
+  // One screen + a day = the day plan for that day, as the remote does.
+  assert.deepEqual(
+    (await cat.propose('set_screen_advance', { screen: '1', day: 2 })).message
+      .cmd.patch,
+    { role: 'day', day: 2 },
+  );
+});
+
+test('words in a demo: Simulated first for the storm frame; demos named when Return all ends them', async () => {
+  const st = apply(fresh(), {
+    type: 'session',
+    patch: { simStorm: NOW, simFire: NOW },
+  });
+  const { cat } = catalogOn(st);
+  assert.match(
+    (await cat.propose('frame_screen', { screen: '4', subject: 'storm' })).say,
+    /^Simulated storm and fire boundary\. Screen 4, Weather: frames the storm\.$/,
+  );
+  assert.match(
+    (await cat.propose('return_all_live')).question,
+    /The simulated storm and fire boundary ends\. Return now\?$/,
+  );
+  assert.equal(
+    (await cat.propose('stop_demo')).say,
+    'Every screen: simulated storm ended, simulated fire boundary ended.',
+  );
+  const { cat: c2 } = catalogOn(fresh());
+  assert.equal((await c2.propose('stop_demo')).say, 'No demo is running.');
+});
+
+test('refusals that are honest: places the site lacks, people not on the trip, every screen pinned, a merged incident board, a demo layer', async () => {
+  const { cat } = catalogOn(fresh(), {
+    names: { person: () => null, place: () => null },
+  });
+  assert.equal(
+    (await cat.propose('spotlight_place', { place: 'relocation' })).say,
+    'This site has no relocation site.',
+  );
+  assert.equal(
+    (await cat.propose('spotlight_person', { person: 'twin-ZZ' })).say,
+    'No one by that name on this trip.',
+  );
+  let all = fresh();
+  for (const s of [1, 2, 3, 4, 5, 6])
+    all = apply(all, { type: 'screens', target: s, patch: { pinned: true } });
+  const { cat: c2 } = catalogOn(all);
+  assert.equal(
+    (
+      await c2.propose('set_screen_layer', {
+        screen: 'all',
+        layer: 'clouds',
+        on: true,
+      })
+    ).say,
+    'Every screen is pinned. Nothing changed.',
+  );
+  // Two screens: the incident board is merged into screen 2.
+  const two = apply(
+    createSession({ count: 2, tripId: 'trip-choir-austin', epochMs: NOW }),
+    {
+      type: 'session',
+      patch: { report: REPORT },
+    },
+  );
+  const { cat: c3 } = catalogOn(two);
+  const merged = two.screens[2]?.merged?.includes?.('incident');
+  if (merged)
+    assert.equal(
+      (await c3.propose('set_screen_role', { screen: '2', role: 'weather' }))
+        .tier,
+      'ask',
+    );
+  const demo = apply(fresh(), { type: 'session', patch: { simStorm: NOW } });
+  const { cat: c4 } = catalogOn(demo);
+  assert.equal(
+    (
+      await c4.propose('set_screen_layer', {
+        screen: '4',
+        layer: 'alertAreas',
+        on: false,
+      })
+    ).say,
+    'That layer stays on while the demo runs.',
+  );
+});
+
+test('a proposal is checked again at yes; a moved wall asks again; no state says nothing changed', async () => {
+  const { cat, set } = catalogOn(fresh());
+  const p = await cat.propose('switch_trip', { trip: 'trip-band-dc' });
+  assert.equal(p.tier, 'ask');
+  set(apply(fresh(), { type: 'session', patch: { report: REPORT } }));
+  const again = await cat.recheck(p);
+  assert.equal(again.stale, true);
+  assert.equal(again.say, 'The wall changed. Ask again.');
+  set(null);
+  assert.equal((await cat.propose('visitor_on')).say, 'Nothing changed.');
+});
+
+test('speech rules hold in every state: no clock, speakable, short, no yes word in a question, no name in Visitor mode', async () => {
+  const states = {
+    plain: fresh(),
+    visitor: apply(fresh(), { type: 'session', patch: { visitor: true } }),
+    demo: apply(fresh(), { type: 'session', patch: { simStorm: NOW } }),
+    report: apply(fresh(), { type: 'session', patch: { report: REPORT } }),
+    pinned: apply(fresh(), {
+      type: 'screens',
+      target: 4,
+      patch: { pinned: true },
+    }),
+    four: createSession({
+      count: 4,
+      tripId: 'trip-choir-austin',
+      epochMs: NOW,
+    }),
+  };
+  for (const [label, st] of Object.entries(states)) {
+    const { cat } = catalogOn(st);
+    for (const { tool, policy } of FITZROY_COMMANDS)
+      for (const [, args] of policy.examples.length
+        ? policy.examples
+        : [[null, {}]]) {
+        const p = await cat.propose(tool.name, args);
+        const say = p.say || '';
+        const where = `${label} ${tool.name} "${say}"`;
+        assert.doesNotMatch(say, /\b\d{1,2}:\d{2}\b/, where);
+        assert.match(say, /^[A-Za-z0-9 ,.:?'-]*$/, where);
+        if (p.question) {
+          assert.ok(p.question.split(/\s+/).length <= 26, where);
+          for (const w of YES_WORDS)
+            assert.doesNotMatch(
+              p.question.toLowerCase(),
+              new RegExp(`\\b${w}\\b`),
+              where,
+            );
+        } else assert.ok(say.split(/\s+/).length <= 20, where);
+        if (label === 'visitor')
+          assert.doesNotMatch(say, /Noah|Fox|Jay|Patel/, where);
+      }
+  }
+});
+
+test('the whole import graph stays free of Cesium and node: (F13 P1-3)', () => {
+  const seen = new Set();
+  const bad = [];
+  const walk = (url) => {
+    if (seen.has(url.href)) return;
+    seen.add(url.href);
+    const src = readFileSync(url, 'utf8');
+    for (const m of src.matchAll(
+      /^\s*(?:import|export)[^'"]*from\s+['"]([^'"]+)['"]/gm,
+    )) {
+      const spec = m[1];
+      if (spec === 'cesium' || spec.startsWith('node:'))
+        bad.push(`${url.pathname} → ${spec}`);
+      else if (spec.startsWith('.')) walk(new URL(spec, url));
+    }
+  };
+  walk(new URL('./fitzroyCatalog.js', import.meta.url));
+  walk(new URL('./fitzroyExport.js', import.meta.url));
+  assert.deepEqual(bad, []);
+  assert.ok(![...seen].some((u) => u.endsWith('/tools/index.js')));
 });

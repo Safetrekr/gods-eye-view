@@ -135,7 +135,7 @@
       "type": "object",
       "properties": {
         "intent": {
-          "const": "set_screen_planning"
+          "const": "set_screen_advance"
         },
         "screen": {
           "type": "string",
@@ -149,8 +149,7 @@
       },
       "required": [
         "intent",
-        "screen",
-        "day"
+        "screen"
       ],
       "additionalProperties": false
     },
@@ -338,18 +337,6 @@
       "type": "object",
       "properties": {
         "intent": {
-          "const": "clear_spotlight"
-        }
-      },
-      "required": [
-        "intent"
-      ],
-      "additionalProperties": false
-    },
-    {
-      "type": "object",
-      "properties": {
-        "intent": {
           "const": "set_weather_time"
         },
         "minutes": {
@@ -422,8 +409,7 @@
         }
       },
       "required": [
-        "intent",
-        "hazard"
+        "intent"
       ],
       "additionalProperties": false
     },
@@ -479,7 +465,7 @@
       "type": "object",
       "properties": {
         "intent": {
-          "const": "reply_no"
+          "const": "reply_cancel"
         }
       },
       "required": [
@@ -596,6 +582,40 @@
       "properties": {
         "intent": {
           "const": "acknowledge_incident"
+        }
+      },
+      "required": [
+        "intent"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "clear_spotlight"
+        }
+      },
+      "required": [
+        "intent"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "remote_only"
+        },
+        "topic": {
+          "type": "string",
+          "enum": [
+            "wall_controls",
+            "layout",
+            "traffic_camera",
+            "street_photo",
+            "review"
+          ]
         }
       },
       "required": [

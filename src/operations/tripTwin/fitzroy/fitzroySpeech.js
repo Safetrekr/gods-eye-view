@@ -88,6 +88,11 @@ function spokenPart(part, before, o) {
       return v == null ? 'today' : `day ${v}`;
     case 'mode':
       return v === 'advance' ? 'Advance' : 'Live';
+    case 'simStorm':
+    case 'simFire':
+    case 'simCyclone':
+      // One word for a demo in speech: "simulated", as the walls say.
+      return `simulated ${SIM_WORD[part.field]} ${v ? 'started' : 'ended'}`;
     case 'spotlight':
       // A place by what it is ("the hospital"): its full name is long.
       if (part.to?.kind === 'place' && o.names?.placeWord?.(part.to.id))
@@ -118,10 +123,14 @@ function mergeMotion(ps) {
 /** A change, as Fitzroy says it. o: {visitor, names}. */
 export function speakChange(change, before, o = {}) {
   if (!change) return 'Nothing changed.';
-  if (change.returnAll && change.kind !== 'undo')
+  if (change.returnAll && change.kind !== 'undo') {
+    const demos = change.ended
+      .filter((e) => e.startsWith('demo '))
+      .map((e) => e.replace(/^demo /, ''));
     return speakable(
-      `Every screen back to Live and role defaults, pinned ones too${change.ended.includes('demo storm') ? '. The demo storm ended' : ''}`,
+      `Every screen back to Live and role defaults, pinned ones too${demos.length ? `. The simulated ${demos.join(' and ')} ended` : ''}`,
     );
+  }
   const wall = change.parts.filter((p) => p.scope === 'wall');
   const bySlot = new Map();
   for (const p of change.parts)
@@ -172,9 +181,12 @@ export function speakChange(change, before, o = {}) {
     text = text ? `Undone. ${text}` : 'Nothing undone';
   // A demo's words lead with what is simulated (F4 rule 6).
   const sims = SIM_KEYS.filter((k) => before?.session?.[k]);
+  // Weather words, the storm's frame included (F11/F15 P0).
   const weatherish = change.parts.some(
     (p) =>
-      p.field === 'wxAt' || (p.field === 'layers' && HAZARD_LAYERS.has(p.key)),
+      p.field === 'wxAt' ||
+      (p.field === 'layers' && HAZARD_LAYERS.has(p.key)) ||
+      (p.field === 'frame' && p.to?.value?.kind === 'storm'),
   );
   if (sims.length && weatherish)
     text = `Simulated ${sims.map((k) => SIM_WORD[k]).join(' and ')}. ${text}`;

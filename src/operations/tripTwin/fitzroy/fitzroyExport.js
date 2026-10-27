@@ -64,14 +64,30 @@ export function toAnswerKey(cards = V0_CARDS) {
           kind: k.kind,
           command: k.command,
           args: k.args,
-          tier: baseTier(k.command, k.args),
+          // What a scorer expects: a control, a clarifying question, a
+          // refusal (card 46), else the entry's base tier (F14 P1).
+          tier:
+            k.kind === 'clarify'
+              ? 'clarify'
+              : FITZROY_POLICY.get(k.command)?.group === 'Fitzroy'
+                ? 'control'
+                : /^refused/.test(k.note || '')
+                  ? 'refused'
+                  : baseTier(k.command, k.args),
           ...(k.ask ? { ask: k.ask } : {}),
           ...(k.note ? { note: k.note } : {}),
         },
   );
 }
 
-const TIER_WORD = { act: 'act', ask: 'ask first', touch: 'touch only' };
+const TIER_WORD = {
+  act: 'act',
+  ask: 'ask first',
+  touch: 'touch only',
+  control: 'control',
+  clarify: 'asks which',
+  refused: 'refused',
+};
 const cell = (s) =>
   String(s ?? '')
     .replace(/\|/g, '\\|')
@@ -83,11 +99,18 @@ const cmdText = (m) =>
       ? '`{t: undo}`'
       : `\`${m.cmd.type}${m.cmd.target != null ? ` ${m.cmd.target}` : ''}${m.cmd.patch ? ` ${JSON.stringify(m.cmd.patch).replace(/"/g, '')}` : ''}\``;
 
+/** Docs headings: plain words, not safety-system language (F15 P2). */
+const GROUP_HEADING = {
+  Protective: 'Always act (they make the wall calmer)',
+  Fitzroy: 'Answers and controls',
+};
+
 /**
  * rows: [{name, say, example, proposal}] filled by the script from the
- * Austin demo session, so "Fitzroy says" is the exact string.
+ * Austin demo session, so "Fitzroy says" is the exact string; variants:
+ * [{situation, example, say}] for a wall that is not plain.
  */
-export function toMarkdown(rows, { cards = V0_CARDS } = {}) {
+export function toMarkdown(rows, { cards = V0_CARDS, variants = [] } = {}) {
   const out = [];
   out.push('# Fitzroy commands');
   out.push('');
@@ -96,20 +119,24 @@ export function toMarkdown(rows, { cards = V0_CARDS } = {}) {
   );
   out.push('');
   out.push(
-    'Fitzroy is Trip Twin’s local voice assistant ("Hey Fitzroy"). It only proposes what touch can already do; the device sends the existing command.',
+    '"Fitzroy" is a working name: the conflict screen and trademark clearance are still open (plans/trip-twin/VOICE-CONTROL.md).',
   );
   out.push('');
   out.push(
-    '- **act**: it acts, reads back what changed, and "undo" reverses it for 10 seconds.',
+    'Fitzroy is Trip Twin’s local voice assistant ("Hey Fitzroy"). It only proposes what touch can already do; the device sends the existing command. Nothing here is built into a voice pipeline yet.',
+  );
+  out.push('');
+  out.push(
+    '- **act**: it acts and reads back what changed; "undo" takes back this device’s last change for 10 seconds, never a protective one.',
   );
   out.push(
-    '- **ask first**: one closed question ("… Switch now?"); "yes", "confirm" or "do it" applies it, "cancel" drops it, 10 seconds.',
+    '- **ask first**: one closed question ("… Switch now?"); "yes", "confirm" or "do it" applies it, "cancel" drops it, 10 seconds. A raised question says why first ("Screen 4 is pinned.").',
   );
   out.push(
     '- **touch only**: it says where on the remote, and changes nothing.',
   );
   out.push(
-    '- Context only raises a tier (a pinned screen, an open report, anything touch asks about); protective commands always act.',
+    '- Context only raises a tier (a pinned screen, an open incident, anything touch asks about); the calming commands always act.',
   );
   out.push('');
   out.push(
@@ -120,7 +147,7 @@ export function toMarkdown(rows, { cards = V0_CARDS } = {}) {
   ];
   for (const g of groups) {
     out.push('');
-    out.push(`## ${g}`);
+    out.push(`## ${GROUP_HEADING[g] || g}`);
     out.push('');
     out.push(
       '| Command | You might say | What changes | Tier (one / all) | Fitzroy says |',
@@ -139,10 +166,27 @@ export function toMarkdown(rows, { cards = V0_CARDS } = {}) {
         : r.example
           ? `"${r.example}"`
           : '';
+      // A yes reads back the change it answered; stop is silent.
+      const say =
+        r.say ||
+        (r.name === 'reply_yes'
+          ? '(reads back the change it answered)'
+          : '(no words: a tone)');
       out.push(
-        `| \`${r.name}\` | ${cell(words)} | ${cell(cmdText(r.proposal?.message))} | ${tier}${p.protective === true ? ', protective' : ''} | ${r.say ? cell(r.say) : '(no words: a tone)'} |`,
+        `| \`${r.name}\` | ${cell(words)} | ${cell(cmdText(r.proposal?.message))} | ${tier} | ${cell(say)} |`,
       );
     }
+  }
+  if (variants.length) {
+    out.push('');
+    out.push('## When the wall is not plain');
+    out.push('');
+    out.push('| Situation | You might say | Fitzroy says |');
+    out.push('|---|---|---|');
+    for (const v of variants)
+      out.push(
+        `| ${cell(v.situation)} | "${cell(v.example)}" | ${cell(v.say)} |`,
+      );
   }
   out.push('');
   out.push('## Not commands');
@@ -154,7 +198,7 @@ export function toMarkdown(rows, { cards = V0_CARDS } = {}) {
   out.push('');
   out.push('## V0 cards');
   out.push('');
-  out.push('| Card | Maps to | Tier |');
+  out.push('| Card | Maps to | Expect |');
   out.push('|---|---|---|');
   for (const k of toAnswerKey(cards))
     out.push(

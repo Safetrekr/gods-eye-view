@@ -62,7 +62,7 @@
   {
     "type": "function",
     "name": "step_screen_text",
-    "description": "Make the text on one screen, or every screen, one step larger or smaller.",
+    "description": "Make the text on one screen one step larger or smaller (one screen, as on the remote).",
     "parameters": {
       "type": "object",
       "properties": {
@@ -74,8 +74,7 @@
             "3",
             "4",
             "5",
-            "6",
-            "all"
+            "6"
           ]
         },
         "direction": {
@@ -131,7 +130,7 @@
   {
     "type": "function",
     "name": "set_screen_role",
-    "description": "Change what one screen shows: Site, People, Incident & attention, Weather & alerts, Day plan, Trips on watch.",
+    "description": "Change what one screen shows (one screen, as on the remote): Site, People, Incident & attention, Weather & alerts, Day plan, Trips on watch.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -143,8 +142,7 @@
             "3",
             "4",
             "5",
-            "6",
-            "all"
+            "6"
           ]
         },
         "role": {
@@ -168,8 +166,8 @@
   },
   {
     "type": "function",
-    "name": "set_screen_planning",
-    "description": "Show one screen, or every screen, in Advance planning for a trip day.",
+    "name": "set_screen_advance",
+    "description": "Advance planning, as the remote does: one screen to Advance (or to the day plan for a day), or every screen to Advance for a day.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -192,8 +190,7 @@
         }
       },
       "required": [
-        "screen",
-        "day"
+        "screen"
       ],
       "additionalProperties": false
     }
@@ -227,7 +224,7 @@
   {
     "type": "function",
     "name": "frame_screen",
-    "description": "Point one screen’s camera at the storm, the reported floor or a person, or clear its selection.",
+    "description": "Point one screen’s camera, as the remote does: the storm on the Weather screen, the reported floor or a person on the Site screen; or clear its selection.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -239,8 +236,7 @@
             "3",
             "4",
             "5",
-            "6",
-            "all"
+            "6"
           ]
         },
         "subject": {
@@ -442,16 +438,6 @@
   },
   {
     "type": "function",
-    "name": "clear_spotlight",
-    "description": "Turn the spotlight off on every screen.",
-    "parameters": {
-      "type": "object",
-      "properties": {},
-      "additionalProperties": false
-    }
-  },
-  {
-    "type": "function",
     "name": "set_weather_time",
     "description": "Show the weather a number of minutes ahead (or 30 back) on every screen.",
     "parameters": {
@@ -521,9 +507,7 @@
           ]
         }
       },
-      "required": [
-        "hazard"
-      ],
+      "required": [],
       "additionalProperties": false
     }
   },

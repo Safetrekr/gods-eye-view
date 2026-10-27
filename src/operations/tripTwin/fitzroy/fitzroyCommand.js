@@ -26,7 +26,8 @@ const asTier = (t) =>
  * emits? {type, fields} | {t: 'undo'}, effect ('relay' | 'device' |
  * 'none'), build?(args, twin) → cmd | {refuse: {code, say}}, question?
  * (args, ctx) → words, verb?, refusal? {code, say}, words? [utterances]
- * (whole-utterance controls), reply?, station?, examples? [phrases]}.
+ * (whole-utterance controls), reply?, already?(args, state) → words when
+ * it is so already, station?, examples? [phrases]}.
  */
 export function defineCommand(spec) {
   const {
@@ -46,6 +47,7 @@ export function defineCommand(spec) {
     refusal = null,
     words = null,
     reply = null,
+    already = null,
     station = null,
     examples = [],
   } = spec;
@@ -115,6 +117,7 @@ export function defineCommand(spec) {
     refusal: refusal ? Object.freeze({ ...refusal }) : null,
     words: words ? Object.freeze([...words]) : null,
     reply,
+    already,
     station,
     examples: Object.freeze([...examples]),
   });

@@ -63,7 +63,7 @@
       "layer": "fires",
       "on": false
     },
-    "tier": "act",
+    "tier": "refused",
     "note": "refused while a report is open"
   },
   {
@@ -150,14 +150,11 @@
   },
   {
     "card": 15,
-    "kind": "command",
+    "kind": "clarify",
     "command": "step_screen_text",
-    "args": {
-      "screen": "all",
-      "direction": "up"
-    },
-    "tier": "act",
-    "note": "act on all (the V0b key says B: fix it)"
+    "args": {},
+    "tier": "clarify",
+    "ask": "Which screen?"
   },
   {
     "card": 16,
@@ -173,7 +170,7 @@
   {
     "card": 17,
     "kind": "command",
-    "command": "set_screen_planning",
+    "command": "set_screen_advance",
     "args": {
       "screen": "all",
       "day": 2
@@ -299,42 +296,42 @@
     "kind": "command",
     "command": "mute_voice",
     "args": {},
-    "tier": "act"
+    "tier": "control"
   },
   {
     "card": 32,
     "kind": "command",
     "command": "reply_yes",
     "args": {},
-    "tier": "act"
+    "tier": "control"
   },
   {
     "card": 33,
     "kind": "command",
-    "command": "reply_no",
+    "command": "reply_cancel",
     "args": {},
-    "tier": "act"
+    "tier": "control"
   },
   {
     "card": 34,
     "kind": "command",
     "command": "undo_last",
     "args": {},
-    "tier": "act"
+    "tier": "control"
   },
   {
     "card": 35,
     "kind": "command",
     "command": "stop_speaking",
     "args": {},
-    "tier": "act"
+    "tier": "control"
   },
   {
     "card": 36,
     "kind": "command",
     "command": "reply_unsure",
     "args": {},
-    "tier": "act",
+    "tier": "control",
     "note": "not a yes: asks once more"
   },
   {
@@ -342,7 +339,7 @@
     "kind": "command",
     "command": "reply_yes",
     "args": {},
-    "tier": "act",
+    "tier": "control",
     "note": "nothing pending from this device: no effect, no reply"
   },
   {
@@ -389,7 +386,7 @@
     "kind": "clarify",
     "command": "switch_trip",
     "args": {},
-    "tier": "ask",
+    "tier": "clarify",
     "ask": "The Riverside Choir or St Anne’s Youth Choir?"
   },
   {
@@ -397,7 +394,7 @@
     "kind": "clarify",
     "command": "set_screen_layer",
     "args": {},
-    "tier": "act",
+    "tier": "clarify",
     "ask": "Which screen?"
   },
   {
@@ -419,7 +416,7 @@
     "args": {
       "site": "london-abbey"
     },
-    "tier": "ask",
+    "tier": "refused",
     "note": "refused other_trip; offers switch_trip"
   },
   {

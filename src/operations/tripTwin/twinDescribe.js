@@ -22,7 +22,7 @@
 // not the sample clock). No word here says "safe" or "all clear".
 import { applyCommand } from './twinSession.js';
 import { LAYER_CATALOG, ROLES, wallName } from './twinScreenRoles.js';
-import { tripById } from './demoTrips.js';
+import { tripById } from './demoTripList.js';
 import { siteConfig } from './twinSites.js';
 
 /** The wall chip's limit (SUP-4). */

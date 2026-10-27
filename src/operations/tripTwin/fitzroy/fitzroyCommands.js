@@ -7,7 +7,7 @@
 // Tiers: act (read back, undo), ask (a closed question first), touch (said
 // why, never a message). Voice does only what touch can, and is never less
 // safe: what lowers protection is touch only (fitzroyPolicy.js).
-import { DEMO_TRIPS, tripById } from '../demoTrips.js';
+import { DEMO_TRIPS, tripById } from '../demoTripList.js';
 import {
   LAYER_CATALOG,
   ROLE_ORDER,
@@ -136,9 +136,9 @@ const screens = [
     station: 'Layers & display',
     title: 'Text larger or smaller',
     description:
-      'Make the text on one screen, or every screen, one step larger or smaller.',
+      'Make the text on one screen one step larger or smaller (one screen, as on the remote).',
     inputSchema: obj({
-      screen: screenArg,
+      screen: oneScreenArg,
       direction: { type: 'string', enum: ['up', 'down'] },
     }),
     heard: { screen: 'screen' },
@@ -148,12 +148,8 @@ const screens = [
     build(args, twin) {
       const miss = noScreen(args, twin);
       if (miss) return miss;
-      const st = twin.state();
-      const slot =
-        args.screen === 'all'
-          ? Math.min(...Object.keys(st?.screens || { 1: 0 }).map(Number))
-          : Number(args.screen);
-      const was = Number(st?.screens?.[slot]?.textScale || 1.75);
+      const slot = Number(args.screen);
+      const was = Number(twin.state()?.screens?.[slot]?.textScale || 1.75);
       const next = Math.max(
         WALL_TEXT_MIN,
         Math.min(WALL_TEXT_MAX, was + (args.direction === 'up' ? 0.25 : -0.25)),
@@ -200,14 +196,13 @@ const screens = [
     group: 'Screens',
     station: 'Screens & devices',
     title: 'What a screen shows',
-    description: `Change what one screen shows: ${ROLE_ORDER.map((k) => ROLES[k].label).join(', ')}.`,
+    description: `Change what one screen shows (one screen, as on the remote): ${ROLE_ORDER.map((k) => ROLES[k].label).join(', ')}.`,
     inputSchema: obj({
-      screen: screenArg,
+      screen: oneScreenArg,
       role: { type: 'string', enum: [...ROLE_ORDER] },
     }),
     heard: { screen: 'screen' },
-    tier: { one: 'act', all: 'ask' },
-    verb: 'Apply',
+    tier: 'act',
     raiseWhen: ['pinned', 'reportOpen'],
     emits: { type: 'screens', fields: ['role'] },
     build: (args, twin) =>
@@ -220,24 +215,48 @@ const screens = [
     ],
   }),
   defineCommand({
-    name: 'set_screen_planning',
+    name: 'set_screen_advance',
     group: 'Screens',
     station: 'Day plan',
-    title: 'Advance to a day',
+    title: 'Advance',
     description:
-      'Show one screen, or every screen, in Advance planning for a trip day.',
-    inputSchema: obj({
-      screen: screenArg,
-      day: { type: 'integer', minimum: 1, maximum: 9 },
-    }),
+      'Advance planning, as the remote does: one screen to Advance (or to the day plan for a day), or every screen to Advance for a day.',
+    inputSchema: obj(
+      {
+        screen: screenArg,
+        day: { type: 'integer', minimum: 1, maximum: 9 },
+      },
+      ['screen'],
+    ),
     heard: { screen: 'screen' },
     tier: { one: 'act', all: 'ask' },
     verb: 'Apply',
     raiseWhen: ['pinned', 'reportOpen'],
-    emits: { type: 'screens', fields: ['mode', 'day'] },
-    build: (args, twin) =>
-      noScreen(args, twin) ||
-      screensCmd(args, { mode: 'advance', day: args.day }),
+    emits: { type: 'screens', fields: ['mode', 'day', 'role'] },
+    build(args, twin) {
+      const miss = noScreen(args, twin);
+      if (miss) return miss;
+      const days = twin.tripDays?.();
+      if (args.day != null && days && args.day > days)
+        return {
+          refuse: { code: 'no_day', say: `The trip has ${days} days.` },
+        };
+      // The remote: one screen + a day = the day plan for that day (R12);
+      // one screen = Advance; every screen = Advance (for the day).
+      if (args.screen !== 'all')
+        return screensCmd(
+          args,
+          args.day != null
+            ? { role: 'day', day: args.day }
+            : { mode: 'advance' },
+        );
+      return screensCmd(
+        args,
+        args.day != null
+          ? { mode: 'advance', day: args.day }
+          : { mode: 'advance' },
+      );
+    },
     examples: [['Everything to day two planning', { screen: 'all', day: 2 }]],
   }),
   defineCommand({
@@ -251,9 +270,9 @@ const screens = [
     tier: { one: 'act', all: 'ask' },
     verb: 'Apply',
     raiseWhen: ['pinned'],
-    emits: { type: 'screens', fields: ['mode', 'day'] },
+    emits: { type: 'screens', fields: ['mode'] },
     build: (args, twin) =>
-      noScreen(args, twin) || screensCmd(args, { mode: 'live', day: null }),
+      noScreen(args, twin) || screensCmd(args, { mode: 'live' }),
     examples: [['Screen five back to live', { screen: '5' }]],
   }),
   defineCommand({
@@ -262,10 +281,10 @@ const screens = [
     station: 'Site',
     title: 'Frame the camera',
     description:
-      'Point one screen’s camera at the storm, the reported floor or a person, or clear its selection.',
+      'Point one screen’s camera, as the remote does: the storm on the Weather screen, the reported floor or a person on the Site screen; or clear its selection.',
     inputSchema: obj(
       {
-        screen: screenArg,
+        screen: oneScreenArg,
         subject: {
           type: 'string',
           enum: ['storm', 'floor', 'person', 'clear'],
@@ -275,25 +294,44 @@ const screens = [
       ['screen', 'subject'],
     ),
     heard: { screen: 'screen', person: 'person' },
-    tier: { one: 'act', all: 'ask' },
-    verb: 'Frame',
+    tier: 'act',
     raiseWhen: ['pinned'],
     emits: { type: 'screens', fields: ['frame'] },
     build(args, twin) {
       const miss = noScreen(args, twin);
       if (miss) return miss;
-      const report = twin.state()?.session?.report;
+      const st = twin.state();
+      const role = st?.screens?.[Number(args.screen)]?.role;
+      // Only where the remote frames it (stations.js): never another board.
+      const needs = { storm: 'weather', floor: 'site', person: 'site' }[
+        args.subject
+      ];
+      if (needs && role !== needs)
+        return {
+          refuse: {
+            code: 'wrong_screen',
+            say: `That frames on the ${SCREEN_SHORT[needs]} screen.`,
+          },
+        };
       let subject;
       if (args.subject === 'floor') {
-        if (!report?.floor && report?.floor !== 0)
+        const floor = st?.session?.report?.floor ?? twin.reportedFloor?.();
+        if (floor == null)
           return {
             refuse: { code: 'no_report', say: 'No floor is reported.' },
           };
-        subject = { kind: 'floor', label: report.floor };
+        subject = { kind: 'floor', label: floor };
       } else if (args.subject === 'person') {
         if (!args.person)
           return {
             refuse: { code: 'which_person', say: 'Who should it frame?' },
+          };
+        if (twin.names?.person && !twin.names.person(args.person))
+          return {
+            refuse: {
+              code: 'no_person',
+              say: 'No one by that name on this trip.',
+            },
           };
         subject = { kind: 'person', id: args.person };
       } else subject = { kind: args.subject };
@@ -435,8 +473,8 @@ const wall = [
     tier: 'ask',
     verb: 'Go',
     emits: { type: 'session', fields: ['siteKey'] },
-    question: (args) =>
-      `Every screen to the ${siteConfig(args.site)?.short || args.site}`,
+    question: (args, state) =>
+      `Every screen to ${args.site === tripById(state?.session?.tripId).city ? 'the hotel' : siteConfig(args.site)?.short || args.site}`,
     build(args, twin) {
       const trip = currentTrip(twin);
       const site = siteConfig(args.site);
@@ -448,7 +486,7 @@ const wall = [
         return {
           refuse: {
             code: 'other_trip',
-            say: `${site?.short || args.site} is on the ${other?.title || 'another trip'}.`,
+            say: `${site?.short || args.site} is on the ${other?.title || 'another trip'}. Switch trips first.`,
             offer: other
               ? { name: 'switch_trip', args: { trip: other.id } }
               : null,
@@ -478,10 +516,18 @@ const wall = [
     tier: 'act',
     raiseWhen: ['reportOpen'],
     emits: { type: 'session', fields: ['spotlight'] },
-    build: (args) => ({
-      type: 'session',
-      patch: { spotlight: { kind: 'person', id: args.person } },
-    }),
+    build: (args, twin) =>
+      twin.names?.person && !twin.names.person(args.person)
+        ? {
+            refuse: {
+              code: 'no_person',
+              say: 'No one by that name on this trip.',
+            },
+          }
+        : {
+            type: 'session',
+            patch: { spotlight: { kind: 'person', id: args.person } },
+          },
     examples: [['Show me Noah', { person: 'twin-NF' }]],
   }),
   defineCommand({
@@ -494,27 +540,19 @@ const wall = [
     tier: 'act',
     raiseWhen: ['reportOpen'],
     emits: { type: 'session', fields: ['spotlight'] },
-    build: (args, twin) => ({
-      type: 'session',
-      patch: {
-        spotlight: {
-          kind: 'place',
-          id: `sp-${currentSite(twin)}-${PLACES[args.place]}`,
-        },
-      },
-    }),
+    build(args, twin) {
+      const id = `sp-${currentSite(twin)}-${PLACES[args.place]}`;
+      // Only a place this site has (a venue has no relocation site).
+      if (twin.names?.place && !twin.names.place(id))
+        return {
+          refuse: {
+            code: 'no_place',
+            say: `This site has no ${PLACE_WORDS[args.place].replace(/^the /, '')}.`,
+          },
+        };
+      return { type: 'session', patch: { spotlight: { kind: 'place', id } } };
+    },
     examples: [['Where is the hospital', { place: 'hospital' }]],
-  }),
-  defineCommand({
-    name: 'clear_spotlight',
-    group: 'Wall',
-    station: 'People',
-    title: 'Clear the spotlight',
-    description: 'Turn the spotlight off on every screen.',
-    tier: 'act',
-    emits: { type: 'session', fields: ['spotlight'] },
-    build: () => ({ type: 'session', patch: { spotlight: null } }),
-    examples: [['Clear the spotlight', {}]],
   }),
   defineCommand({
     name: 'set_weather_time',
@@ -554,8 +592,15 @@ const wall = [
     tier: 'ask',
     verb: 'Return',
     emits: { type: 'returnLive' },
-    question: () =>
-      'Every screen, pinned ones too, back to Live and its role defaults',
+    question: (args, state) => {
+      const ss = state?.session || {};
+      const demos = [
+        ss.simStorm && 'storm',
+        ss.simFire && 'fire boundary',
+        ss.simCyclone && 'hurricane',
+      ].filter(Boolean);
+      return `Every screen, pinned ones too, back to Live and its role defaults${demos.length ? `. The simulated ${demos.join(' and ')} ends` : ''}`;
+    },
     build: () => ({ type: 'returnLive' }),
     examples: [['Put everything back to live', {}]],
   }),
@@ -573,6 +618,8 @@ const protective = [
     tier: 'act',
     protective: true,
     emits: { type: 'session', fields: ['visitor'] },
+    already: (args, state) =>
+      state?.session?.visitor ? 'Visitor mode is already on.' : null,
     build: () => ({ type: 'session', patch: { visitor: true } }),
     examples: [['Visitors are coming in', {}]],
   }),
@@ -583,14 +630,22 @@ const protective = [
     title: 'Stop a demo',
     description:
       'End the demo storm, the demo fire boundary, the demo hurricane, or every demo.',
-    inputSchema: obj({ hazard: { type: 'string', enum: [...HAZARDS] } }),
+    // "Stop the demo" with no name ends every demo that runs.
+    inputSchema: obj({ hazard: { type: 'string', enum: [...HAZARDS] } }, []),
     tier: 'act',
     protective: true,
+    already: (args, state) => {
+      const ss = state?.session || {};
+      const h = args.hazard || 'all';
+      const on =
+        h === 'all' ? Object.values(SIM_OF).some((k) => ss[k]) : ss[SIM_OF[h]];
+      return on ? null : 'No demo is running.';
+    },
     emits: { type: 'session', fields: ['simStorm', 'simFire', 'simCyclone'] },
     build: (args) => ({
       type: 'session',
       patch:
-        args.hazard === 'all'
+        (args.hazard || 'all') === 'all'
           ? { simStorm: null, simFire: null, simCyclone: null }
           : { [SIM_OF[args.hazard]]: null },
     }),
@@ -608,12 +663,13 @@ const controls = [
     description: 'Undo the last change this device made, within 10 seconds.',
     tier: 'act',
     words: ['undo', 'undo that', 'take that back'],
-    reply: 'Undone, with what changed back.',
+    // What was undone is spoken from the relay's answer in V1.
+    reply: 'Undone.',
     emits: { t: 'undo' },
     build: (args, twin) => {
-      const id = twin.lastUndoId?.();
-      return id
-        ? { t: 'undo', undoId: id }
+      const last = twin.lastUndo?.();
+      return last?.undoId
+        ? { t: 'undo', undoId: last.undoId }
         : { refuse: { code: 'nothing_to_undo', say: 'Nothing to undo.' } };
     },
   }),
@@ -650,7 +706,7 @@ const controls = [
     reply: '',
   }),
   defineCommand({
-    name: 'reply_no',
+    name: 'reply_cancel',
     group: 'Fitzroy',
     title: 'Cancel',
     description: 'Cancel the open question.',
@@ -682,8 +738,11 @@ const touchOnly = (name, title, description, action, station, extra = {}) =>
     tier: 'touch',
     refusal: {
       code: 'touch_only',
+      // A null station: "Touch only: that is on the remote." (remote_only).
       // Spoken: "Screens and devices" (the remote's pane, "&" said as "and").
-      say: `Touch only: ${action} on the remote, in ${station.replace(/&/g, 'and')}.`,
+      say: station
+        ? `Touch only: ${action} on the remote, in ${station.replace(/&/g, 'and')}.`
+        : `Touch only: ${action} on the remote.`,
     },
     ...extra,
   });
@@ -766,6 +825,44 @@ const touch = [
     },
   ),
   touchOnly(
+    'clear_spotlight',
+    'Clear the spotlight',
+    'Clear the spotlight (the remote clears it with Return all).',
+    'clear the spotlight with Return all',
+    'Screens & devices',
+    { examples: [['Clear the spotlight', {}]] },
+  ),
+  touchOnly(
+    'remote_only',
+    'Remote only',
+    'Wall controls, layout, the traffic camera, street photos and review: on the remote.',
+    'that is',
+    null,
+    {
+      inputSchema: obj(
+        {
+          topic: {
+            type: 'string',
+            enum: [
+              'wall_controls',
+              'layout',
+              'traffic_camera',
+              'street_photo',
+              'review',
+            ],
+          },
+        },
+        [],
+      ),
+      examples: [
+        [
+          'Show the traffic camera on the site wall',
+          { topic: 'traffic_camera' },
+        ],
+      ],
+    },
+  ),
+  touchOnly(
     'manage_devices',
     'Devices',
     'Pair, hand over, set up, identify or revoke a device.',
@@ -799,6 +896,14 @@ export const NON_COMMANDS = Object.freeze([
   { intent: 'route', say: 'Routes come later. Nothing changed.', phase: 'V4' },
   { intent: 'unclear', say: "I didn't catch a command." },
   { intent: 'not_for_system', say: '' },
+]);
+
+/** The only words that mean every screen: 'all' is never inferred (F2 §4). */
+export const ALL_SCREENS_WORDS = Object.freeze([
+  'all screens',
+  'every screen',
+  'all the screens',
+  'everywhere',
 ]);
 
 /** Spoken names for docs and the lab grammar (keys are catalog ids). */
