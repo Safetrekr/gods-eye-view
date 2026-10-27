@@ -4711,7 +4711,7 @@ async function main() {
       ['', '#ee7789', 'Reported floor'],
     ],
     // Sensor resolution stays as the source publishes it (review/phase5b IA F1).
-    fires: [['', '#ee7789', 'Heat detection (375 m pixel)']],
+    fires: [['', '#f59e0b', 'Heat detection (375 m pixel)']],
     safety: [
       ['', '#4ba467', 'Approved place'],
       ['dash', '#7f949b', 'Draft · not approved'],

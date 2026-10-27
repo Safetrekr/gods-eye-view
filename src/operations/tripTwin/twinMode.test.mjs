@@ -79,7 +79,7 @@ test('baseline is MONITORING with an exception-first top line', () => {
   assert.equal(m.groups[0].key, 'alone');
 });
 
-test('a nearby hazard raises WATCH; a delayed feed becomes the top line in calm', () => {
+test('a nearby hazard raises ATTENTION; a delayed feed becomes the top line in calm', () => {
   const { a } = setup('baseline');
   assert.equal(
     deriveMode(a, { hazard: { text: 'Heat detection 0.7 km SW' } }).mode,

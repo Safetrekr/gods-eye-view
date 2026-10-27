@@ -1001,7 +1001,9 @@ export function createTripTwin({
             label: `${simulatedFires || fsum.nearest.simulated ? 'SIMULATED ' : ''}Heat detection`,
             distance: formatDistance(fsum.nearest.d),
             bearing: bearingLabel(site.center, fsum.nearest),
-            hazard: true,
+            // Amber, like a fire boundary: red on the map means a report
+            // (hazards Q1, Jesse 27 Oct).
+            wx: 'attention',
           },
         ];
       if (peopleInfo?.beyond)

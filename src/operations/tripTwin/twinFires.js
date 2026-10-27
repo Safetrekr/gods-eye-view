@@ -136,7 +136,7 @@ export function drawFires(
       polygon: {
         hierarchy: corners,
         perPositionHeight: true,
-        material: css('#ee7789', alpha),
+        material: css('#f59e0b', alpha),
       },
       polyline: {
         positions: corners,
@@ -146,9 +146,9 @@ export function drawFires(
         material: claimed
           ? css('#f59e0b', 0.5)
           : recent
-            ? css('#ee7789', 0.9)
+            ? css('#f59e0b', 0.9)
             : new Cesium.PolylineDashMaterialProperty({
-                color: css('#ee7789', 0.7),
+                color: css('#f59e0b', 0.7),
                 dashLength: 10,
               }),
       },

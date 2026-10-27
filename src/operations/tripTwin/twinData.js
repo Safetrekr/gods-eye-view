@@ -1048,7 +1048,8 @@ export function deriveMode(assessment, ctx = {}) {
   if (degraded && mode === 'incident') topLine += ` · data as of ${ctx.asOf}`;
   const chip = {
     monitoring: 'MONITORING',
-    watch: 'WATCH',
+    // Not WATCH: beside a hurricane it reads as an NWS watch (hazards Q2).
+    watch: 'ATTENTION',
     incident: 'INCIDENT',
   }[mode];
   return {
