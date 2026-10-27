@@ -276,3 +276,25 @@ test('projection: the view centre at yaw 90 samples longitude 90° east of the h
   assert.equal(sourceWidthFor({ fov: 60, outW: 960, srcW: 8000 }), 5760);
   assert.equal(sourceWidthFor({ fov: 75, outW: 960, srcW: 2048 }), 2048);
 });
+
+test("forget: a hidden photo's saved images leave disk and memory, and are not saved again", async () => {
+  const dir = tmp();
+  const s = createStreetPhotos({
+    fixture: true,
+    dataDir: dir,
+    fetchImpl: () => assert.fail('no network'),
+  });
+  const [p] = (await s.near(HOTEL.lat, HOTEL.lon)).items;
+  await s.view(p.provider, p.id, { w: 480, yaw: 90, pitch: 10, fov: 75 });
+  await s.full(p.provider, p.id);
+  const saved = () =>
+    fs
+      .readdirSync(path.join(dir, 'street-photos'))
+      .filter((f) => f.startsWith(`${p.provider}-${p.id}-`));
+  assert.equal(saved().length, 2);
+  assert.equal(s.forget(p.provider, p.id).removed, 2);
+  assert.equal(saved().length, 0);
+  await s.view(p.provider, p.id, { w: 960 });
+  assert.equal(saved().length, 0, 'not saved again while hidden');
+  fs.rmSync(dir, { recursive: true, force: true });
+});

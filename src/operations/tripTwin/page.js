@@ -3256,7 +3256,17 @@ async function main() {
         ...(v ? { yaw: v.yaw, pitch: v.pitch } : {}),
       });
     };
-    const hide = () => setLocalPick(target.key, { hide: true });
+    // Hide also deletes the photo's saved images on this server (Jesse, 27
+    // Oct): the one walls show and the one shown here.
+    const hide = () => {
+      const seen = [latest?.ranked[latest.wallsIndex], latest?.pick.photo];
+      for (const p of new Set(seen.filter(Boolean)))
+        fetch(
+          `/api/twin-photos/forget?p=${p.provider}&id=${encodeURIComponent(p.id)}`,
+          { method: 'POST' },
+        ).catch(() => {});
+      setLocalPick(target.key, { hide: true });
+    };
     // Reads the latest state each time: Previous / Next reopen on the new
     // photo (AIA round 1).
     const open = () => {
@@ -3312,6 +3322,8 @@ async function main() {
       box.replaceChildren(
         photoBlock({
           ...info,
+          // Hidden on walls: seen here, never saved again.
+          url: info.hidden && info.url ? `${info.url}&store=0` : info.url,
           count: info.ranked.length,
           kept: Boolean(info.pick.kept),
           hidden: info.hidden,

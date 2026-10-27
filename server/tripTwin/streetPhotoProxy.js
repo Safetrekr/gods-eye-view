@@ -183,12 +183,24 @@ export function createStreetPhotos({
     }
   }
 
+  // A photo's images carry its provider and id in their file names, so a
+  // hide can find and delete them (Jesse, 27 Oct).
+  const photoPrefix = (key) => {
+    const [kind, p, id] = key.split(':');
+    return kind === 'view' || kind === 'full' ? `${p}-${id}-` : '';
+  };
   const diskPath = (key, ext) =>
     dir &&
     path.join(
       dir,
-      `${crypto.createHash('sha1').update(key).digest('hex')}.${ext}`,
+      `${photoPrefix(key)}${crypto.createHash('sha1').update(key).digest('hex')}.${ext}`,
     );
+  /** Photos hidden on walls: never kept on disk while this server runs. */
+  const unkept = new Set();
+  const unkeptKey = (key) => {
+    const [kind, p, id] = key.split(':');
+    return (kind === 'view' || kind === 'full') && unkept.has(`${p}:${id}`);
+  };
   function diskRead(key, ext) {
     const file = diskPath(key, ext);
     if (!file) return null;
@@ -200,9 +212,9 @@ export function createStreetPhotos({
       return null;
     }
   }
-  function diskWrite(key, ext, buf) {
+  function diskWrite(key, ext, buf, { store = true } = {}) {
     const file = diskPath(key, ext);
-    if (!file) return;
+    if (!file || !store || unkeptKey(key)) return;
     try {
       fs.writeFileSync(`${file}.tmp`, buf, { mode: 0o600 });
       fs.renameSync(`${file}.tmp`, file);
@@ -540,7 +552,11 @@ export function createStreetPhotos({
     sharp(buf, { limitInputPixels: IMAGE_MAX_PIXELS, failOn: 'error' });
 
   /** One JPEG for a wall, the remote or a thumbnail. */
-  async function view(p, id, { w, yaw = null, pitch = null, fov = null }) {
+  async function view(
+    p,
+    id,
+    { w, yaw = null, pitch = null, fov = null, store = true },
+  ) {
     const key = `view:${p}:${id}:${w}:${yaw}:${pitch}:${fov}`;
     const mem = memory.get(key);
     if (mem) {
@@ -592,8 +608,8 @@ export function createStreetPhotos({
           throw new PhotoError('unreadable image');
         }
       });
-      remember(key, out);
-      diskWrite(key, 'jpg', out);
+      if (store && !unkeptKey(key)) remember(key, out);
+      diskWrite(key, 'jpg', out, { store });
       return out;
     });
   }
@@ -624,7 +640,34 @@ export function createStreetPhotos({
     });
   }
 
-  return { near, view, full, lookup };
+  /**
+   * A photo hidden on walls: its saved images go from disk and memory, and
+   * none is saved again while this server runs (Jesse, 27 Oct).
+   */
+  function forget(p, id) {
+    unkept.add(`${p}:${id}`);
+    for (const k of [...memory.keys()])
+      if (k.startsWith(`view:${p}:${id}:`)) {
+        memoryBytes -= memory.get(k).length;
+        memory.delete(k);
+      }
+    const urls = known.get(`${p}:${id}`)?.urls || {};
+    for (const u of Object.values(urls)) if (u) sources.delete(u);
+    let removed = 0;
+    if (dir)
+      try {
+        for (const f of fs.readdirSync(dir))
+          if (f.startsWith(`${p}-${id}-`)) {
+            fs.rmSync(path.join(dir, f), { force: true });
+            removed += 1;
+          }
+      } catch {
+        /* nothing saved */
+      }
+    return { removed };
+  }
+
+  return { near, view, full, lookup, forget };
 }
 
 // ---------------------------------------------------------------- HTTP
@@ -687,8 +730,15 @@ export function twinStreetPhotoProxy({
         twinHostGuard({ check: hostCheckFor(server) }),
       );
       server.middlewares.use('/api/twin-photos', async (req, res) => {
-        if (req.method !== 'GET') return sendJson(res, 405, { ok: false });
         const url = new URL(req.url, 'http://local');
+        // Hide on walls: delete that photo's saved images (POST, no body).
+        if (url.pathname === '/forget') {
+          if (req.method !== 'POST') return sendJson(res, 405, { ok: false });
+          const q = parseViewQuery(url.searchParams);
+          if (!q) return sendJson(res, 400, { ok: false, error: 'query' });
+          return sendJson(res, 200, { ok: true, ...photos.forget(q.p, q.id) });
+        }
+        if (req.method !== 'GET') return sendJson(res, 405, { ok: false });
         try {
           if (url.pathname === '/near') {
             const lat = Number(url.searchParams.get('lat'));
@@ -707,9 +757,11 @@ export function twinStreetPhotoProxy({
           if (url.pathname === '/view' || url.pathname === '/full') {
             const q = parseViewQuery(url.searchParams);
             if (!q) return sendJson(res, 400, { ok: false, error: 'query' });
+            // store=0: a photo hidden on walls, seen only at the All-in-one.
+            const store = url.searchParams.get('store') !== '0';
             const jpg =
               url.pathname === '/view'
-                ? await photos.view(q.p, q.id, q)
+                ? await photos.view(q.p, q.id, { ...q, store })
                 : await photos.full(q.p, q.id);
             res.writeHead(200, {
               'Content-Type': 'image/jpeg',
