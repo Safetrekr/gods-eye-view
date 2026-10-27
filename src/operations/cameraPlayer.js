@@ -132,14 +132,18 @@ export function createCameraPlayer() {
       // HLS is pulled by the server per lease (upstream cctv.js).
       if (info.feedType === 'hls')
         leaseUrl = `${info.mediaUrl}?lease=${createLeaseId()}`;
+      // hls.js wherever Media Source works, native HLS only without it (as
+      // upstream's attachCctvVideo): Chrome now claims native HLS but fails
+      // on the server-pulled live playlist.
       if (
         info.feedType === 'hls' &&
+        !Hls.isSupported() &&
         !video.canPlayType('application/vnd.apple.mpegurl')
       ) {
-        if (!Hls.isSupported()) {
-          fail();
-          return;
-        }
+        fail();
+        return;
+      }
+      if (info.feedType === 'hls' && Hls.isSupported()) {
         hls = new Hls({
           maxBufferLength: 20,
           backBufferLength: 15,
