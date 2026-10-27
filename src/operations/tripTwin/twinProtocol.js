@@ -84,6 +84,9 @@ export const MSG_TYPES = Object.freeze([
   // The All-in-one's review tick (launcher, this computer only; Jesse,
   // 26 Oct): {stop, item, on, initials}. Old relays drop it.
   'review',
+  // The All-in-one's kept street photo (review/street-photos P5; launcher,
+  // this computer only): {place, provider, id, yaw, pitch, hide, clear}.
+  'photo',
 ]);
 
 // ---------------------------------------------------------------- K5
@@ -374,3 +377,11 @@ export const REVIEW_ITEMS = Object.freeze([
 ]);
 /** At most this many ticks are kept (the oldest go first). */
 export const REVIEW_MAX = 300;
+
+/**
+ * Street photos (review/street-photos P5): a kept or hidden photo per place.
+ * Place keys: `hotel:<site>`, `stop:<site>` or `place:<id>`.
+ */
+export const PHOTO_PLACE_RE = /^(hotel|stop|place):[\w.-]{1,60}$/;
+export const PHOTO_PROVIDERS = Object.freeze(['panoramax', 'kartaview']);
+export const PHOTO_MAX = 100;

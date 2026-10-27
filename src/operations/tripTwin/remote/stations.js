@@ -883,6 +883,46 @@ function site(ctx) {
       ),
     );
   out.push(sc);
+  // The hotel's street photo, as S1 shows it (review/street-photos P5).
+  const ph = ctx.ui.photo;
+  out.push(kick('Street photo · the hotel'));
+  if (ph?.url && ph.lines?.kicker) {
+    const img = new Image();
+    img.className = 'rm-photo';
+    img.alt = `Street photo of ${ph.name}`;
+    img.src = ph.url;
+    // A photo that will not load says so, never a broken image (ET P1-3).
+    img.addEventListener('error', () => {
+      img.replaceWith(
+        el('div', 'rm-note', 'Found but would not load on this remote'),
+      );
+    });
+    out.push(
+      img,
+      el('div', 'rm-note strong', ph.lines.dir),
+      el('div', 'rm-note', ph.lines.age),
+      ...(ph.lines.note ? [el('div', 'rm-note', ph.lines.note)] : []),
+      el('div', 'rm-note', ph.credit),
+    );
+  } else
+    out.push(
+      el('div', 'rm-note', ph?.lines?.line || 'Looking for street photos…'),
+    );
+  // Worded from what is shown, not from the record (ET P1-3).
+  const how = ph?.kept?.hide
+    ? null
+    : ph?.pick?.kept
+      ? 'Kept for this trip at the All-in-one'
+      : ph?.pick?.keptGone
+        ? null
+        : 'Picked automatically';
+  out.push(
+    el(
+      'div',
+      'rm-note',
+      `${how ? `${how} · ` : ''}change it at the All-in-one · turn it off on one wall in Layers & display · a public photo, not an inspection`,
+    ),
+  );
   out.push(
     el(
       'div',

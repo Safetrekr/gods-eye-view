@@ -2741,3 +2741,51 @@ body.tt-body[data-view='screen'].tt-wall-shell[data-role='trips']
 .tt-adv-link.expired {
   color: var(--tt-attention);
 }
+
+/* ================= Street photo plate (review/street-photos P5) ==========
+   Bottom right of the map on S1 and S5, beside the aperture button, on the
+   same edges as the S4 timeline dock. The locked cards never change. */
+.tt-photo-plate {
+  display: none;
+}
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-map .tt-photo-plate {
+  display: block;
+  position: fixed;
+  zoom: var(--wall-scale);
+  z-index: 30;
+  width: 288px;
+  right: calc((var(--w-g) * 2 + 52px * var(--w-rz)) / var(--wall-scale));
+  bottom: calc((var(--w-bot) + var(--w-g)) / var(--wall-scale));
+  padding: 10px;
+  background: var(--tt-glass);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+  box-shadow: var(--tt-depth-1);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-map
+  .tt-photo-plate[hidden] {
+  display: none;
+}
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-map
+  .tt-photo-plate.compact {
+  width: 288px;
+}
+/* Round 2: a rally point or shelter under the plate — it steps aside but
+   keeps its place (so the check is steady); the one-line form fits its words. */
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-map
+  .tt-photo-plate.yield {
+  visibility: hidden;
+}
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-map
+  .tt-photo-plate.compact {
+  width: auto;
+  max-width: 288px;
+}
+/* The plate lives on the right (Jesse, 27 Oct): bottom right by default;
+   top right, under the map bar, when a rally point or shelter sits under
+   the bottom slot. twinScreen.js sets the top from the bar. */
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-map .tt-photo-plate.top {
+  bottom: auto;
+}

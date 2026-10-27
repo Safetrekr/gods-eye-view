@@ -837,6 +837,26 @@ export function createRelay({
         if (r.ok) broadcastState({ cause: CAUSE.CMD, changed: ['session'] });
         break;
       }
+      case 'photo': {
+        // The All-in-one's kept street photo (review/street-photos P5): this
+        // computer's launcher only; the host checks every field.
+        if (me.kind !== 'launcher' || !conn?.isLocal) break;
+        const r = host.photo({
+          by: me.id,
+          tripId: typeof m.tripId === 'string' ? m.tripId : null,
+          place: m.place,
+          provider: m.provider ?? null,
+          id: m.id ?? null,
+          yaw: m.yaw ?? null,
+          pitch: m.pitch ?? null,
+          hide: m.hide === true,
+          clear: m.clear === true,
+          initials: m.initials,
+        });
+        if (r.ok && !r.unchanged)
+          broadcastState({ cause: CAUSE.CMD, changed: ['session'] });
+        break;
+      }
       case 'hb':
         host.beat(me.id);
         break;

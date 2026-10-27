@@ -382,6 +382,13 @@ export function createStreetsLayer(viewer, site) {
 
   return {
     counts,
+    /** Mapped entrances: where a street photo aims (review/street-photos P5). */
+    doors: doors.map((d) => ({
+      lat: d.lat,
+      lon: d.lon,
+      kind: d.kind,
+      atHotel: d.atHotel,
+    })),
     /** {streets, walkways} on / off. */
     set({ streets = false, walkways = false } = {}) {
       for (const c of ['major', 'minor', 'service', 'nowalk'])

@@ -567,6 +567,15 @@ export const AUDIT_EVENTS = Object.freeze({
     peer: false,
     data: { on: bool, item: oneOf(REVIEW_ITEMS) },
   },
+  // A kept or hidden street photo: what and which kind of place, never the
+  // photo or who (review/street-photos P5).
+  'photo.set': {
+    peer: false,
+    data: {
+      action: oneOf(['keep', 'hide', 'clear']),
+      place: oneOf(['hotel', 'stop', 'place']),
+    },
+  },
   // Limits (K7, S-16): one line per limit per 10 s; `dropped` counts the
   // lines left out since. Wrong tokens are a signal here, never a lockout.
   'limit.hit': {

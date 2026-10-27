@@ -68,6 +68,9 @@ import {
   pairWrongText,
   REVIEW_ITEMS,
   REVIEW_MAX,
+  PHOTO_PLACE_RE,
+  PHOTO_PROVIDERS,
+  PHOTO_MAX,
 } from './twinProtocol.js';
 import {
   CARD_CATALOG,
@@ -1075,6 +1078,107 @@ export function createSessionHost({
         actor: actorOfId(by),
         rev: { before, after: session.rev },
         data: { on, item },
+      });
+      return { ok: true, rev: session.rev };
+    },
+    /**
+     * A kept or hidden street photo from the All-in-one (review/street-photos
+     * P5), the review tick's pattern: this computer's launcher only, no
+     * lease, no Undo (Back to automatic at the All-in-one). Kept in the
+     * session so every wall shows the same photo; keyed by trip and place.
+     * clear removes the choice; hide keeps no photo id.
+     */
+    photo({
+      by,
+      tripId = null,
+      place,
+      provider = null,
+      id = null,
+      yaw = null,
+      pitch = null,
+      hide = false,
+      clear = false,
+      initials = null,
+    } = {}) {
+      const bad = (error) => ({
+        ok: false,
+        code: CODE.VALIDATION_COMMAND,
+        error,
+      });
+      if (typeof place !== 'string' || !PHOTO_PLACE_RE.test(place))
+        return bad('Not applied: place is not valid');
+      const angle = (v, lo, hi) =>
+        v === null ||
+        (Number.isInteger(v) && v % 5 === 0 && v >= lo && v <= hi);
+      if (!clear && !hide) {
+        if (!PHOTO_PROVIDERS.includes(provider))
+          return bad('Not applied: provider is not valid');
+        if (typeof id !== 'string' || !/^[A-Za-z0-9._-]{1,64}$/.test(id))
+          return bad('Not applied: photo is not valid');
+        if (!angle(yaw, 0, 355) || !angle(pitch, 0, 30))
+          return bad('Not applied: view is not valid');
+      }
+      const who =
+        typeof initials === 'string' && /^[A-Z]{1,3}$/.test(initials)
+          ? initials
+          : null;
+      // Filed under the All-in-one's trip, which may not be the walls'
+      // (every-time P0-2); the walls' only when none is named.
+      if (tripId !== null && !/^[\w-]{1,60}$/.test(String(tripId)))
+        return bad('Not applied: trip is not valid');
+      const key = `${tripId ?? session.session.tripId ?? ''}|${place}`;
+      const photos = { ...(session.session.photos || {}) };
+      const was = photos[key];
+      // Sent again when the All-in-one rejoins: nothing changes, no rev and
+      // no audit row (AIA round 1).
+      const same = clear
+        ? !was
+        : hide
+          ? Boolean(was?.hide)
+          : Boolean(
+              was &&
+              !was.hide &&
+              was.provider === provider &&
+              was.id === id &&
+              (was.yaw ?? null) === yaw &&
+              (was.pitch ?? null) === pitch,
+            );
+      if (same) return { ok: true, rev: session.rev, unchanged: true };
+      if (clear) delete photos[key];
+      else if (hide) photos[key] = { hide: true, at: now(), by: who };
+      else
+        photos[key] = {
+          provider,
+          id,
+          ...(yaw === null ? {} : { yaw }),
+          ...(pitch === null ? {} : { pitch }),
+          at: now(),
+          by: who,
+        };
+      const keys = Object.keys(photos);
+      // Over the cap the oldest keeps go first; a hide goes last (ET P2-7).
+      if (keys.length > PHOTO_MAX)
+        for (const k of keys
+          .sort(
+            (a, b) =>
+              (photos[a].hide ? 1 : 0) - (photos[b].hide ? 1 : 0) ||
+              photos[a].at - photos[b].at,
+          )
+          .slice(0, keys.length - PHOTO_MAX))
+          delete photos[k];
+      const before = session.rev;
+      session = {
+        ...session,
+        rev: session.rev + 1,
+        session: { ...session.session, photos },
+      };
+      say('photo.set', {
+        actor: actorOfId(by),
+        rev: { before, after: session.rev },
+        data: {
+          action: clear ? 'clear' : hide ? 'hide' : 'keep',
+          place: place.split(':')[0],
+        },
       });
       return { ok: true, rev: session.rev };
     },

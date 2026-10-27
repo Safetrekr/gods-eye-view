@@ -662,6 +662,7 @@ const FIXTURES = {
   },
   'wall.identify': { data: { ok: true, screens: 6 } },
   'review.set': { data: { on: true, item: 'hospital' } },
+  'photo.set': { data: { action: 'keep', place: 'hotel' } },
   // K7: a limit (with what a flood would carry) and a message that threw.
   'limit.hit': {
     data: {

@@ -1576,7 +1576,11 @@ export function createTripTwin({
       viewer.scene.requestRender();
     },
     get streets() {
-      return { ...streetsState, counts: streetsLayer?.counts || null };
+      return {
+        ...streetsState,
+        counts: streetsLayer?.counts || null,
+        doors: streetsLayer?.doors || [],
+      };
     },
     /** The place whose card is open glows on the map (phase 5b). */
     setSelectedPlace(id) {

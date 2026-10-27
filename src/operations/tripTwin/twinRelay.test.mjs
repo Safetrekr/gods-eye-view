@@ -478,6 +478,92 @@ test("Review ticks: only this computer's launcher; the tick, never notes (Jesse,
   assert.equal(Object.keys(reviews()).length, 1);
 });
 
+test("Street photos: only this computer's launcher keeps or hides one; ids checked (street-photos P5)", () => {
+  const relay = createRelay();
+  const launcher = fakeSocket();
+  relay.attach(launcher);
+  launcher.say({ t: 'setup', count: 6 });
+  const { setup } = launcher.last('setup');
+  const remote = fakeSocket();
+  relay.attach(remote);
+  remote.say({ t: 'hello', id: 'R', kind: 'remote', setup, name: 'iPad' });
+  const s1 = fakeSocket();
+  relay.attach(s1);
+  s1.say({ t: 'hello', id: 'S1', kind: 'screen', setup, slot: 1 });
+  const photos = () => remote.last('state').state.session.photos || {};
+  launcher.say({
+    t: 'photo',
+    place: 'hotel:austin',
+    provider: 'panoramax',
+    id: '15c60cde-aaaa',
+    yaw: 110,
+    pitch: 10,
+    initials: 'JT',
+    url: 'https://never.stored/x.jpg',
+  });
+  const p = photos();
+  const key = Object.keys(p)[0];
+  assert.match(key, /\|hotel:austin$/);
+  assert.deepEqual(Object.keys(p[key]).sort(), [
+    'at',
+    'by',
+    'id',
+    'pitch',
+    'provider',
+    'yaw',
+  ]);
+  assert.equal(p[key].by, 'JT');
+  // A remote or a wall cannot; a bad place, provider, id or angle is refused.
+  remote.say({ t: 'photo', place: 'hotel:austin', hide: true });
+  s1.say({ t: 'photo', place: 'hotel:austin', hide: true });
+  launcher.say({ t: 'photo', place: 'nowhere', hide: true });
+  launcher.say({ t: 'photo', place: 'stop:x', provider: 'flickr', id: 'a' });
+  launcher.say({
+    t: 'photo',
+    place: 'stop:x',
+    provider: 'panoramax',
+    id: '../../etc',
+  });
+  launcher.say({
+    t: 'photo',
+    place: 'stop:x',
+    provider: 'panoramax',
+    id: 'a',
+    yaw: 7,
+  });
+  assert.equal(Object.keys(photos()).length, 1);
+  assert.equal(photos()[key].hide, undefined);
+  // Hide keeps no photo; clear removes the choice.
+  launcher.say({ t: 'photo', place: 'hotel:austin', hide: true });
+  assert.deepEqual(Object.keys(photos()[key]).sort(), ['at', 'by', 'hide']);
+  launcher.say({ t: 'photo', place: 'hotel:austin', clear: true });
+  assert.equal(Object.keys(photos()).length, 0);
+  // Filed under the All-in-one's own trip, not the walls' (ET P0-2).
+  launcher.say({
+    t: 'photo',
+    tripId: 'trip-youth-london',
+    place: 'hotel:london',
+    hide: true,
+  });
+  assert.ok(photos()['trip-youth-london|hotel:london']?.hide);
+  launcher.say({
+    t: 'photo',
+    tripId: 'bad trip!',
+    place: 'hotel:x',
+    hide: true,
+  });
+  assert.equal(Object.keys(photos()).length, 1);
+  // Sent again on a rejoin: no new revision.
+  const rev = remote.last('state').state.rev;
+  launcher.say({
+    t: 'photo',
+    tripId: 'trip-youth-london',
+    place: 'hotel:london',
+    hide: true,
+  });
+  assert.equal(remote.last('state').state.rev, rev);
+});
+
 test('S4: the demo storm keeps alert areas on at a wall (A5-S4-PLAN)', () => {
   const relay = createRelay();
   const launcher = fakeSocket();

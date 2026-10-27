@@ -16,6 +16,8 @@ export const TWIN_VENUES = Object.freeze({
     osm: 'way/187668220',
     label: 'Long Center for the Performing Arts',
     short: 'Long Center',
+    // How a sentence names it (street photos: "towards the Long Center").
+    photoName: 'the Long Center',
     center: { lat: 30.26026, lon: -97.75112 },
     groundFloorLabel: 1,
     levels: 2,
@@ -38,6 +40,8 @@ export const TWIN_VENUES = Object.freeze({
     osm: 'way/25758443',
     label: 'Texas State Capitol',
     short: 'Texas Capitol',
+    // How a sentence names it (street photos: "towards the Texas Capitol").
+    photoName: 'the Texas Capitol',
     center: { lat: 30.27469, lon: -97.74035 },
     groundFloorLabel: 1,
     levels: 4,
@@ -61,6 +65,8 @@ export const TWIN_VENUES = Object.freeze({
     osm: 'way/66418634',
     label: 'John F. Kennedy Center for the Performing Arts',
     short: 'Kennedy Center',
+    // How a sentence names it (street photos: "towards the Kennedy Center").
+    photoName: 'the Kennedy Center',
     center: { lat: 38.8959, lon: -77.05576 },
     groundFloorLabel: 1,
     levels: 4,
@@ -83,6 +89,8 @@ export const TWIN_VENUES = Object.freeze({
     osm: 'relation/16159112',
     label: 'National Air and Space Museum',
     short: 'Air and Space',
+    // How a sentence names it (street photos: "towards the Air and Space Museum").
+    photoName: 'the Air and Space Museum',
     center: { lat: 38.88814, lon: -77.01984 },
     groundFloorLabel: 1,
     levels: null, // not mapped: shows the floor-numbering prompt
@@ -106,6 +114,8 @@ export const TWIN_VENUES = Object.freeze({
     osm: 'way/5987419',
     label: 'Royal Festival Hall',
     short: 'Festival Hall',
+    // How a sentence names it (street photos: "towards the Royal Festival Hall").
+    photoName: 'the Royal Festival Hall',
     center: { lat: 51.50582, lon: -0.11678 },
     groundFloorLabel: 0,
     levels: 6,
@@ -128,6 +138,8 @@ export const TWIN_VENUES = Object.freeze({
     osm: 'way/364313092',
     label: 'Westminster Abbey',
     short: 'Westminster Abbey',
+    // How a sentence names it (street photos: "towards Westminster Abbey").
+    photoName: 'Westminster Abbey',
     center: { lat: 51.4994, lon: -0.12739 },
     groundFloorLabel: 0,
     levels: 2,

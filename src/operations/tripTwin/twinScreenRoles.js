@@ -21,6 +21,8 @@ export const ROLES = Object.freeze({
     sub: '3D site picture',
     canvas: true,
     scale: 'neighborhood',
+    // The hotel's street photo on a plate (review/street-photos P5).
+    layersOn: ['streetPhoto'],
   },
   travelers: {
     key: 'travelers',
@@ -66,6 +68,8 @@ export const ROLES = Object.freeze({
     sub: 'Stops · stop brief · paths',
     canvas: true,
     scale: 'city',
+    // The shown stop's street photo (review/street-photos P5).
+    layersOn: ['streetPhoto'],
   },
   trips: {
     key: 'trips',
@@ -195,7 +199,11 @@ export const LAYER_CATALOG = Object.freeze([
   },
   {
     group: 'Views',
-    layers: [{ key: 'waysOut', label: 'Ways out view', def: false }],
+    layers: [
+      { key: 'waysOut', label: 'Ways out view', def: false },
+      // A plate on S1 and S5; off elsewhere (review/street-photos P5).
+      { key: 'streetPhoto', label: 'Street photo', def: false },
+    ],
   },
 ]);
 

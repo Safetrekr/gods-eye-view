@@ -20,6 +20,15 @@ import { siteConfig, sitesForCity } from '../twinSites.js';
 import { approachNow, approachText } from '../twinNowcast.js';
 import { createHazardLoad } from '../twinHazardLoad.js';
 import {
+  photoCredit,
+  photoLines,
+  photoTarget,
+  photoUrl,
+  pickPhoto,
+  rankPhotos,
+} from '../twinStreetPhotos.js';
+import { createPhotoLoader } from '../twinStreetPhotoLoad.js';
+import {
   assessFires,
   assessTropical,
   fireLines,
@@ -799,6 +808,43 @@ function hazardsNow() {
   if (ui.station === 'weather') renderContent(true);
 }
 
+// Street photo of the hotel (review/street-photos P5): what S1 shows, with
+// the session's kept photo. Read-only here: picks are made at the All-in-one.
+let photoLoad = null;
+function updatePhoto() {
+  const ss = ui.state?.session;
+  if (!ss) return;
+  const trip = tripById(ss.tripId);
+  const hotel = sitesForCity(trip.city)[0];
+  if (!hotel) return;
+  photoLoad ??= createPhotoLoader({ onChange: () => updatePhoto() });
+  const target = photoTarget({ kind: 'hotel', site: hotel });
+  photoLoad.want(target);
+  const search = photoLoad.get(target);
+  const kept = ss.photos?.[`${ss.tripId}|${target.key}`] || null;
+  const pick = pickPhoto(
+    rankPhotos(search?.items || [], target, { keep: kept }),
+    target,
+    kept,
+  );
+  ui.photo = {
+    name: hotel.short || hotel.label,
+    // The walls' default unit (every-time P2-4).
+    lines: photoLines({
+      search,
+      pick,
+      target,
+      now: Date.now(),
+      unit: hotel.timezone?.startsWith('America') ? 'ft' : 'm',
+    }),
+    url: photoUrl(pick, 480),
+    kept,
+    pick,
+    credit: photoCredit(pick.photo),
+  };
+  if (ui.station === 'site') renderContent(true);
+}
+
 async function refreshWx(force = false) {
   const ss = ui.state?.session;
   if (!ss) return;
@@ -813,6 +859,7 @@ async function refreshWx(force = false) {
   const region = regionOf(site.timezone);
   const us = region === 'us';
   updateHazards(center, ss, t, site.key);
+  updatePhoto();
   if (force || key !== wxKey || Date.now() - wxAt > 180e3) {
     if (key !== wxKey) wxReal = null;
     wxKey = key;

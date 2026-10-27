@@ -3073,3 +3073,197 @@ body.tt-film,
 body.tt-film * {
   cursor: none !important;
 }
+
+/* ================= Street photos (review/street-photos P5, UI spec P4) =====
+   A public photo on a dark wall: dimmed so it never outshines amber or the
+   red report pill; steel frame, never amber or red; still (no motion). */
+.tt-photo-frame,
+.tt-photo-thumb {
+  position: relative;
+  aspect-ratio: 2 / 1;
+  border-radius: var(--tt-radius);
+  background: var(--tt-field);
+  overflow: hidden;
+}
+.tt-photo-frame::after,
+.tt-photo-thumb::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px rgba(184, 195, 199, 0.18);
+  pointer-events: none;
+}
+.tt-photo-frame img,
+.tt-photo-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 40%;
+  filter: brightness(0.86) saturate(0.8);
+  opacity: 0;
+  transition: opacity 240ms ease;
+}
+.tt-photo-frame img.in,
+.tt-photo-thumb img.in {
+  opacity: 1;
+}
+.tt-photo-wait {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font: 11px/1 var(--tt-mono);
+  letter-spacing: 0.06em;
+  color: var(--tt-text-dim);
+}
+.tt-photo-kicker {
+  margin-bottom: 8px;
+}
+.tt-photo-dir {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font: 500 14px/18px var(--tt-font);
+  color: var(--tt-text);
+}
+.tt-photo-wedge {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+.tt-photo-wedge .ring {
+  fill: none;
+  stroke: var(--tt-border);
+  stroke-width: 1;
+}
+.tt-photo-wedge .tick {
+  stroke: var(--tt-text-2);
+  stroke-width: 2;
+}
+.tt-photo-wedge .sector {
+  fill: var(--tt-text-2);
+  opacity: 0.85;
+}
+.tt-photo-age {
+  margin-top: 2px;
+  font: 13px/18px var(--tt-font);
+  font-variant-numeric: tabular-nums;
+  color: var(--tt-text-2);
+}
+.tt-photo-foot,
+.tt-photo-line {
+  margin-top: 4px;
+}
+.tt-photo-credit {
+  margin-top: 4px;
+  font: 11px/15px var(--tt-font);
+  color: var(--tt-text-dim);
+}
+.tt-photo-foot-long {
+  margin-top: 6px;
+  font: 11px/15px var(--tt-font);
+  color: var(--tt-text-dim);
+}
+
+/* All-in-one: the block in the site and place cards. */
+.tt-photo-slot {
+  margin: 10px 0 6px;
+}
+.tt-photo-block .tt-photo-thumb {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  cursor: zoom-in;
+}
+.tt-photo-block .tt-photo-dir {
+  font-size: 13px;
+}
+.tt-photo-block .tt-photo-age {
+  font-size: 12px;
+  line-height: 16px;
+}
+.tt-photo-acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.tt-photo-count {
+  font: 11px/1 var(--tt-mono);
+  color: var(--tt-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The larger viewer: over the map, not the whole page; no dimming filter,
+   so the operator judges the photo itself. */
+.tt-photo-view {
+  position: fixed;
+  z-index: 60;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(960px, calc(100vw - 2 * var(--rail) - 48px));
+  max-height: calc(100vh - 2 * var(--bar));
+  overflow: auto;
+  padding: 12px;
+  background: var(--tt-glass);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+  box-shadow: var(--tt-depth-1);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.tt-photo-view-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.tt-photo-stage {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  border-radius: var(--tt-radius);
+  background: var(--tt-field);
+  overflow: hidden;
+}
+.tt-photo-canvas,
+.tt-photo-full {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  touch-action: none;
+  cursor: grab;
+}
+.tt-photo-full {
+  cursor: default;
+}
+.tt-photo-view-lines {
+  margin-top: 8px;
+}
+.tt-photo-wait[hidden] {
+  display: none;
+}
+/* Round 1: calmer colour (brand), the credit on the plate, and a photo
+   hidden on walls shown dimmed to the operator. */
+.tt-photo-frame img,
+.tt-photo-thumb img {
+  filter: brightness(0.9) saturate(0.65);
+}
+.tt-photo-plate .tt-photo-credit {
+  margin-top: 2px;
+  font-size: 10.5px;
+  line-height: 14px;
+}
+.tt-photo-note {
+  margin-top: 4px;
+}
+.tt-photo-block.hidden-on-walls .tt-photo-thumb img {
+  opacity: 0.45;
+}

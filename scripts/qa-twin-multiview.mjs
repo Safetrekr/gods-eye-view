@@ -1797,6 +1797,133 @@ async function smoke(server, browser) {
   let revertHashed = null;
   let revertCode = null; // the S6 card's code on the reverted build
   await step(
+    'P5-S1',
+    "street photos (review/street-photos P5): S6 as Site shows the hotel's street photo plate from the proxy's fixtures; the All-in-one's kept photo reaches it (KEPT); no page asks a provider",
+    async () => {
+      const providerHits = [];
+      const onReq = (r) => {
+        if (/panoramax|kartaview/i.test(new URL(r.url()).host))
+          providerHits.push(r.url());
+      };
+      page.on('request', onReq);
+      let req = 900;
+      const send = async (cmd) => {
+        const id = ++req;
+        const ack = remote.c.next(
+          (m) => m.t === 'ack' && m.reqId === id,
+          8000,
+          'ack',
+        );
+        remote.c.say({ t: 'cmd', reqId: id, cmd });
+        must((await ack).ok, `${cmd.type} refused`);
+      };
+      const plate = () =>
+        page.evaluate(() => {
+          const n = document.querySelector('.tt-photo-plate');
+          return {
+            shown: Boolean(n && !n.hidden && n.offsetWidth > 0),
+            state: n?.dataset.ttPhotoState || '',
+            kicker: n?.querySelector('.tt-photo-kicker')?.textContent || '',
+            dir: n?.querySelector('.tt-photo-dir')?.textContent || '',
+            img:
+              n?.querySelector('.tt-photo-frame img')?.getAttribute('src') ||
+              '',
+            loaded: Boolean(n?.querySelector('.tt-photo-frame img.in')),
+            credit: n?.querySelector('.tt-photo-credit')?.textContent || '',
+          };
+        });
+      const until = async (pred, what, ms = 60000) => {
+        const t0 = Date.now();
+        let last = null;
+        while (Date.now() - t0 < ms) {
+          last = await plate().catch(() => null);
+          if (last && pred(last)) return last;
+          await sleep(500);
+        }
+        throw new Error(
+          `timed out waiting for ${what}: ${JSON.stringify(last)}`,
+        );
+      };
+      // Its own launcher link: the first one died with K1's restart.
+      const lp = await client(base);
+      const lw = lp.next('welcome', 8000, 'launcher welcome');
+      lp.say({
+        t: 'hello',
+        proto: PROTO,
+        id: 'launcher-qa-photo',
+        kind: 'launcher',
+        // Once a session exists a launcher rejoins with its setup code.
+        setup,
+      });
+      const lwm = await lw;
+      must(
+        lwm.type !== 'denied',
+        `photo launcher refused: ${lwm.code || ''} ${lwm.error || ''}`,
+      );
+      try {
+        await send({ type: 'screens', target: 6, patch: { role: 'site' } });
+        const auto = await until(
+          (x) => x.shown && x.state === 'found-pano' && x.loaded,
+          'the hotel photo plate',
+        );
+        must(
+          /^STREET PHOTO · PANORAMAX · 360°$/.test(auto.kicker),
+          `kicker "${auto.kicker}"`,
+        );
+        must(
+          /^\/api\/twin-photos\/view\?p=panoramax&id=fx-pano-/.test(auto.img),
+          `img ${auto.img}`,
+        );
+        must(/via Panoramax/.test(auto.credit), `credit "${auto.credit}"`);
+        // Keep the second fixture photo from the All-in-one (launcher).
+        const near = await page.evaluate(async () =>
+          (
+            await fetch('/api/twin-photos/near?lat=30.26218&lon=-97.73832')
+          ).json(),
+        );
+        const second = near.items[1];
+        must(second, 'a second fixture photo');
+        lp.say({
+          t: 'photo',
+          place: 'hotel:austin',
+          provider: second.provider,
+          id: second.id,
+          yaw: 0,
+          pitch: 0,
+        });
+        let kept;
+        try {
+          kept = await until(
+            (x) => /· KEPT$/.test(x.kicker) && x.img.includes(second.id),
+            'the kept photo on the wall',
+          );
+        } catch (e) {
+          const st = [...remote.c.out].reverse().find((m) => m.state)?.state;
+          throw new Error(
+            `${e.message}; launcher welcome ${lwm?.type || '?'}; session.photos ${JSON.stringify(st?.session?.photos || null)}; tripId ${st?.session?.tripId}`,
+          );
+        }
+        lp.say({ t: 'photo', place: 'hotel:austin', clear: true });
+        must(
+          providerHits.length === 0,
+          `provider requests: ${providerHits.slice(0, 2).join(', ')}`,
+        );
+        return {
+          detail: `auto "${auto.kicker}" · ${auto.dir}; kept "${kept.kicker}"; 0 provider requests`,
+        };
+      } finally {
+        await lp.close();
+        page.off('request', onReq);
+        await send({
+          type: 'screens',
+          target: 6,
+          patch: { role: 'trips' },
+        }).catch(() => {});
+      }
+    },
+  );
+
+  await step(
     'K2-S1',
     `revert-and-restart: restart on ${REVERT_REF}; S1–S6 and the remote rejoin (below L5: they are told to re-pair, nothing crashes)`,
     async () => {

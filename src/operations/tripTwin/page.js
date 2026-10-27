@@ -109,6 +109,19 @@ import {
 } from './twinData.js';
 import { SIM_DEMO_MAX_MS } from './twinSession.js';
 import { SAFETY_LABEL } from './twinSafety.js';
+import {
+  LONG_FOOT as PHOTO_LONG_FOOT,
+  photoCredit,
+  photoLines,
+  photoTarget,
+  photoUrl,
+  pickPhoto,
+  rankPhotos,
+  wallView,
+} from './twinStreetPhotos.js';
+import { createPhotoLoader } from './twinStreetPhotoLoad.js';
+import { lookOf, openPhotoViewer, photoBlock } from './twinStreetPhoto.js';
+import { drawPhotoMarker } from './twinStreetPhotoMarker.js';
 import { createCompass, rotated } from './twinCompass.js';
 import {
   applyOperatorNumbering,
@@ -188,7 +201,9 @@ import {
   onReviewLink,
   resumeReviewLink,
   reviewLinkState,
+  sendPhoto,
   sendReview,
+  setPhotoSnapshot,
   setReviewSnapshot,
   showEntry,
   showLaunch,
@@ -1451,6 +1466,17 @@ async function main() {
             ...(appMode === 'advance'
               ? []
               : [lastCtx?.dockedCutaway ? cutPointer : cutBox]),
+            // Street photo of the site, after Floors (IA round 1).
+            ...(photoOnWall
+              ? []
+              : [
+                  photoNode(
+                    photoTargetFor('site', {
+                      site: SITES.find((x) => x.key === siteKey) || SITES[0],
+                    }),
+                    city.short || city.label,
+                  ),
+                ]),
           ]
         : [],
       !geom.isHotel && geom.building.name && routeTarget ? [routeNode] : [],
@@ -2890,7 +2916,23 @@ async function main() {
           ],
         ],
       },
-      [routeNode],
+      [
+        // What the open space looks like; never for a hospital, police or
+        // fire station, where a door in a photo can read as "open" (P5).
+        ...(!photoOnWall &&
+        /^(rally_primary|rally_secondary|safe_house|shelter|relocation)$/.test(
+          p.category,
+        )
+          ? [
+              photoNode(
+                photoTargetFor('place', { place: p }),
+                p.name || label,
+                { controls: false },
+              ),
+            ]
+          : []),
+        routeNode,
+      ],
     );
     $('tt-crumb-focus').textContent = `› ${p.name || label}`;
     syncPlaceHighlight();
@@ -2973,6 +3015,327 @@ async function main() {
       };
     }),
   );
+  // ---- street photos (review/street-photos P5) ----
+  // The proxy finds public photos near each place; twinStreetPhotos.js picks
+  // one and words it. Walls show S1's hotel and S5's stop on a plate (see
+  // twinScreen.js) with the session's kept photos; the All-in-one shows a
+  // block in the site, place and stop-brief cards, keeps its picks in this
+  // browser per trip and sends them to the walls (the review tick's pattern).
+  const photoOnWall = Boolean(params.get('view'));
+  const FAILED_FOR_MS = 5 * 60e3;
+  const photoFailed = new Map(); // `${provider}:${id}` → failed at
+  const photoBrowse = {}; // place key → index browsed here (All-in-one)
+  const photoWatchers = new Set();
+  const notifyPhotos = () => {
+    for (const fn of photoWatchers) fn();
+  };
+  const photoLoader = createPhotoLoader({ onChange: notifyPhotos });
+  const photoTripId = () => tripForCity(cityKey)?.id || '';
+  const PICKS = 'tripTwin.photoPicks.';
+  function localPicks(trip = photoTripId()) {
+    try {
+      return JSON.parse(localStorage.getItem(PICKS + trip) || '{}') || {};
+    } catch {
+      return {};
+    }
+  }
+  /** This browser's pick for a place: a keep or a hide, never a clear. */
+  const activePick = (key) => {
+    const r = localPicks()[key];
+    return r && !r.clear ? r : null;
+  };
+  function setLocalPick(place, rec) {
+    const trip = photoTripId();
+    const all = localPicks(trip);
+    // A clear stays as a marker, so it reaches walls that missed it
+    // (every-time P1-4).
+    all[place] = rec || { clear: true, at: Date.now() };
+    try {
+      localStorage.setItem(PICKS + trip, JSON.stringify(all));
+    } catch {
+      /* this page only */
+    }
+    sendPhoto(
+      rec
+        ? { tripId: trip, place, ...rec, initials: reviewer() }
+        : { tripId: trip, place, clear: true },
+    );
+    notifyPhotos();
+  }
+  // Every trip's picks, clears included, for the walls whenever the link
+  // joins (every-time P0-2, P1-4).
+  setPhotoSnapshot(() => {
+    const out = [];
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k?.startsWith(PICKS)) continue;
+        const trip = k.slice(PICKS.length);
+        for (const [place, r] of Object.entries(localPicks(trip)))
+          out.push(
+            r.clear
+              ? { tripId: trip, place, clear: true }
+              : { tripId: trip, place, ...r, initials: reviewer() },
+          );
+      }
+    } catch {
+      /* no storage: nothing to send */
+    }
+    return out;
+  });
+  onReviewLink(() => notifyPhotos());
+  /** An image that would not load: the next photo is tried for 5 min. */
+  function markPhotoFailed(url) {
+    try {
+      const q = new URL(url, location.href).searchParams;
+      photoFailed.set(`${q.get('p')}:${q.get('id')}`, Date.now());
+    } catch {
+      return;
+    }
+    notifyPhotos();
+  }
+  const hasFailed = (p) => {
+    const k = `${p.provider}:${p.id}`;
+    const at = photoFailed.get(k);
+    if (at && Date.now() - at > FAILED_FOR_MS) photoFailed.delete(k);
+    return photoFailed.has(k);
+  };
+  /** The site a stop photo shows: S5's shown stop, else the hotel. */
+  function shownStopSite() {
+    const k = advEvents().find((e) => e.key === adv.eventKey)?.siteKey;
+    return SITES.find((x) => x.key === k) || SITES[0];
+  }
+  /** What a photo is of: the hotel (S1), a stop's site, or a safety place. */
+  function photoTargetFor(kind, { site = null, place = null } = {}) {
+    if (kind === 'place') return photoTarget({ kind, place });
+    const s = site || (kind === 'hotel' ? SITES[0] : shownStopSite());
+    const k = s.key === SITES[0].key ? 'hotel' : 'stop';
+    // Aimed at the building, not a mapped door: the remote has no map data,
+    // and every surface must show the same photo (round 1).
+    return photoTarget({ kind: k, site: s });
+  }
+  /**
+   * One place's photo for a surface: {target, ranked, pick, index, wallsIndex,
+   * lines, url}. kept: the session's choice (walls) or this browser's
+   * (All-in-one, where = 'aio': a hidden photo stays visible to the operator,
+   * and browsing shows other photos without changing the walls).
+   */
+  function photoInfo(
+    target,
+    { kept = null, w = 960, browse = false, where = 'wall' } = {},
+  ) {
+    photoLoader.want(target);
+    const search = photoLoader.get(target);
+    const hiddenHere = where === 'aio' && Boolean(kept?.hide);
+    const use = hiddenHere ? null : kept;
+    const all = rankPhotos(search?.items || [], target, { keep: use });
+    const ranked = all.filter((p) => !hasFailed(p));
+    const failed =
+      all.length > 0 && (!ranked.length || all.length - ranked.length >= 3);
+    let pick = pickPhoto(failed ? [] : ranked, target, use);
+    const wallsIndex = pick.photo ? ranked.indexOf(pick.photo) : -1;
+    let index = wallsIndex;
+    const b = photoBrowse[target.key];
+    if (browse && Number.isInteger(b) && ranked.length && pick.photo) {
+      index = Math.min(b, ranked.length - 1);
+      const p = ranked[index];
+      const isKept = use?.id === p.id && use?.provider === p.provider;
+      pick = {
+        photo: p,
+        kept: isKept,
+        view:
+          isKept && Number.isFinite(use.yaw)
+            ? { ...wallView(p, target), yaw: use.yaw, pitch: use.pitch ?? 0 }
+            : wallView(p, target),
+      };
+    }
+    const lines = photoLines({
+      search,
+      pick,
+      target,
+      failed,
+      now: planNow(),
+      unit: getDistanceUnit(),
+      where,
+    });
+    const notes = [lines.note];
+    if (hiddenHere) notes.unshift('Hidden on walls');
+    else if (browse && index !== wallsIndex && wallsIndex >= 0)
+      notes.unshift(
+        `Browsing here · walls show ${use?.id ? 'the kept photo' : 'photo'} ${wallsIndex + 1} of ${ranked.length}`,
+      );
+    lines.note = notes.filter(Boolean).join(' · ') || null;
+    return {
+      target,
+      ranked,
+      pick,
+      index,
+      wallsIndex,
+      hidden: hiddenHere,
+      lines,
+      url: photoUrl(pick, w),
+    };
+  }
+  /**
+   * Where the shown photo was taken, on the map (UI spec §4): only while a
+   * plate or block shows it and it stands on this site's ground. owner: the
+   * block's place key (its marker goes when the block leaves the page).
+   */
+  let photoMark = null;
+  let photoMarkSig = '';
+  let photoMarkOwner = null;
+  function markPhoto(info, owner = null) {
+    const p = info?.pick?.photo;
+    const site = twin.site;
+    const ready = twin.state === 'ready' || twin.state === 'degraded';
+    const near = p && haversineM(city.center, p) < 1500;
+    const look = info?.lines?.look ?? null;
+    const fov = info?.pick?.view?.fov || p?.fov || 60;
+    const sig =
+      p && near && ready && site
+        ? `${p.provider}:${p.id}:${Math.round(look ?? -1)}:${fov}:${scaleNow()}`
+        : '';
+    photoMarkOwner = sig ? owner : null;
+    if (sig === photoMarkSig) return;
+    photoMarkSig = sig;
+    photoMark?.();
+    photoMark = null;
+    if (sig)
+      photoMark = drawPhotoMarker(viewer, site, {
+        photo: p,
+        look,
+        fov,
+        scale: scaleNow(),
+        wall: photoOnWall,
+      });
+  }
+  const photoNodes = new Map(); // place key → {box, redraw} (reused)
+  // A block's marker goes with its card (every-time P2-6).
+  const markWatch = setInterval(() => {
+    const n = photoMarkOwner && photoNodes.get(photoMarkOwner);
+    if (n && !n.box.isConnected) markPhoto(null);
+  }, 1500);
+  cleanups.push(() => clearInterval(markWatch));
+  const linkNote = () => {
+    const st = reviewLinkState();
+    if (st === 'ok') return null;
+    return st === 'none'
+      ? 'No walls linked to this All-in-one · picks are kept here'
+      : 'Not reaching the walls right now · picks are sent when the link rejoins';
+  };
+  /**
+   * The All-in-one's block for one place. controls: Keep / Hide reach the
+   * walls (the hotel, a stop); a rally point or shelter only browses and
+   * opens, since no wall shows it (IA round 1).
+   */
+  function photoNode(target, title, { controls = true } = {}) {
+    const old = photoNodes.get(target.key);
+    if (old) {
+      old.redraw();
+      return old.box;
+    }
+    const box = document.createElement('div');
+    box.className = 'tt-photo-slot';
+    let sig = '';
+    let latest = null;
+    const step = (d) => {
+      if (!latest?.ranked.length) return;
+      photoBrowse[target.key] =
+        (Math.max(0, latest.index) + d + latest.ranked.length) %
+        latest.ranked.length;
+      draw();
+    };
+    const keep = (view = null) => {
+      const p = latest?.pick.photo;
+      if (!p) return;
+      const v = view || latest.pick.view;
+      delete photoBrowse[target.key];
+      setLocalPick(target.key, {
+        provider: p.provider,
+        id: p.id,
+        ...(v ? { yaw: v.yaw, pitch: v.pitch } : {}),
+      });
+    };
+    const hide = () => setLocalPick(target.key, { hide: true });
+    // Reads the latest state each time: Previous / Next reopen on the new
+    // photo (AIA round 1).
+    const open = () => {
+      const info = latest;
+      const p = info?.pick.photo;
+      if (!p) return;
+      openPhotoViewer({
+        title: `STREET PHOTO · ${title}`,
+        pick: info.pick,
+        fullUrl: `/api/twin-photos/full?p=${p.provider}&id=${encodeURIComponent(p.id)}`,
+        lines: info.lines,
+        longFoot: PHOTO_LONG_FOOT,
+        index: info.index,
+        count: info.ranked.length,
+        faceLabel: `Face ${target.words}`,
+        controls,
+        linkNote: controls ? linkNote() : null,
+        onPrev: () => {
+          step(-1);
+          open();
+        },
+        onNext: () => {
+          step(1);
+          open();
+        },
+        onUseView: (v) => keep(v),
+        onKeep: () => keep(),
+        onHide: hide,
+      });
+    };
+    function draw() {
+      const kept = activePick(target.key);
+      const info = photoInfo(target, {
+        kept,
+        w: 480,
+        browse: true,
+        where: 'aio',
+      });
+      latest = info;
+      // The site's own photo marks the map; a rally point's while open.
+      if (box.isConnected) markPhoto(info, target.key);
+      const link = controls ? linkNote() : null;
+      // Redrawn only when what it shows changes: no image reload per tick.
+      const next = JSON.stringify([
+        info.url,
+        info.lines,
+        info.index,
+        kept,
+        link,
+      ]);
+      if (next === sig) return;
+      sig = next;
+      box.replaceChildren(
+        photoBlock({
+          ...info,
+          count: info.ranked.length,
+          kept: Boolean(info.pick.kept),
+          hidden: info.hidden,
+          controls,
+          linkNote: link,
+          longFoot: PHOTO_LONG_FOOT,
+          onPrev: () => step(-1),
+          onNext: () => step(1),
+          onOpen: open,
+          onKeep: () => keep(),
+          onHide: hide,
+          onAuto: () => {
+            delete photoBrowse[target.key];
+            setLocalPick(target.key, null);
+          },
+          onFail: markPhotoFailed,
+        }),
+      );
+    }
+    photoWatchers.add(draw);
+    photoNodes.set(target.key, { box, redraw: draw });
+    draw();
+    return box;
+  }
   const advEvents = () =>
     lastCtx?.snapshot ? tripEvents(lastCtx.snapshot, SITES, city.timezone) : [];
   function briefFor(ev) {
@@ -3301,6 +3664,12 @@ async function main() {
       items.append(li);
     }
     box.append(items);
+    // The stop's street photo, the one S5 shows, after the review rows:
+    // kept or hidden here (IA rounds 1–2, UX, every-time).
+    if (!photoOnWall)
+      box.append(
+        photoNode(photoTargetFor('stop', { site }), site.short || site.label),
+      );
     // Saved paths for this day touching this stop (phase 4 Part D).
     const savedLines = brief.savedLines;
     const sv = el('section', 'tt-adv-saved');
@@ -3383,6 +3752,8 @@ async function main() {
     renderAdvance(true);
     renderCustom();
     syncAdvanceWeather();
+    // S5's plate follows the stop at once (every-time P2-1).
+    notifyPhotos();
   }
   /** Advance: the 3D weather follows the picked event's time (phase 6). */
   function syncAdvanceWeather() {
@@ -7266,6 +7637,13 @@ async function main() {
           line.append(tag);
         }
       }
+      // The street photo stepped aside rather than cover a rally point or
+      // shelter: say where it is (Jesse, 27 Oct).
+      if (o.photoAside)
+        add(
+          'tt-wall-note keep tt-day-photo',
+          'Street photo on the All-in-one · here it would cover a rally point',
+        );
       add(
         'tt-wall-note tt-day-foot',
         'Distances are straight lines from OpenStreetMap · reviews are ticked at the All-in-one · notes are not shown on walls',
@@ -8918,6 +9296,63 @@ async function main() {
     outdoorsCount: () => outdoorsNow().length,
     /** S5's cards (B5-S5-PLAN). */
     dayCards: (node, o) => dayCards(node, o),
+    /**
+     * The S1/S5 plate (review/street-photos P5): 'site' is the hotel, 'day'
+     * the shown stop. photos: the session's kept photos; w: the width bucket.
+     * Returns photoInfo() plus the credit line and the place's key.
+     */
+    streetPhoto(kind, { photos = {}, tripId = '', w = 960, mark = true } = {}) {
+      const target = photoTargetFor(kind === 'day' ? 'stop' : 'hotel');
+      const kept = photos[`${tripId}|${target.key}`] || null;
+      const info = photoInfo(target, { kept, w });
+      markPhoto(mark ? info : null);
+      return { ...info, credit: photoCredit(info.pick?.photo) };
+    },
+    onStreetPhoto: (fn) => photoWatchers.add(fn),
+    streetPhotoFailed: (url) => markPhotoFailed(url),
+    /**
+     * Whether a rally point or shelter falls under a screen rectangle (the
+     * plate steps aside rather than cover one; UI round 2).
+     */
+    safetyUnder(rect) {
+      const snap = lastCtx?.snapshot;
+      if (!snap || !rect?.width || twin.state !== 'ready') return false;
+      const h = twin.scene?.hotelBase ?? 0;
+      for (const p of snap.safety_points || []) {
+        if (!/^(rally_|safe_house|shelter)/.test(p.category || '')) continue;
+        const c = p.coordinates;
+        if (!c) continue;
+        const pos = Cesium.Cartesian3.fromDegrees(c.lng ?? c.lon, c.lat, h);
+        // Behind the camera projects onto the screen too: not under it.
+        const cam = viewer.camera;
+        if (
+          Cesium.Cartesian3.dot(
+            cam.directionWC,
+            Cesium.Cartesian3.subtract(
+              pos,
+              cam.positionWC,
+              new Cesium.Cartesian3(),
+            ),
+          ) <= 0
+        )
+          continue;
+        const w = Cesium.SceneTransforms.worldToWindowCoordinates(
+          viewer.scene,
+          pos,
+        );
+        if (
+          w &&
+          w.x >= rect.left - 12 &&
+          w.x <= rect.right + 12 &&
+          w.y >= rect.top - 12 &&
+          w.y <= rect.bottom + 12
+        )
+          return true;
+      }
+      return false;
+    },
+    /** The plate stepped aside: its map marker goes too. */
+    streetPhotoOff: () => markPhoto(null),
     /** The shown day's stops: {day, keys, shown, next}. */
     dayStops() {
       const ev = advEvents().find((e) => e.key === adv.eventKey);

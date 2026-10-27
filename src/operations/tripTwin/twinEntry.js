@@ -31,6 +31,15 @@ const setLink = (s) => {
 export function sendReview(r) {
   liveLauncher?.send({ t: 'review', ...r });
 }
+/** Send one kept or hidden street photo to the walls (review/street-photos P5). */
+export function sendPhoto(p) {
+  liveLauncher?.send({ t: 'photo', ...p });
+}
+let photoSnapshot = null;
+/** Every kept photo to send when the link joins: () => [{place, …}]. */
+export function setPhotoSnapshot(fn) {
+  photoSnapshot = typeof fn === 'function' ? fn : null;
+}
 /** Every tick to send when the link joins: () => [{stop, item, on, initials}]. */
 export function setReviewSnapshot(fn) {
   reviewSnapshot = typeof fn === 'function' ? fn : null;
@@ -58,6 +67,8 @@ function openReviewLink(setup, on = {}) {
         setLink('ok');
         for (const r of reviewSnapshot?.() || [])
           liveLauncher.send({ t: 'review', ...r });
+        for (const p of photoSnapshot?.() || [])
+          liveLauncher.send({ t: 'photo', ...p });
       },
       status(s) {
         if (s === 'offline' && linkState !== 'expired') setLink('offline');

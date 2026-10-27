@@ -36,6 +36,8 @@ import { setNameStyle } from './twinHud.js';
 import { createWallSheet } from './twinWallSheet.js';
 import { createWallRail } from './twinWallRail.js';
 import { MAP_ROLES, wallPage } from './twinWallPages.js';
+import { createPhotoPlate } from './twinStreetPhoto.js';
+import { widthBucket } from './twinStreetPhotos.js';
 import {
   CHIP_RECENT_MS,
   agoText,
@@ -380,6 +382,77 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     });
   }
 
+  // Street photo plate (review/street-photos P5): S1 shows the hotel, S5 the
+  // shown stop, bottom right on the map. It steps aside with map-only
+  // layout, the menu open, visitor mode, a report open on this trip, or the
+  // wall's Street photo layer off. Still: no pan, no render hold.
+  const plate = createPhotoPlate({
+    onFail: (url) => api.streetPhotoFailed?.(url),
+  });
+  document.body.append(plate.el);
+  // S5's stop brief says so when the plate stepped aside (Jesse, 27 Oct).
+  let photoAside = false;
+  function renderPhoto() {
+    const b = document.body;
+    const role = b.dataset.role;
+    const s = me();
+    const on =
+      (role === 'site' || role === 'day') &&
+      b.classList.contains('tt-wall-shell') &&
+      b.dataset.wallCards !== 'map' &&
+      !b.classList.contains('tt-wst-open') &&
+      !state?.session?.visitor &&
+      !api.incidentOpen?.() &&
+      Boolean(s) &&
+      // At City scale the plate would cover rally points (UI round 1, P0).
+      (s.scale || ROLES[s.role]?.scale) !== 'city' &&
+      layerValue(s, 'streetPhoto');
+    if (!on || !api.streetPhoto) {
+      plate.hide();
+      api.streetPhotoOff?.();
+      if (photoAside) {
+        photoAside = false;
+        renderPanel();
+      }
+      return;
+    }
+    const scale =
+      parseFloat(getComputedStyle(b).getPropertyValue('--wall-scale')) || 1;
+    // A rally point or shelter under the plate: it steps aside, keeping
+    // its place so the check stays steady, and its map fan goes too (UI
+    // round 2).
+    // Bottom right first, then top right under the map bar; only when both
+    // would cover one does it step aside (Jesse: the right-hand side).
+    const pe = plate.el;
+    pe.classList.remove('top');
+    pe.style.top = '';
+    let covers = Boolean(api.safetyUnder?.(pe.getBoundingClientRect()));
+    if (covers) {
+      const bar = document.querySelector('.tt-mapbar')?.getBoundingClientRect();
+      pe.classList.add('top');
+      pe.style.top = `${((bar?.bottom || 0) + 12) / scale}px`;
+      covers = Boolean(api.safetyUnder?.(pe.getBoundingClientRect()));
+      if (covers) {
+        pe.classList.remove('top');
+        pe.style.top = '';
+      }
+    }
+    pe.classList.toggle('yield', covers);
+    const aside = covers && role === 'day';
+    if (aside !== photoAside) {
+      photoAside = aside;
+      renderPanel();
+    }
+    const info = api.streetPhoto(role, {
+      photos: state?.session?.photos || {},
+      tripId: state?.session?.tripId || '',
+      w: widthBucket(268 * scale * (window.devicePixelRatio || 1)),
+      mark: !covers,
+    });
+    plate.update({ lines: info.lines, url: info.url, pick: info.pick });
+  }
+  api.onStreetPhoto?.(() => renderPhoto());
+
   function renderPanel() {
     const role = document.body.dataset.role;
     // Off the board wall the panel goes back to the page.
@@ -427,6 +500,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         }
       }
       api.dayCards(panel, {
+        photoAside,
         // Review ticks from the All-in-one (Jesse, 26 Oct): who and when.
         reviews: state?.session?.reviews || {},
         tripId: state?.session?.tripId || '',
@@ -1006,6 +1080,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     );
     if (s) {
       applyRole(s);
+      renderPhoto();
       // Live / Advance and the day are this screen's own (review R2).
       const dayRole = s.role === 'day';
       const mode = dayRole ? 'advance' : s.mode || 'live';
@@ -2532,7 +2607,10 @@ export function createScreenMode({ api, slot = null, setup = null }) {
   }, 1000);
   const snapTimer = setInterval(snapshot, 4000);
   // Weather, trips and the incident board follow their data.
-  const panelTimer = setInterval(renderPanel, 5000);
+  const panelTimer = setInterval(() => {
+    renderPanel();
+    renderPhoto();
+  }, 5000);
   paint();
   return {
     get slot() {
