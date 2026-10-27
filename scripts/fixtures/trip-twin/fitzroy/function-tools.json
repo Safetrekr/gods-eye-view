@@ -1,0 +1,540 @@
+[
+  {
+    "type": "function",
+    "name": "set_screen_layer",
+    "description": "Turn one map layer on or off on one screen, or on every screen.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "screen": {
+          "type": "string",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "all"
+          ]
+        },
+        "layer": {
+          "type": "string",
+          "enum": [
+            "floors",
+            "radar3d",
+            "alertAreas",
+            "fireBounds",
+            "tropical",
+            "fires",
+            "lightning",
+            "precip",
+            "clouds",
+            "fx",
+            "totals",
+            "safety",
+            "paths",
+            "savedPaths",
+            "avoidAreas",
+            "buildings",
+            "streets",
+            "walkways",
+            "context",
+            "corridors",
+            "grid",
+            "elevation",
+            "waysOut",
+            "streetPhoto"
+          ]
+        },
+        "on": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "screen",
+        "layer",
+        "on"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "step_screen_text",
+    "description": "Make the text on one screen, or every screen, one step larger or smaller.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "screen": {
+          "type": "string",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "all"
+          ]
+        },
+        "direction": {
+          "type": "string",
+          "enum": [
+            "up",
+            "down"
+          ]
+        }
+      },
+      "required": [
+        "screen",
+        "direction"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "set_screen_scale",
+    "description": "Set how much of the area one screen, or every screen, shows: building, neighborhood or city.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "screen": {
+          "type": "string",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "all"
+          ]
+        },
+        "scale": {
+          "type": "string",
+          "enum": [
+            "building",
+            "neighborhood",
+            "city"
+          ]
+        }
+      },
+      "required": [
+        "screen",
+        "scale"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "set_screen_role",
+    "description": "Change what one screen shows: Site, People, Incident & attention, Weather & alerts, Day plan, Trips on watch.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "screen": {
+          "type": "string",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "all"
+          ]
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "site",
+            "travelers",
+            "incident",
+            "weather",
+            "day",
+            "trips"
+          ]
+        }
+      },
+      "required": [
+        "screen",
+        "role"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "set_screen_planning",
+    "description": "Show one screen, or every screen, in Advance planning for a trip day.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "screen": {
+          "type": "string",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "all"
+          ]
+        },
+        "day": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9
+        }
+      },
+      "required": [
+        "screen",
+        "day"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "set_screen_live",
+    "description": "Put one screen, or every screen, back to Live.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "screen": {
+          "type": "string",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "all"
+          ]
+        }
+      },
+      "required": [
+        "screen"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "frame_screen",
+    "description": "Point one screen’s camera at the storm, the reported floor or a person, or clear its selection.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "screen": {
+          "type": "string",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "all"
+          ]
+        },
+        "subject": {
+          "type": "string",
+          "enum": [
+            "storm",
+            "floor",
+            "person",
+            "clear"
+          ]
+        },
+        "person": {
+          "type": "string",
+          "pattern": "^twin-[A-Za-z0-9-]{1,40}$"
+        }
+      },
+      "required": [
+        "screen",
+        "subject"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "set_screen_motion",
+    "description": "Turn a screen’s motion (live, event and cinematic) on or off.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "screen": {
+          "type": "string",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "all"
+          ]
+        },
+        "on": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "screen",
+        "on"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "pin_screen",
+    "description": "Pin one screen so pushes to every screen leave it as it is. One screen only.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "screen": {
+          "type": "string",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6"
+          ]
+        }
+      },
+      "required": [
+        "screen"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "reset_screen",
+    "description": "Put one screen, or every screen, back to its role defaults.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "screen": {
+          "type": "string",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "all"
+          ]
+        }
+      },
+      "required": [
+        "screen"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "switch_trip",
+    "description": "Switch every screen to another trip.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "trip": {
+          "type": "string",
+          "enum": [
+            "trip-choir-austin",
+            "trip-band-dc",
+            "trip-youth-london"
+          ]
+        }
+      },
+      "required": [
+        "trip"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "go_to_site",
+    "description": "Move every screen to another site of the trip on the walls.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "site": {
+          "type": "string",
+          "enum": [
+            "austin",
+            "austin-long-center",
+            "austin-capitol",
+            "dc",
+            "dc-kennedy-center",
+            "dc-air-space",
+            "london",
+            "london-festival-hall",
+            "london-abbey"
+          ]
+        }
+      },
+      "required": [
+        "site"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "spotlight_person",
+    "description": "Spotlight one traveller on every screen.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "person": {
+          "type": "string",
+          "pattern": "^twin-[A-Za-z0-9-]{1,40}$"
+        }
+      },
+      "required": [
+        "person"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "spotlight_place",
+    "description": "Spotlight a safety place of the site on every screen.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "place": {
+          "type": "string",
+          "enum": [
+            "hospital",
+            "police",
+            "fire",
+            "embassy",
+            "rally_primary",
+            "rally_secondary",
+            "safe_house",
+            "relocation"
+          ]
+        }
+      },
+      "required": [
+        "place"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "clear_spotlight",
+    "description": "Turn the spotlight off on every screen.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "set_weather_time",
+    "description": "Show the weather a number of minutes ahead (or 30 back) on every screen.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "minutes": {
+          "type": "integer",
+          "enum": [
+            -30,
+            15,
+            30,
+            45,
+            60
+          ]
+        }
+      },
+      "required": [
+        "minutes"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "set_weather_now",
+    "description": "Put the weather back to now on every screen.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "return_all_live",
+    "description": "Every screen, pinned ones too, back to Live and its role defaults; ends the demos, the lens and the spotlight.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "visitor_on",
+    "description": "Turn Visitor mode on: walls show initials and counts only.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "stop_demo",
+    "description": "End the demo storm, the demo fire boundary, the demo hurricane, or every demo.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "hazard": {
+          "type": "string",
+          "enum": [
+            "storm",
+            "fire",
+            "cyclone",
+            "all"
+          ]
+        }
+      },
+      "required": [
+        "hazard"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "undo_last",
+    "description": "Undo the last change this device made, within 10 seconds.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  }
+]

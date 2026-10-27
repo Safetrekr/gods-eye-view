@@ -1,0 +1,667 @@
+{
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "set_screen_layer"
+        },
+        "screen": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "layer": {
+          "type": "string",
+          "enum": [
+            "floors",
+            "radar3d",
+            "alertAreas",
+            "fireBounds",
+            "tropical",
+            "fires",
+            "lightning",
+            "precip",
+            "clouds",
+            "fx",
+            "totals",
+            "safety",
+            "paths",
+            "savedPaths",
+            "avoidAreas",
+            "buildings",
+            "streets",
+            "walkways",
+            "context",
+            "corridors",
+            "grid",
+            "elevation",
+            "waysOut",
+            "streetPhoto"
+          ]
+        },
+        "on": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "intent",
+        "screen",
+        "layer",
+        "on"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "step_screen_text"
+        },
+        "screen": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "direction": {
+          "type": "string",
+          "enum": [
+            "up",
+            "down"
+          ]
+        }
+      },
+      "required": [
+        "intent",
+        "screen",
+        "direction"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "set_screen_scale"
+        },
+        "screen": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "scale": {
+          "type": "string",
+          "enum": [
+            "building",
+            "neighborhood",
+            "city"
+          ]
+        }
+      },
+      "required": [
+        "intent",
+        "screen",
+        "scale"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "set_screen_role"
+        },
+        "screen": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "site",
+            "travelers",
+            "incident",
+            "weather",
+            "day",
+            "trips"
+          ]
+        }
+      },
+      "required": [
+        "intent",
+        "screen",
+        "role"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "set_screen_planning"
+        },
+        "screen": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "day": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9
+        }
+      },
+      "required": [
+        "intent",
+        "screen",
+        "day"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "set_screen_live"
+        },
+        "screen": {
+          "type": "string",
+          "maxLength": 60
+        }
+      },
+      "required": [
+        "intent",
+        "screen"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "frame_screen"
+        },
+        "screen": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "subject": {
+          "type": "string",
+          "enum": [
+            "storm",
+            "floor",
+            "person",
+            "clear"
+          ]
+        },
+        "person": {
+          "type": "string",
+          "maxLength": 60
+        }
+      },
+      "required": [
+        "intent",
+        "screen",
+        "subject"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "set_screen_motion"
+        },
+        "screen": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "on": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "intent",
+        "screen",
+        "on"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "pin_screen"
+        },
+        "screen": {
+          "type": "string",
+          "maxLength": 60
+        }
+      },
+      "required": [
+        "intent",
+        "screen"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "reset_screen"
+        },
+        "screen": {
+          "type": "string",
+          "maxLength": 60
+        }
+      },
+      "required": [
+        "intent",
+        "screen"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "switch_trip"
+        },
+        "trip": {
+          "type": "string",
+          "maxLength": 60
+        }
+      },
+      "required": [
+        "intent",
+        "trip"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "go_to_site"
+        },
+        "site": {
+          "type": "string",
+          "maxLength": 60
+        }
+      },
+      "required": [
+        "intent",
+        "site"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "spotlight_person"
+        },
+        "person": {
+          "type": "string",
+          "maxLength": 60
+        }
+      },
+      "required": [
+        "intent",
+        "person"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "spotlight_place"
+        },
+        "place": {
+          "type": "string",
+          "enum": [
+            "hospital",
+            "police",
+            "fire",
+            "embassy",
+            "rally_primary",
+            "rally_secondary",
+            "safe_house",
+            "relocation"
+          ]
+        }
+      },
+      "required": [
+        "intent",
+        "place"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "clear_spotlight"
+        }
+      },
+      "required": [
+        "intent"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "set_weather_time"
+        },
+        "minutes": {
+          "type": "integer",
+          "enum": [
+            -30,
+            15,
+            30,
+            45,
+            60
+          ]
+        }
+      },
+      "required": [
+        "intent",
+        "minutes"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "set_weather_now"
+        }
+      },
+      "required": [
+        "intent"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "return_all_live"
+        }
+      },
+      "required": [
+        "intent"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "visitor_on"
+        }
+      },
+      "required": [
+        "intent"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "stop_demo"
+        },
+        "hazard": {
+          "type": "string",
+          "enum": [
+            "storm",
+            "fire",
+            "cyclone",
+            "all"
+          ]
+        }
+      },
+      "required": [
+        "intent",
+        "hazard"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "undo_last"
+        }
+      },
+      "required": [
+        "intent"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "mute_voice"
+        }
+      },
+      "required": [
+        "intent"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "stop_speaking"
+        }
+      },
+      "required": [
+        "intent"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "reply_yes"
+        }
+      },
+      "required": [
+        "intent"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "reply_no"
+        }
+      },
+      "required": [
+        "intent"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "reply_unsure"
+        }
+      },
+      "required": [
+        "intent"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "visitor_off"
+        }
+      },
+      "required": [
+        "intent"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "unpin_screen"
+        },
+        "screen": {
+          "type": "string",
+          "maxLength": 60
+        }
+      },
+      "required": [
+        "intent",
+        "screen"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "start_demo"
+        },
+        "hazard": {
+          "type": "string",
+          "enum": [
+            "storm",
+            "fire",
+            "cyclone"
+          ]
+        }
+      },
+      "required": [
+        "intent",
+        "hazard"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "set_screen_count"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6
+        }
+      },
+      "required": [
+        "intent",
+        "count"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "report_incident"
+        }
+      },
+      "required": [
+        "intent"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "clear_report"
+        }
+      },
+      "required": [
+        "intent"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "acknowledge_incident"
+        }
+      },
+      "required": [
+        "intent"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "manage_devices"
+        }
+      },
+      "required": [
+        "intent"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "question"
+        }
+      },
+      "required": [
+        "intent"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "route"
+        }
+      },
+      "required": [
+        "intent"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "unclear"
+        }
+      },
+      "required": [
+        "intent"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "const": "not_for_system"
+        }
+      },
+      "required": [
+        "intent"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

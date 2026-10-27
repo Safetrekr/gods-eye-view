@@ -1,0 +1,803 @@
+{
+  "spoken": {
+    "layer": {
+      "floors": "floor estimates",
+      "radar3d": "storm shells",
+      "alertAreas": "official alert areas",
+      "fireBounds": "fire boundaries",
+      "tropical": "hurricanes & tropical storms",
+      "fires": "satellite heat detections",
+      "lightning": "lightning",
+      "precip": "rain map",
+      "clouds": "clouds & haze",
+      "fx": "rain & snow at the site",
+      "totals": "rain & snow totals",
+      "safety": "safety resources",
+      "paths": "suggested paths",
+      "savedPaths": "saved paths",
+      "avoidAreas": "avoid-areas",
+      "buildings": "surrounding buildings",
+      "streets": "streets",
+      "walkways": "walkways, steps & entrances",
+      "context": "wider area",
+      "corridors": "toward venues & hospital",
+      "grid": "scale grid",
+      "elevation": "elevation contours",
+      "waysOut": "ways out view",
+      "streetPhoto": "street photo"
+    },
+    "role": {
+      "site": "Site",
+      "travelers": "People",
+      "incident": "Incident",
+      "weather": "Weather",
+      "day": "Day plan",
+      "trips": "Trips"
+    },
+    "place": {
+      "hospital": "the hospital",
+      "police": "the police station",
+      "fire": "the fire station",
+      "embassy": "the embassy",
+      "rally_primary": "the primary rally point",
+      "rally_secondary": "the secondary rally point",
+      "safe_house": "the group shelter",
+      "relocation": "the relocation site"
+    },
+    "hazard": {
+      "storm": "the demo storm",
+      "fire": "the demo fire boundary",
+      "cyclone": "the demo hurricane",
+      "all": "every demo"
+    }
+  },
+  "trips": [
+    {
+      "id": "trip-choir-austin",
+      "title": "Spring choir tour",
+      "org": "Riverside Choir",
+      "city": "austin",
+      "cityLabel": "Fairmont Austin",
+      "sites": [
+        {
+          "key": "austin",
+          "label": "Fairmont Austin",
+          "short": "Fairmont Austin",
+          "hotel": true
+        },
+        {
+          "key": "austin-long-center",
+          "label": "Long Center for the Performing Arts",
+          "short": "Long Center",
+          "hotel": false
+        },
+        {
+          "key": "austin-capitol",
+          "label": "Texas State Capitol",
+          "short": "Texas Capitol",
+          "hotel": false
+        }
+      ],
+      "people": [
+        {
+          "id": "twin-MR",
+          "name": "Maya Ruiz"
+        },
+        {
+          "id": "twin-AK",
+          "name": "Aron Kim"
+        },
+        {
+          "id": "twin-SD",
+          "name": "Sam Diaz"
+        },
+        {
+          "id": "twin-LB",
+          "name": "Leo Brandt"
+        },
+        {
+          "id": "twin-IS",
+          "name": "Ivy Stone"
+        },
+        {
+          "id": "twin-T15",
+          "name": "Nia Park"
+        },
+        {
+          "id": "twin-T16",
+          "name": "Omar Hale"
+        },
+        {
+          "id": "twin-T17",
+          "name": "Priya Nair"
+        },
+        {
+          "id": "twin-RO",
+          "name": "Rory Owen"
+        },
+        {
+          "id": "twin-EW",
+          "name": "Eli West"
+        },
+        {
+          "id": "twin-TC",
+          "name": "Tess Cole"
+        },
+        {
+          "id": "twin-KV",
+          "name": "Kai Vance"
+        },
+        {
+          "id": "twin-HL",
+          "name": "Hana Lee"
+        },
+        {
+          "id": "twin-T01",
+          "name": "Ada Brooks"
+        },
+        {
+          "id": "twin-T02",
+          "name": "Ben Ito"
+        },
+        {
+          "id": "twin-T03",
+          "name": "Cara Moss"
+        },
+        {
+          "id": "twin-T04",
+          "name": "Dev Shah"
+        },
+        {
+          "id": "twin-T05",
+          "name": "Emi Sato"
+        },
+        {
+          "id": "twin-T06",
+          "name": "Finn Gray"
+        },
+        {
+          "id": "twin-T07",
+          "name": "Gia Romano"
+        },
+        {
+          "id": "twin-T08",
+          "name": "Hugo Lind"
+        },
+        {
+          "id": "twin-T09",
+          "name": "Iris Bell"
+        },
+        {
+          "id": "twin-T10",
+          "name": "Jon Reyes"
+        },
+        {
+          "id": "twin-T11",
+          "name": "Kira Wolfe"
+        },
+        {
+          "id": "twin-NF",
+          "name": "Noah Fox"
+        },
+        {
+          "id": "twin-JO",
+          "name": "June Ortiz"
+        },
+        {
+          "id": "twin-JP",
+          "name": "Jay Patel"
+        }
+      ],
+      "safety": [
+        {
+          "id": "sp-austin-hospital",
+          "category": "hospital",
+          "name": "Ascension Dell Seton Medical Center at The University of Texas"
+        },
+        {
+          "id": "sp-austin-police",
+          "category": "police",
+          "name": "Austin Police HQ"
+        },
+        {
+          "id": "sp-austin-fire",
+          "category": "fire",
+          "name": "Austin Fire Station Number 1"
+        },
+        {
+          "id": "sp-austin-embassy",
+          "category": "embassy",
+          "name": "Consulate General of Ireland"
+        },
+        {
+          "id": "sp-austin-rally-1",
+          "category": "rally_primary",
+          "name": "Rally point (primary) · open space"
+        },
+        {
+          "id": "sp-austin-rally-2",
+          "category": "rally_secondary",
+          "name": "Rally point (secondary) · Brush Square"
+        },
+        {
+          "id": "sp-austin-safe-house",
+          "category": "safe_house",
+          "name": "Group shelter · nearby"
+        },
+        {
+          "id": "sp-austin-relocation",
+          "category": "relocation",
+          "name": "Relocation site (sample)"
+        },
+        {
+          "id": "sp-austin-long-center-hospital",
+          "category": "hospital",
+          "name": "Ascension Dell Seton Medical Center at The University of Texas"
+        },
+        {
+          "id": "sp-austin-long-center-police",
+          "category": "police",
+          "name": "Travis County Constable Precinct Five"
+        },
+        {
+          "id": "sp-austin-long-center-fire",
+          "category": "fire",
+          "name": "Austin Fire Station Number 1"
+        },
+        {
+          "id": "sp-austin-long-center-embassy",
+          "category": "embassy",
+          "name": "Consulate General of Ireland"
+        },
+        {
+          "id": "sp-austin-long-center-rally-1",
+          "category": "rally_primary",
+          "name": "Rally point (primary) · Auditorium Shores at Town Lake Metropolitan Park"
+        },
+        {
+          "id": "sp-austin-long-center-rally-2",
+          "category": "rally_secondary",
+          "name": "Rally point (secondary) · Mary Dawson Pocket Park"
+        },
+        {
+          "id": "sp-austin-long-center-safe-house",
+          "category": "safe_house",
+          "name": "Group shelter · nearby"
+        },
+        {
+          "id": "sp-austin-capitol-hospital",
+          "category": "hospital",
+          "name": "Ascension Dell Seton Medical Center at The University of Texas"
+        },
+        {
+          "id": "sp-austin-capitol-police",
+          "category": "police",
+          "name": "Travis County Constable Precinct Five"
+        },
+        {
+          "id": "sp-austin-capitol-fire",
+          "category": "fire",
+          "name": "Austin Fire Department Station 2"
+        },
+        {
+          "id": "sp-austin-capitol-embassy",
+          "category": "embassy",
+          "name": "Consulate General of Ireland"
+        },
+        {
+          "id": "sp-austin-capitol-rally-1",
+          "category": "rally_primary",
+          "name": "Rally point (primary) · The Old Bakery Bicentennial Square"
+        },
+        {
+          "id": "sp-austin-capitol-rally-2",
+          "category": "rally_secondary",
+          "name": "Rally point (secondary) · Family Commons"
+        },
+        {
+          "id": "sp-austin-capitol-safe-house",
+          "category": "safe_house",
+          "name": "Group shelter · Pat Crow Memorial Plaza"
+        }
+      ]
+    },
+    {
+      "id": "trip-band-dc",
+      "title": "Jazz band trip",
+      "org": "Lincoln High Jazz Band",
+      "city": "dc",
+      "cityLabel": "Hilton Washington DC Capitol Hill",
+      "sites": [
+        {
+          "key": "dc",
+          "label": "Hilton Washington DC Capitol Hill",
+          "short": "Hilton Washington DC Capitol Hill",
+          "hotel": true
+        },
+        {
+          "key": "dc-kennedy-center",
+          "label": "John F. Kennedy Center for the Performing Arts",
+          "short": "Kennedy Center",
+          "hotel": false
+        },
+        {
+          "key": "dc-air-space",
+          "label": "National Air and Space Museum",
+          "short": "Air and Space",
+          "hotel": false
+        }
+      ],
+      "people": [
+        {
+          "id": "twin-MR",
+          "name": "Maya Ruiz"
+        },
+        {
+          "id": "twin-AK",
+          "name": "Aron Kim"
+        },
+        {
+          "id": "twin-SD",
+          "name": "Sam Diaz"
+        },
+        {
+          "id": "twin-LB",
+          "name": "Leo Brandt"
+        },
+        {
+          "id": "twin-IS",
+          "name": "Ivy Stone"
+        },
+        {
+          "id": "twin-T15",
+          "name": "Nia Park"
+        },
+        {
+          "id": "twin-T16",
+          "name": "Omar Hale"
+        },
+        {
+          "id": "twin-T17",
+          "name": "Priya Nair"
+        },
+        {
+          "id": "twin-RO",
+          "name": "Rory Owen"
+        },
+        {
+          "id": "twin-EW",
+          "name": "Eli West"
+        },
+        {
+          "id": "twin-TC",
+          "name": "Tess Cole"
+        },
+        {
+          "id": "twin-KV",
+          "name": "Kai Vance"
+        },
+        {
+          "id": "twin-HL",
+          "name": "Hana Lee"
+        },
+        {
+          "id": "twin-T01",
+          "name": "Ada Brooks"
+        },
+        {
+          "id": "twin-T02",
+          "name": "Ben Ito"
+        },
+        {
+          "id": "twin-T03",
+          "name": "Cara Moss"
+        },
+        {
+          "id": "twin-T04",
+          "name": "Dev Shah"
+        },
+        {
+          "id": "twin-T05",
+          "name": "Emi Sato"
+        },
+        {
+          "id": "twin-T06",
+          "name": "Finn Gray"
+        },
+        {
+          "id": "twin-T07",
+          "name": "Gia Romano"
+        },
+        {
+          "id": "twin-T08",
+          "name": "Hugo Lind"
+        },
+        {
+          "id": "twin-T09",
+          "name": "Iris Bell"
+        },
+        {
+          "id": "twin-T10",
+          "name": "Jon Reyes"
+        },
+        {
+          "id": "twin-T11",
+          "name": "Kira Wolfe"
+        },
+        {
+          "id": "twin-NF",
+          "name": "Noah Fox"
+        },
+        {
+          "id": "twin-JO",
+          "name": "June Ortiz"
+        },
+        {
+          "id": "twin-JP",
+          "name": "Jay Patel"
+        }
+      ],
+      "safety": [
+        {
+          "id": "sp-dc-hospital",
+          "category": "hospital",
+          "name": "Howard University Hospital"
+        },
+        {
+          "id": "sp-dc-police",
+          "category": "police",
+          "name": "Amtrak Police"
+        },
+        {
+          "id": "sp-dc-fire",
+          "category": "fire",
+          "name": "DC Fire Department Engine Co. 3"
+        },
+        {
+          "id": "sp-dc-embassy",
+          "category": "embassy",
+          "name": "Embassy of Canada"
+        },
+        {
+          "id": "sp-dc-rally-1",
+          "category": "rally_primary",
+          "name": "Rally point (primary) · open space"
+        },
+        {
+          "id": "sp-dc-rally-2",
+          "category": "rally_secondary",
+          "name": "Rally point (secondary) · Victims of Communism Memorial"
+        },
+        {
+          "id": "sp-dc-safe-house",
+          "category": "safe_house",
+          "name": "Group shelter · nearby"
+        },
+        {
+          "id": "sp-dc-relocation",
+          "category": "relocation",
+          "name": "Relocation site (sample)"
+        },
+        {
+          "id": "sp-dc-kennedy-center-hospital",
+          "category": "hospital",
+          "name": "George Washington University Hospital"
+        },
+        {
+          "id": "sp-dc-kennedy-center-police",
+          "category": "police",
+          "name": "GW Community Policing Center"
+        },
+        {
+          "id": "sp-dc-kennedy-center-fire",
+          "category": "fire",
+          "name": "DC Fire Department Engine Co. 23;District of Columbia Fire and Emergency Medical Services Engine Company 23"
+        },
+        {
+          "id": "sp-dc-kennedy-center-embassy",
+          "category": "embassy",
+          "name": "Embassy of The Bahamas"
+        },
+        {
+          "id": "sp-dc-kennedy-center-rally-1",
+          "category": "rally_primary",
+          "name": "Rally point (primary) · open space"
+        },
+        {
+          "id": "sp-dc-kennedy-center-rally-2",
+          "category": "rally_secondary",
+          "name": "Rally point (secondary) · open space"
+        },
+        {
+          "id": "sp-dc-kennedy-center-safe-house",
+          "category": "safe_house",
+          "name": "Group shelter · nearby"
+        },
+        {
+          "id": "sp-dc-air-space-hospital",
+          "category": "hospital",
+          "name": "George Washington University Hospital"
+        },
+        {
+          "id": "sp-dc-air-space-police",
+          "category": "police",
+          "name": "Metropolitan Police Department Headquarters"
+        },
+        {
+          "id": "sp-dc-air-space-fire",
+          "category": "fire",
+          "name": "DCFD Station 13"
+        },
+        {
+          "id": "sp-dc-air-space-embassy",
+          "category": "embassy",
+          "name": "Embassy of Canada"
+        },
+        {
+          "id": "sp-dc-air-space-rally-1",
+          "category": "rally_primary",
+          "name": "Rally point (primary) · Henry Park"
+        },
+        {
+          "id": "sp-dc-air-space-rally-2",
+          "category": "rally_secondary",
+          "name": "Rally point (secondary) · open space"
+        },
+        {
+          "id": "sp-dc-air-space-safe-house",
+          "category": "safe_house",
+          "name": "Group shelter · Mary Livingston Ripley Garden"
+        }
+      ]
+    },
+    {
+      "id": "trip-youth-london",
+      "title": "Youth choir tour",
+      "org": "St Anne’s Youth Choir",
+      "city": "london",
+      "cityLabel": "Park Plaza London Waterloo",
+      "sites": [
+        {
+          "key": "london",
+          "label": "Park Plaza London Waterloo",
+          "short": "Park Plaza London Waterloo",
+          "hotel": true
+        },
+        {
+          "key": "london-festival-hall",
+          "label": "Royal Festival Hall",
+          "short": "Festival Hall",
+          "hotel": false
+        },
+        {
+          "key": "london-abbey",
+          "label": "Westminster Abbey",
+          "short": "Westminster Abbey",
+          "hotel": false
+        }
+      ],
+      "people": [
+        {
+          "id": "twin-MR",
+          "name": "Maya Ruiz"
+        },
+        {
+          "id": "twin-AK",
+          "name": "Aron Kim"
+        },
+        {
+          "id": "twin-SD",
+          "name": "Sam Diaz"
+        },
+        {
+          "id": "twin-LB",
+          "name": "Leo Brandt"
+        },
+        {
+          "id": "twin-IS",
+          "name": "Ivy Stone"
+        },
+        {
+          "id": "twin-T15",
+          "name": "Nia Park"
+        },
+        {
+          "id": "twin-T16",
+          "name": "Omar Hale"
+        },
+        {
+          "id": "twin-T17",
+          "name": "Priya Nair"
+        },
+        {
+          "id": "twin-RO",
+          "name": "Rory Owen"
+        },
+        {
+          "id": "twin-EW",
+          "name": "Eli West"
+        },
+        {
+          "id": "twin-TC",
+          "name": "Tess Cole"
+        },
+        {
+          "id": "twin-KV",
+          "name": "Kai Vance"
+        },
+        {
+          "id": "twin-HL",
+          "name": "Hana Lee"
+        },
+        {
+          "id": "twin-T01",
+          "name": "Ada Brooks"
+        },
+        {
+          "id": "twin-T02",
+          "name": "Ben Ito"
+        },
+        {
+          "id": "twin-T03",
+          "name": "Cara Moss"
+        },
+        {
+          "id": "twin-T04",
+          "name": "Dev Shah"
+        },
+        {
+          "id": "twin-T05",
+          "name": "Emi Sato"
+        },
+        {
+          "id": "twin-T06",
+          "name": "Finn Gray"
+        },
+        {
+          "id": "twin-T07",
+          "name": "Gia Romano"
+        },
+        {
+          "id": "twin-T08",
+          "name": "Hugo Lind"
+        },
+        {
+          "id": "twin-T09",
+          "name": "Iris Bell"
+        },
+        {
+          "id": "twin-T10",
+          "name": "Jon Reyes"
+        },
+        {
+          "id": "twin-T11",
+          "name": "Kira Wolfe"
+        },
+        {
+          "id": "twin-NF",
+          "name": "Noah Fox"
+        },
+        {
+          "id": "twin-JO",
+          "name": "June Ortiz"
+        },
+        {
+          "id": "twin-JP",
+          "name": "Jay Patel"
+        }
+      ],
+      "safety": [
+        {
+          "id": "sp-london-hospital",
+          "category": "hospital",
+          "name": "Evelina London Children's Hospital"
+        },
+        {
+          "id": "sp-london-police",
+          "category": "police",
+          "name": "British Transport Police"
+        },
+        {
+          "id": "sp-london-fire",
+          "category": "fire",
+          "name": "Lambeth Fire Station"
+        },
+        {
+          "id": "sp-london-embassy",
+          "category": "embassy",
+          "name": "Delegation of the European Union"
+        },
+        {
+          "id": "sp-london-rally-1",
+          "category": "rally_primary",
+          "name": "Rally point (primary) · open space"
+        },
+        {
+          "id": "sp-london-rally-2",
+          "category": "rally_secondary",
+          "name": "Rally point (secondary) · Archbishop's Park"
+        },
+        {
+          "id": "sp-london-safe-house",
+          "category": "safe_house",
+          "name": "Group shelter · nearby"
+        },
+        {
+          "id": "sp-london-relocation",
+          "category": "relocation",
+          "name": "Relocation site (sample)"
+        },
+        {
+          "id": "sp-london-festival-hall-hospital",
+          "category": "hospital",
+          "name": "St Thomas' Hospital"
+        },
+        {
+          "id": "sp-london-festival-hall-police",
+          "category": "police",
+          "name": "British Transport Police"
+        },
+        {
+          "id": "sp-london-festival-hall-fire",
+          "category": "fire",
+          "name": "Soho Fire station"
+        },
+        {
+          "id": "sp-london-festival-hall-embassy",
+          "category": "embassy",
+          "name": "Nigerian High Commission"
+        },
+        {
+          "id": "sp-london-festival-hall-rally-1",
+          "category": "rally_primary",
+          "name": "Rally point (primary) · open space"
+        },
+        {
+          "id": "sp-london-festival-hall-rally-2",
+          "category": "rally_secondary",
+          "name": "Rally point (secondary) · Christine Schwarzman Square"
+        },
+        {
+          "id": "sp-london-festival-hall-safe-house",
+          "category": "safe_house",
+          "name": "Group shelter · nearby"
+        },
+        {
+          "id": "sp-london-abbey-hospital",
+          "category": "hospital",
+          "name": "St Thomas' Hospital"
+        },
+        {
+          "id": "sp-london-abbey-police",
+          "category": "police",
+          "name": "New Scotland Yard"
+        },
+        {
+          "id": "sp-london-abbey-fire",
+          "category": "fire",
+          "name": "Lambeth River Fire Station"
+        },
+        {
+          "id": "sp-london-abbey-embassy",
+          "category": "embassy",
+          "name": "Embassy of Chile"
+        },
+        {
+          "id": "sp-london-abbey-rally-1",
+          "category": "rally_primary",
+          "name": "Rally point (primary) · Dean's Yard"
+        },
+        {
+          "id": "sp-london-abbey-rally-2",
+          "category": "rally_secondary",
+          "name": "Rally point (secondary) · College Green"
+        },
+        {
+          "id": "sp-london-abbey-safe-house",
+          "category": "safe_house",
+          "name": "Group shelter · nearby"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,513 @@
+[
+  {
+    "card": 1,
+    "kind": "command",
+    "command": "set_screen_layer",
+    "args": {
+      "screen": "4",
+      "layer": "radar3d",
+      "on": true
+    },
+    "tier": "act",
+    "note": "the weather one → 4"
+  },
+  {
+    "card": 2,
+    "kind": "command",
+    "command": "set_screen_layer",
+    "args": {
+      "screen": "4",
+      "layer": "lightning",
+      "on": true
+    },
+    "tier": "act"
+  },
+  {
+    "card": 3,
+    "kind": "command",
+    "command": "step_screen_text",
+    "args": {
+      "screen": "2",
+      "direction": "up"
+    },
+    "tier": "act"
+  },
+  {
+    "card": 4,
+    "kind": "command",
+    "command": "step_screen_text",
+    "args": {
+      "screen": "2",
+      "direction": "down"
+    },
+    "tier": "act"
+  },
+  {
+    "card": 5,
+    "kind": "command",
+    "command": "set_screen_layer",
+    "args": {
+      "screen": "1",
+      "layer": "streets",
+      "on": true
+    },
+    "tier": "act",
+    "note": "site → 1"
+  },
+  {
+    "card": 6,
+    "kind": "command",
+    "command": "set_screen_layer",
+    "args": {
+      "screen": "4",
+      "layer": "fires",
+      "on": false
+    },
+    "tier": "act",
+    "note": "refused while a report is open"
+  },
+  {
+    "card": 7,
+    "kind": "command",
+    "command": "set_screen_scale",
+    "args": {
+      "screen": "1",
+      "scale": "neighborhood"
+    },
+    "tier": "act"
+  },
+  {
+    "card": 8,
+    "kind": "command",
+    "command": "set_screen_scale",
+    "args": {
+      "screen": "1",
+      "scale": "building"
+    },
+    "tier": "act"
+  },
+  {
+    "card": 9,
+    "kind": "command",
+    "command": "set_screen_role",
+    "args": {
+      "screen": "5",
+      "role": "day"
+    },
+    "tier": "act"
+  },
+  {
+    "card": 10,
+    "kind": "command",
+    "command": "set_screen_role",
+    "args": {
+      "screen": "3",
+      "role": "travelers"
+    },
+    "tier": "act"
+  },
+  {
+    "card": 11,
+    "kind": "command",
+    "command": "pin_screen",
+    "args": {
+      "screen": "6"
+    },
+    "tier": "act"
+  },
+  {
+    "card": 12,
+    "kind": "command",
+    "command": "set_screen_layer",
+    "args": {
+      "screen": "1",
+      "layer": "waysOut",
+      "on": true
+    },
+    "tier": "act"
+  },
+  {
+    "card": 13,
+    "kind": "command",
+    "command": "set_screen_layer",
+    "args": {
+      "screen": "4",
+      "layer": "precip",
+      "on": true
+    },
+    "tier": "act"
+  },
+  {
+    "card": 14,
+    "kind": "command",
+    "command": "set_screen_layer",
+    "args": {
+      "screen": "1",
+      "layer": "elevation",
+      "on": true
+    },
+    "tier": "act"
+  },
+  {
+    "card": 15,
+    "kind": "command",
+    "command": "step_screen_text",
+    "args": {
+      "screen": "all",
+      "direction": "up"
+    },
+    "tier": "act",
+    "note": "act on all (the V0b key says B: fix it)"
+  },
+  {
+    "card": 16,
+    "kind": "command",
+    "command": "set_screen_layer",
+    "args": {
+      "screen": "all",
+      "layer": "clouds",
+      "on": false
+    },
+    "tier": "act"
+  },
+  {
+    "card": 17,
+    "kind": "command",
+    "command": "set_screen_planning",
+    "args": {
+      "screen": "all",
+      "day": 2
+    },
+    "tier": "ask"
+  },
+  {
+    "card": 18,
+    "kind": "command",
+    "command": "reset_screen",
+    "args": {
+      "screen": "all"
+    },
+    "tier": "ask"
+  },
+  {
+    "card": 19,
+    "kind": "command",
+    "command": "set_screen_scale",
+    "args": {
+      "screen": "all",
+      "scale": "city"
+    },
+    "tier": "ask"
+  },
+  {
+    "card": 20,
+    "kind": "command",
+    "command": "switch_trip",
+    "args": {
+      "trip": "trip-youth-london"
+    },
+    "tier": "ask"
+  },
+  {
+    "card": 21,
+    "kind": "command",
+    "command": "switch_trip",
+    "args": {
+      "trip": "trip-band-dc"
+    },
+    "tier": "ask"
+  },
+  {
+    "card": 22,
+    "kind": "command",
+    "command": "go_to_site",
+    "args": {
+      "site": "dc-kennedy-center"
+    },
+    "tier": "ask",
+    "note": "on the DC trip"
+  },
+  {
+    "card": 23,
+    "kind": "command",
+    "command": "go_to_site",
+    "args": {
+      "site": "austin"
+    },
+    "tier": "ask",
+    "note": "\"the hotel\""
+  },
+  {
+    "card": 24,
+    "kind": "command",
+    "command": "spotlight_person",
+    "args": {
+      "person": "twin-NF"
+    },
+    "tier": "act"
+  },
+  {
+    "card": 25,
+    "kind": "command",
+    "command": "spotlight_place",
+    "args": {
+      "place": "hospital"
+    },
+    "tier": "act"
+  },
+  {
+    "card": 26,
+    "kind": "command",
+    "command": "set_weather_time",
+    "args": {
+      "minutes": 30
+    },
+    "tier": "act"
+  },
+  {
+    "card": 27,
+    "kind": "command",
+    "command": "set_weather_now",
+    "args": {},
+    "tier": "act"
+  },
+  {
+    "card": 28,
+    "kind": "command",
+    "command": "visitor_on",
+    "args": {},
+    "tier": "act"
+  },
+  {
+    "card": 29,
+    "kind": "command",
+    "command": "stop_demo",
+    "args": {
+      "hazard": "storm"
+    },
+    "tier": "act"
+  },
+  {
+    "card": 30,
+    "kind": "command",
+    "command": "return_all_live",
+    "args": {},
+    "tier": "ask"
+  },
+  {
+    "card": 31,
+    "kind": "command",
+    "command": "mute_voice",
+    "args": {},
+    "tier": "act"
+  },
+  {
+    "card": 32,
+    "kind": "command",
+    "command": "reply_yes",
+    "args": {},
+    "tier": "act"
+  },
+  {
+    "card": 33,
+    "kind": "command",
+    "command": "reply_no",
+    "args": {},
+    "tier": "act"
+  },
+  {
+    "card": 34,
+    "kind": "command",
+    "command": "undo_last",
+    "args": {},
+    "tier": "act"
+  },
+  {
+    "card": 35,
+    "kind": "command",
+    "command": "stop_speaking",
+    "args": {},
+    "tier": "act"
+  },
+  {
+    "card": 36,
+    "kind": "command",
+    "command": "reply_unsure",
+    "args": {},
+    "tier": "act",
+    "note": "not a yes: asks once more"
+  },
+  {
+    "card": 37,
+    "kind": "command",
+    "command": "reply_yes",
+    "args": {},
+    "tier": "act",
+    "note": "nothing pending from this device: no effect, no reply"
+  },
+  {
+    "card": 38,
+    "kind": "command",
+    "command": "acknowledge_incident",
+    "args": {},
+    "tier": "touch"
+  },
+  {
+    "card": 39,
+    "kind": "command",
+    "command": "visitor_off",
+    "args": {},
+    "tier": "touch"
+  },
+  {
+    "card": 40,
+    "kind": "command",
+    "command": "start_demo",
+    "args": {
+      "hazard": "storm"
+    },
+    "tier": "touch"
+  },
+  {
+    "card": 41,
+    "kind": "command",
+    "command": "set_screen_count",
+    "args": {
+      "count": 4
+    },
+    "tier": "touch"
+  },
+  {
+    "card": 42,
+    "kind": "command",
+    "command": "report_incident",
+    "args": {},
+    "tier": "touch"
+  },
+  {
+    "card": 43,
+    "kind": "clarify",
+    "command": "switch_trip",
+    "args": {},
+    "tier": "ask",
+    "ask": "The Riverside Choir or St Anne’s Youth Choir?"
+  },
+  {
+    "card": 44,
+    "kind": "clarify",
+    "command": "set_screen_layer",
+    "args": {},
+    "tier": "act",
+    "ask": "Which screen?"
+  },
+  {
+    "card": 45,
+    "kind": "command",
+    "command": "set_screen_layer",
+    "args": {
+      "screen": "4",
+      "layer": "radar3d",
+      "on": true
+    },
+    "tier": "act",
+    "note": "\"for\" heard: the read-back names screen 4, Weather"
+  },
+  {
+    "card": 46,
+    "kind": "command",
+    "command": "go_to_site",
+    "args": {
+      "site": "london-abbey"
+    },
+    "tier": "ask",
+    "note": "refused other_trip; offers switch_trip"
+  },
+  {
+    "card": 47,
+    "kind": "command",
+    "command": "spotlight_person",
+    "args": {
+      "person": "twin-JP"
+    },
+    "tier": "act",
+    "note": "only one Jay"
+  },
+  {
+    "card": 48,
+    "kind": "none",
+    "intent": "route",
+    "note": "V4"
+  },
+  {
+    "card": 49,
+    "kind": "none",
+    "intent": "route",
+    "note": "V4"
+  },
+  {
+    "card": 50,
+    "kind": "none",
+    "intent": "route",
+    "note": "V4"
+  },
+  {
+    "card": 51,
+    "kind": "none",
+    "intent": "route",
+    "note": "V4"
+  },
+  {
+    "card": 52,
+    "kind": "none",
+    "intent": "route",
+    "note": "V4"
+  },
+  {
+    "card": 53,
+    "kind": "none",
+    "intent": "question",
+    "note": "V2"
+  },
+  {
+    "card": 54,
+    "kind": "none",
+    "intent": "question",
+    "note": "V2"
+  },
+  {
+    "card": 55,
+    "kind": "none",
+    "intent": "question",
+    "note": "V2"
+  },
+  {
+    "card": 56,
+    "kind": "none",
+    "intent": "question",
+    "note": "V2"
+  },
+  {
+    "card": 57,
+    "kind": "none",
+    "intent": "question",
+    "note": "V2"
+  },
+  {
+    "card": 58,
+    "kind": "none",
+    "intent": "not_for_system",
+    "note": ""
+  },
+  {
+    "card": 59,
+    "kind": "none",
+    "intent": "not_for_system",
+    "note": ""
+  },
+  {
+    "card": 60,
+    "kind": "none",
+    "intent": "not_for_system",
+    "note": ""
+  }
+]
