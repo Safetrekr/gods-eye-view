@@ -1,10 +1,15 @@
 import path from 'node:path';
 import { promises as fsp } from 'node:fs';
+import { readResponseJsonCapped } from '../common/http.js';
+
+/** Route and aircraft lookups are a few hundred bytes; 1 MiB is a hard bound. */
+const ADSBDB_MAX_RESPONSE_BYTES = 1024 * 1024;
 /**
  * adsbdb.com enrichment proxy: callsign → route (airline + origin/destination
  * airports) and hex → aircraft type/registration. Free community API — cached
- * aggressively: ONE upstream request per new key ever (404s negative-cached),
- * persisted to disk so restarts don't re-hammer it. Adapted from skylight
+ * aggressively: successes and 404s are kept per key for 24 hours (TTL_MS) and
+ * persisted to disk so restarts don't re-hammer it; other failures are not
+ * cached. Adapted from skylight
  * (MIT) server/src/enrich/routes.ts.
  */
 export function adsbdbProxy() {
@@ -80,12 +85,16 @@ export function adsbdbProxy() {
               kind === 'route'
                 ? `https://api.adsbdb.com/v0/callsign/${encodeURIComponent(key)}`
                 : `https://api.adsbdb.com/v0/aircraft/${encodeURIComponent(key)}`;
-            const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+            const signal = AbortSignal.timeout(8000);
+            const res = await fetch(url, { signal });
             if (res.ok) {
+              const payload = await readResponseJsonCapped(
+                res,
+                ADSBDB_MAX_RESPONSE_BYTES,
+                signal,
+              );
               const data =
-                kind === 'route'
-                  ? parseRoute(await res.json())
-                  : parseAircraft(await res.json());
+                kind === 'route' ? parseRoute(payload) : parseAircraft(payload);
               store[key] = { at: Date.now(), data }; // data may be null — negative cache
               dirty = true;
               return data;
@@ -107,45 +116,41 @@ export function adsbdbProxy() {
     return inflight.get(ik);
   }
 
+  const installMiddleware = (server) => {
+    server.middlewares.use('/api/adsbdb', async (req, res) => {
+      await loadOnce();
+      const send = (status, obj) => {
+        res.writeHead(status, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(obj));
+      };
+      try {
+        const [, kind, rawKey] = String(req.url || '')
+          .split('?')[0]
+          .split('/');
+        if (kind === 'route') {
+          const cs = String(rawKey || '').toUpperCase();
+          if (!/^[A-Z0-9]{2,8}$/.test(cs))
+            return send(400, { error: 'invalid callsign' });
+          const data = await lookup('route', cs);
+          return send(200, data ? { found: true, ...data } : { found: false });
+        }
+        if (kind === 'type') {
+          const hex = String(rawKey || '').toLowerCase();
+          if (!/^[0-9a-f]{6}$/.test(hex))
+            return send(400, { error: 'invalid hex' });
+          const data = await lookup('aircraft', hex);
+          return send(200, data ? { found: true, ...data } : { found: false });
+        }
+        return send(404, { error: 'unknown endpoint' });
+      } catch (err) {
+        console.error('[adsbdb-proxy] request failed');
+        return send(500, { error: 'adsbdb proxy error' });
+      }
+    });
+  };
   return {
     name: 'adsbdb-proxy',
-    configureServer(server) {
-      server.middlewares.use('/api/adsbdb', async (req, res) => {
-        await loadOnce();
-        const send = (status, obj) => {
-          res.writeHead(status, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(obj));
-        };
-        try {
-          const [, kind, rawKey] = String(req.url || '')
-            .split('?')[0]
-            .split('/');
-          if (kind === 'route') {
-            const cs = String(rawKey || '').toUpperCase();
-            if (!/^[A-Z0-9]{2,8}$/.test(cs))
-              return send(400, { error: 'invalid callsign' });
-            const data = await lookup('route', cs);
-            return send(
-              200,
-              data ? { found: true, ...data } : { found: false },
-            );
-          }
-          if (kind === 'type') {
-            const hex = String(rawKey || '').toLowerCase();
-            if (!/^[0-9a-f]{6}$/.test(hex))
-              return send(400, { error: 'invalid hex' });
-            const data = await lookup('aircraft', hex);
-            return send(
-              200,
-              data ? { found: true, ...data } : { found: false },
-            );
-          }
-          return send(404, { error: 'unknown endpoint' });
-        } catch (err) {
-          console.error('[adsbdb-proxy] request failed');
-          return send(500, { error: 'adsbdb proxy error' });
-        }
-      });
-    },
+    configureServer: installMiddleware,
+    configurePreviewServer: installMiddleware,
   };
 }

@@ -1,4 +1,5 @@
 import Hls from 'hls.js';
+import { createLeaseId } from '../layers/cctv/videoPlayback.js';
 
 /** One owned player; closing it stops downloads, timers and media decoding. */
 export function createCameraPlayer() {
@@ -11,7 +12,7 @@ export function createCameraPlayer() {
   const stage = dialog.querySelector('.ops-camera-stage');
   const status = dialog.querySelector('.ops-camera-status');
   const explanation = dialog.querySelector('.ops-camera-explanation');
-  let controller, hls, timer, video, blobUrl, current, focusBefore;
+  let controller, hls, timer, video, blobUrl, current, focusBefore, leaseUrl;
   let generation = 0;
   const releaseMedia = () => {
     generation++;
@@ -19,6 +20,10 @@ export function createCameraPlayer() {
     clearInterval(timer);
     hls?.destroy();
     hls = null;
+    // The server pulls HLS for this lease until it is released.
+    if (leaseUrl)
+      fetch(leaseUrl, { method: 'DELETE', keepalive: true }).catch(() => {});
+    leaseUrl = null;
     if (video) {
       video.pause();
       video.removeAttribute('src');
@@ -124,6 +129,9 @@ export function createCameraPlayer() {
             });
           }
         });
+      // HLS is pulled by the server per lease (upstream cctv.js).
+      if (info.feedType === 'hls')
+        leaseUrl = `${info.mediaUrl}?lease=${createLeaseId()}`;
       if (
         info.feedType === 'hls' &&
         !video.canPlayType('application/vnd.apple.mpegurl')
@@ -141,9 +149,9 @@ export function createCameraPlayer() {
         hls.on(Hls.Events.ERROR, (_, data) => {
           if (data.fatal) fail();
         });
-        hls.loadSource(info.mediaUrl);
+        hls.loadSource(leaseUrl);
         hls.attachMedia(video);
-      } else video.src = `${info.mediaUrl}?t=${Date.now()}`;
+      } else video.src = leaseUrl || `${info.mediaUrl}?t=${Date.now()}`;
       video.play().catch(() => {
         if (epoch === generation)
           status.textContent = 'Press Play to start video';

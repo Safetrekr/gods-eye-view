@@ -35,7 +35,13 @@ export function parseTerrainPoints(raw) {
     if (parts.length !== 2) return null;
     const lon = Number(parts[0]);
     const lat = Number(parts[1]);
-    if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
+    if (
+      !Number.isFinite(lon) ||
+      !Number.isFinite(lat) ||
+      Math.abs(lon) > 180 ||
+      Math.abs(lat) > 90
+    )
+      return null;
     points.push([lon, lat]);
   }
   return points;
@@ -58,6 +64,28 @@ function canonicalTerrainPoint(point) {
 /** Only a real numeric ellipsoid height is cacheable/servable. */
 export function validTerrainResult(result) {
   return Boolean(result) && Number.isFinite(result.ellipsoid);
+}
+
+/**
+ * A row the upstream DID return for its position, but with no usable height:
+ * Re:Earth sporadically answers with a real `elevation` and a null
+ * `geoid`/`ellipsoid`. Measured at ~0.16% of points, and transient — the same
+ * coordinate resolves on a later poll. That is an absent datum, not a failed
+ * refresh, so the point is left uncached to be re-asked while the client
+ * covers it through its bundled geoid. A null/undefined entry is NOT this
+ * case: it means the position was dropped from the response, which is a
+ * genuine upstream fault.
+ * @param {unknown} result
+ */
+export function absentTerrainDatum(result) {
+  return (
+    typeof result === 'object' &&
+    result !== null &&
+    !Array.isArray(result) &&
+    result.ellipsoid === null &&
+    result.geoid === null &&
+    Number.isFinite(result.elevation)
+  );
 }
 
 /**
@@ -194,24 +222,36 @@ export async function resolveTerrainHeightRequest({
 
   let cacheChanged = false;
   let upstreamError = null;
+  let absentPoints = 0;
   if (missing.length > 0) {
     try {
       const fetched = await fetchMissing(missing.map((item) => item.point));
       if (!Array.isArray(fetched))
         throw new Error('malformed upstream response (no results array)');
       const fetchedAt = now();
+      let omittedPositions = 0;
       for (let i = 0; i < missing.length; i += 1) {
         const result = fetched[i];
-        if (!validTerrainResult(result)) continue;
-        cache.set(missing[i].key, { at: fetchedAt, result });
-        cacheChanged = true;
+        if (validTerrainResult(result)) {
+          // Re-insert rather than overwrite: a Map keeps an existing key in
+          // its old position, and the proxy evicts from the front.
+          cache.delete(missing[i].key);
+          cache.set(missing[i].key, { at: fetchedAt, result });
+          cacheChanged = true;
+        } else if (absentTerrainDatum(result)) {
+          // Upstream answered but had no height. Transient, so deliberately
+          // left uncached: the next poll re-asks and usually succeeds.
+          absentPoints += 1;
+        } else {
+          // Missing or malformed positions remain upstream faults.
+          omittedPositions += 1;
+        }
       }
-      if (
-        fetched.length !== missing.length ||
-        missing.some((_, i) => !validTerrainResult(fetched[i]))
-      ) {
+      if (omittedPositions > 0 || fetched.length !== missing.length) {
+        const dropped =
+          omittedPositions || Math.abs(fetched.length - missing.length);
         upstreamError = new Error(
-          'upstream omitted one or more terrain heights',
+          `upstream omitted ${dropped} terrain position(s)`,
         );
       }
     } catch (error) {
@@ -232,6 +272,8 @@ export async function resolveTerrainHeightRequest({
       },
       cacheChanged,
       upstreamError,
+      absentPoints,
+      requestedPoints: unique.size,
     };
   }
   return {
@@ -239,5 +281,7 @@ export async function resolveTerrainHeightRequest({
     body: { results },
     cacheChanged,
     upstreamError,
+    absentPoints,
+    requestedPoints: unique.size,
   };
 }

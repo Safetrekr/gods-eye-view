@@ -1918,7 +1918,7 @@ async function smoke(server, browser) {
 
   await step(
     'K3-S1',
-    'host check, report mode: today’s rule refuses a foreign Origin; a foreign Host is served and recorded; cross-site GET 403; nothing recorded for the smoke’s own traffic',
+    'host check, report mode: today’s rule refuses a foreign Origin; a foreign Host’s socket is served and recorded, its HTTP refused by the base host check; cross-site GET 403; nothing recorded for the smoke’s own traffic',
     async () => {
       if (server.external) return { notRun: true, ok: true };
       const port = server.port;
@@ -1946,12 +1946,13 @@ async function smoke(server, browser) {
       });
       must(x.status === 403, `cross-site weather GET: ${x.status}`);
       must(!x.headers['access-control-allow-origin'], 'CORS header sent');
+      // Since the upstream sync (26 Oct 2026) the base config's host check
+      // (build/allowedHosts.js) refuses an unlisted Host on every HTTP
+      // request before a Trip Twin route sees it.
       const info = await rawGet(port, '/api/twin-sync/info', { host: evil });
-      const j = JSON.parse(info.body);
-      must(j.hostAllowed === false && j.reason === 'host', 'info: hostAllowed');
       must(
-        Array.isArray(j.addresses) && !j.addresses.length,
-        'info: addresses',
+        info.status === 403,
+        `info with a foreign Host: ${info.status}, expected 403 from the base host check`,
       );
       const own = JSON.parse(
         (

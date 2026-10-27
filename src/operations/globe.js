@@ -4,7 +4,7 @@ import { DataLayerManager } from '../data/manager.js';
 import { LAYER_STATE_REGISTRY } from '../data/layerState.js';
 import flights from '../data/flights.js';
 import cameras from '../data/cctv.js';
-import earthquakes from '../data/earthquakes.js';
+import { createEarthquakesLayer } from '../data/earthquakes.js';
 import satellites from '../data/satellites.js';
 import military from '../data/militaryFlights.js';
 import traffic from '../data/traffic.js';
@@ -24,6 +24,9 @@ import { currentFreshness, PEOPLE_COLORS, validPoint } from './model.js';
 import { enableDefaultWorldLayers } from './defaultLayers.js';
 import { tripBoundaries, boundaryIsDelayed } from './boundaries.js';
 import { createParticipantPinCache } from './participantPins.js';
+
+// Upstream no longer exports a default earthquake layer; World View keeps one.
+const earthquakes = createEarthquakesLayer();
 
 export async function createOperationsGlobe({
   loaderStatus,

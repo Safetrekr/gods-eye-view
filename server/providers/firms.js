@@ -5,16 +5,18 @@ import { pipeline } from 'node:stream/promises';
 import { createGzip } from 'node:zlib';
 
 import { filterTrailing24h, parseFirmsCsv } from '../../src/data/firmsCsv.js';
+import { readResponseTextCapped } from './common/http.js';
 
 /**
  * NASA FIRMS live active-fire proxy with a memory + disk cache.
  * Upstream: https://firms.modaps.eosdis.nasa.gov/api/area/csv/{KEY}/{SOURCE}/world/2
  *
  * Merges three VIIRS NRT sources (NOAA-20, NOAA-21, Suomi-NPP — independent
- * satellites, no cross-source dedup) fetched sequentially with `days=2`
- * (`days=1` means "current UTC day", nearly empty just after 00:00Z) and
- * clamps to the trailing 24 h via src/data/firmsCsv.js. FIRMS quota is
- * 5,000 transactions / 10 min per MAP_KEY, so the cache is the point:
+ * satellites, no cross-source dedup) plus MODIS_NRT (combined Terra+Aqua,
+ * ~1 km, numeric 0-100 confidence), fetched sequentially (quota courtesy)
+ * with `days=2` (`days=1` means "current UTC day", nearly empty just after
+ * 00:00Z) and clamps to the trailing 24 h via src/data/firmsCsv.js. FIRMS
+ * quota is 5,000 transactions / 10 min per MAP_KEY, so the cache is the point:
  * TTL 30 min, single-flight refresh, serve-stale-on-failure, and a
  * fresh-enough disk cache (.gev-cache/firms.json) prevents ANY upstream
  * fetch across dev-server restarts. Pattern mirrors celestrakProxy.
@@ -31,7 +33,18 @@ import { filterTrailing24h, parseFirmsCsv } from '../../src/data/firmsCsv.js';
 export function firmsProxy() {
   const TTL_MS = 30 * 60_000;
   const STATUS_TTL_MS = 5 * 60_000;
-  const SOURCES = ['VIIRS_NOAA20_NRT', 'VIIRS_NOAA21_NRT', 'VIIRS_SNPP_NRT'];
+  const SOURCES = [
+    'VIIRS_NOAA20_NRT',
+    'VIIRS_NOAA21_NRT',
+    'VIIRS_SNPP_NRT',
+    'MODIS_NRT',
+  ];
+  /**
+   * Per-source body cap. A VIIRS world/2 pull is ~130k rows x ~100 B, about
+   * 13 MB per satellite in heavy fire season (MODIS runs smaller), so this is a
+   * bound, not a budget.
+   */
+  const FIRMS_MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
   const CACHE_DIR = path.join(process.cwd(), '.gev-cache');
   const CACHE_PATH = path.join(CACHE_DIR, 'firms.json');
 
@@ -81,8 +94,13 @@ export function firmsProxy() {
    */
   async function fetchSource(key, source) {
     const url = `https://firms.modaps.eosdis.nasa.gov/api/area/csv/${encodeURIComponent(key)}/${source}/world/2`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-    const body = await res.text();
+    const signal = AbortSignal.timeout(15_000);
+    const res = await fetch(url, { signal });
+    const body = await readResponseTextCapped(
+      res,
+      FIRMS_MAX_RESPONSE_BYTES,
+      signal,
+    );
     if (/invalid\s+map_key/i.test(body.slice(0, 300)))
       throw Object.assign(new Error('NASA rejected FIRMS_MAP_KEY'), {
         code: 'invalid_key',
@@ -177,124 +195,126 @@ export function firmsProxy() {
     return statusInflight;
   }
 
+  const installMiddleware = (server) => {
+    server.middlewares.use('/api/firms', async (req, res) => {
+      const sendJson = async (status, obj) => {
+        if (res.headersSent) return;
+        const headers = {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store',
+        };
+        const body = Buffer.from(JSON.stringify(obj));
+        if (body.length < 1_000_000) {
+          res.writeHead(status, headers);
+          res.end(body);
+          return;
+        }
+        // Worldwide detections exceed Vercel's buffered response limit.
+        // Explicit streaming preserves every detection; gzip saves bandwidth.
+        const gzip = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+        if (gzip) headers['Content-Encoding'] = 'gzip';
+        headers.Vary = 'Accept-Encoding';
+        res.writeHead(status, headers);
+        res.flushHeaders();
+        const chunks = Readable.from(
+          (function* () {
+            for (let at = 0; at < body.length; at += 65536)
+              yield body.subarray(at, at + 65536);
+          })(),
+        );
+        try {
+          await pipeline(
+            ...(gzip ? [chunks, createGzip(), res] : [chunks, res]),
+          );
+        } catch {
+          // A closed browser cancels only its response, not the shared cache.
+          if (!res.destroyed) res.destroy();
+        }
+      };
+      try {
+        const subPath = String(req.url || '').split('?')[0];
+        const key = mapKey();
+        await readDiskOnce();
+
+        if (subPath === '/status') {
+          if (!key) {
+            sendJson(200, {
+              hasKey: false,
+              lastFetch: null,
+              count: null,
+              stale: false,
+              ttlMs: TTL_MS,
+              transactions: null,
+            });
+            return;
+          }
+          const transactions = await getTransactions(key);
+          sendJson(200, {
+            hasKey: true,
+            lastFetch: mem ? mem.at : null,
+            count: mem ? mem.fires.length : null,
+            stale: mem ? Date.now() - mem.at >= TTL_MS : false,
+            ttlMs: TTL_MS,
+            transactions,
+          });
+          return;
+        }
+
+        if (!key) {
+          sendJson(503, { error: 'no_key' });
+          return;
+        }
+
+        const entry = mem;
+        if (entry && Date.now() - entry.at < TTL_MS) {
+          sendJson(200, buildPayload(entry, false));
+          return;
+        }
+        // Stale or missing → refresh, single-flight (concurrent requests
+        // share one upstream pass). Capture the promise locally BEFORE
+        // awaiting: the .finally() nulls `inflight` the moment it settles.
+        if (!inflight) {
+          inflight = refreshUpstream(key)
+            .then(async (fresh) => {
+              mem = fresh;
+              lastError = null;
+              await writeDisk(fresh);
+              return fresh;
+            })
+            .catch((err) => {
+              lastError =
+                err.code === 'invalid_key'
+                  ? 'invalid_key'
+                  : 'upstream_unavailable';
+              console.warn(
+                `[firms-proxy] refresh failed (${err?.message || err}) — serving cache if any`,
+              );
+              return null;
+            })
+            .finally(() => {
+              inflight = null;
+            });
+        }
+        const pending = inflight;
+        const fresh = await pending;
+        if (fresh) {
+          sendJson(200, buildPayload(fresh, false));
+        } else if (entry) {
+          sendJson(200, buildPayload(entry, true)); // upstream down — stale beats empty
+        } else {
+          sendJson(502, {
+            error: lastError || 'upstream_unavailable',
+          });
+        }
+      } catch (err) {
+        console.warn('[firms-proxy] error:', err?.message || err);
+        sendJson(500, { error: 'firms proxy error' });
+      }
+    });
+  };
   return {
     name: 'firms-proxy',
-    configureServer(server) {
-      server.middlewares.use('/api/firms', async (req, res) => {
-        const sendJson = async (status, obj) => {
-          if (res.headersSent) return;
-          const headers = {
-            'Content-Type': 'application/json',
-            'Cache-Control': 'no-store',
-          };
-          const body = Buffer.from(JSON.stringify(obj));
-          if (body.length < 1_000_000) {
-            res.writeHead(status, headers);
-            res.end(body);
-            return;
-          }
-          // Worldwide detections exceed Vercel's buffered response limit.
-          // Explicit streaming preserves every detection; gzip saves bandwidth.
-          const gzip = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
-          if (gzip) headers['Content-Encoding'] = 'gzip';
-          headers.Vary = 'Accept-Encoding';
-          res.writeHead(status, headers);
-          res.flushHeaders();
-          const chunks = Readable.from(
-            (function* () {
-              for (let at = 0; at < body.length; at += 65536)
-                yield body.subarray(at, at + 65536);
-            })(),
-          );
-          try {
-            await pipeline(
-              ...(gzip ? [chunks, createGzip(), res] : [chunks, res]),
-            );
-          } catch {
-            // A closed browser cancels only its response, not the shared cache.
-            if (!res.destroyed) res.destroy();
-          }
-        };
-        try {
-          const subPath = String(req.url || '').split('?')[0];
-          const key = mapKey();
-          await readDiskOnce();
-
-          if (subPath === '/status') {
-            if (!key) {
-              sendJson(200, {
-                hasKey: false,
-                lastFetch: null,
-                count: null,
-                stale: false,
-                ttlMs: TTL_MS,
-                transactions: null,
-              });
-              return;
-            }
-            const transactions = await getTransactions(key);
-            sendJson(200, {
-              hasKey: true,
-              lastFetch: mem ? mem.at : null,
-              count: mem ? mem.fires.length : null,
-              stale: mem ? Date.now() - mem.at >= TTL_MS : false,
-              ttlMs: TTL_MS,
-              transactions,
-            });
-            return;
-          }
-
-          if (!key) {
-            sendJson(503, { error: 'no_key' });
-            return;
-          }
-
-          const entry = mem;
-          if (entry && Date.now() - entry.at < TTL_MS) {
-            sendJson(200, buildPayload(entry, false));
-            return;
-          }
-          // Stale or missing → refresh, single-flight (concurrent requests
-          // share one upstream pass). Capture the promise locally BEFORE
-          // awaiting: the .finally() nulls `inflight` the moment it settles.
-          if (!inflight) {
-            inflight = refreshUpstream(key)
-              .then(async (fresh) => {
-                mem = fresh;
-                lastError = null;
-                await writeDisk(fresh);
-                return fresh;
-              })
-              .catch((err) => {
-                lastError =
-                  err.code === 'invalid_key'
-                    ? 'invalid_key'
-                    : 'upstream_unavailable';
-                console.warn(
-                  `[firms-proxy] refresh failed (${err?.message || err}) — serving cache if any`,
-                );
-                return null;
-              })
-              .finally(() => {
-                inflight = null;
-              });
-          }
-          const pending = inflight;
-          const fresh = await pending;
-          if (fresh) {
-            sendJson(200, buildPayload(fresh, false));
-          } else if (entry) {
-            sendJson(200, buildPayload(entry, true)); // upstream down — stale beats empty
-          } else {
-            sendJson(502, {
-              error: lastError || 'upstream_unavailable',
-            });
-          }
-        } catch (err) {
-          console.warn('[firms-proxy] error:', err?.message || err);
-          sendJson(500, { error: 'firms proxy error' });
-        }
-      });
-    },
+    configureServer: installMiddleware,
+    configurePreviewServer: installMiddleware,
   };
 }

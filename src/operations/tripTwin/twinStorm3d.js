@@ -162,9 +162,7 @@ export function createStormLayer(viewer, site) {
         ds.entities.add({
           id,
           polygon: {
-            hierarchy: new Cesium.PolygonHierarchy(
-              loop.map((p) => ll(p, h0)),
-            ),
+            hierarchy: new Cesium.PolygonHierarchy(loop.map((p) => ll(p, h0))),
             height: h0,
             extrudedHeight: h0 + height,
             material: Cesium.Color.fromCssColorString(fill).withAlpha(

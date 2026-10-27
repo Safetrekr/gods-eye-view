@@ -64,7 +64,8 @@ test('worldwide fire responses stream with gzip and retain every detection', asy
   assert.equal(response.headers.get('content-encoding'), 'gzip');
   assert.equal(response.headers.get('content-length'), null);
   const body = await response.json();
-  assert.equal(body.count, 60000);
-  assert.equal(body.fires.length, 60000);
-  assert.equal(body.sources.length, 3);
+  // Four sources since upstream added MODIS_NRT beside the three VIIRS ones.
+  assert.equal(body.count, 80000);
+  assert.equal(body.fires.length, 80000);
+  assert.equal(body.sources.length, 4);
 });

@@ -46,6 +46,8 @@ function registeredRoutes() {
   ];
   for (const plugin of plugins) plugin.configureServer(server);
   registry.push({ prefix: '/api/ais-live', handle: aisSnapshot });
+  // Upstream's vessel layer reads /api/vessels (it was /api/ais-live).
+  registry.push({ prefix: '/api/vessels', handle: aisSnapshot });
   routes = registry;
   return routes;
 }

@@ -71,7 +71,7 @@ let _aisWebSocketImpl;
  */
 export function aisLiveProxy() {
   function install(middlewares) {
-    middlewares.use('/api/ais-live', async (req, res) => {
+    middlewares.use('/api/vessels', async (req, res) => {
       try {
         if (process.env.AISSTREAM_SHARED_URL) {
           const incoming = new URL(req.url || '/', 'http://localhost');
@@ -102,12 +102,13 @@ export function aisLiveProxy() {
           res.end(await response.text());
           return;
         }
+        res.setHeader('X-Feed-Source', 'AISStream');
         ensureAisStreamConnection();
         const incoming = new URL(req.url || '', 'http://localhost');
 
         // Track sub-route MUST be handled before the rows snapshot — this
         // mount prefix-matches every subpath, so without this branch
-        // /api/ais-live/track would be silently answered with vessel rows.
+        // /api/vessels/track would be silently answered with vessel rows.
         if (
           incoming.pathname === '/track' ||
           incoming.pathname.startsWith('/track/')
@@ -317,7 +318,7 @@ function aisKeyFingerprint() {
 }
 
 /**
- * Drive the watchdog once. Called on every /api/ais-live request and on the
+ * Drive the watchdog once. Called on every /api/vessels request and on the
  * background interval, so recovery does not depend on browser traffic.
  */
 function ensureAisStreamConnection() {
@@ -336,7 +337,7 @@ function ensureAisStreamConnection() {
     keyFingerprint: aisKeyFingerprint(),
   });
 }
-/** Status metadata for /api/ais-live, safe to call before the first connect. */
+/** Status metadata for /api/vessels, safe to call before the first connect. */
 function aisStreamStatusSnapshot() {
   const snapshot = _aisAdapter ? _aisAdapter.snapshot() : null;
   if (snapshot) return snapshot;
