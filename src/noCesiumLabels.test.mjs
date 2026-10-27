@@ -8,16 +8,9 @@ import { parsers } from 'prettier/plugins/babel.mjs';
 const legacyFiles = new Set([
   'src/scenes/dataPacks/presentation.js',
   'src/layers/directions/index.js',
-  // SafeTrekr World View and Trip Twin, from before this rule.
+  // SafeTrekr World View, from before this rule. Trip Twin's labels moved to
+  // the world overlay (review/map-labels L5).
   'src/operations/globe.js',
-  'src/operations/tripTwin/tripTwin.js',
-  'src/operations/tripTwin/twinCustomPathsLayer.js',
-  'src/operations/tripTwin/twinFires.js',
-  'src/operations/tripTwin/twinPeople.js',
-  'src/operations/tripTwin/twinSafety.js',
-  'src/operations/tripTwin/twinSiteBeacons.js',
-  'src/operations/tripTwin/twinStreets.js',
-  'src/operations/tripTwin/twinWeather.js',
 ]);
 const root = fileURLToPath(new URL('../', import.meta.url));
 const propertyName = (node) => node?.name ?? node?.value;

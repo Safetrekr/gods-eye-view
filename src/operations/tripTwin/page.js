@@ -16,6 +16,8 @@ import {
   uninstallRenderGovernor,
 } from '../../renderGovernor.js';
 import { createTripTwin, flightMs } from './tripTwin.js';
+import { createTwinMapLabels } from './twinMapLabels.js';
+import { PAGE_LABEL_SCALE, wallLabelScale } from './twinMapLabelEntries.js';
 import { createHazardLoad } from './twinHazardLoad.js';
 import { drawHazards } from './twinHazardsLayer.js';
 import {
@@ -365,6 +367,25 @@ async function main() {
     uninstallRenderGovernor(viewer);
   });
   window.testTwinRender = getRenderGovernorDiagnostics;
+  // Map words on upstream's world overlay (review/map-labels L5): one host
+  // per page; walls read their own scale.
+  const mapLabels = createTwinMapLabels(viewer, {
+    wall: () => document.body.dataset.view === 'screen',
+    scale: () =>
+      document.body.dataset.view === 'screen'
+        ? wallLabelScale(
+            parseFloat(
+              getComputedStyle(document.body).getPropertyValue('--wall-scale'),
+            ),
+          )
+        : PAGE_LABEL_SCALE,
+  });
+  const labelBeat = setInterval(() => mapLabels.beat(), 500);
+  cleanups.push(() => {
+    clearInterval(labelBeat);
+    mapLabels.dispose();
+  });
+  window.testTwinLabels = () => mapLabels.diagnostics();
   // `city` is the site on screen (hotel or venue); the trip's city is cityKey.
   const SITES = sitesForCity(cityKey);
   let siteKey =
@@ -1682,6 +1703,7 @@ async function main() {
   const twin = createTripTwin({
     viewer,
     tileset,
+    mapLabels,
     glowStyle: glowParam,
     simulateFires: $('tt-simfire').checked,
     // Phase 9 (review O1): a path card never outlives its line.
@@ -9033,7 +9055,14 @@ async function main() {
           done = true;
           off();
           try {
-            resolve(viewer.canvas.toDataURL('image/jpeg', 0.7));
+            // The map's words are on the overlay canvas (L5 D11).
+            const c = document.createElement('canvas');
+            c.width = viewer.canvas.width;
+            c.height = viewer.canvas.height;
+            const g = c.getContext('2d');
+            g.drawImage(viewer.canvas, 0, 0);
+            mapLabels.composite(g, c.width, c.height);
+            resolve(c.toDataURL('image/jpeg', 0.7));
           } catch {
             resolve(null);
           }

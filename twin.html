@@ -37,7 +37,13 @@
     <title>Trip Twin · SafeTrekr World View (prototype)</title>
   </head>
   <body class="tt-body">
-    <div id="cesiumContainer" aria-label="Trip Twin 3D view"></div>
+    <div id="cesiumContainer" aria-label="Trip Twin 3D view">
+      <!-- Map words (upstream's world overlay, review/map-labels L5): inside
+           the 3D view, so wall insets, hiding and dimming carry over. -->
+      <div id="world-overlay-root" aria-hidden="true">
+        <canvas id="world-overlay-canvas"></canvas>
+      </div>
+    </div>
     <div id="tt-veil" aria-hidden="true"></div>
 
     <!-- R1: top bar — three zones (shell review, 23 Oct 2026):

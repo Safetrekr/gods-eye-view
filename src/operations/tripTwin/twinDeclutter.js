@@ -67,7 +67,10 @@ export function labelSize(text, font = '') {
  * takes part; entities with `declutterFixed` set are obstacles. Runs when the
  * camera moves and when the label set changes, at most every 120 ms.
  */
-export function createDeclutter(viewer, { bounds = null } = {}) {
+export function createDeclutter(
+  viewer,
+  { bounds = null, obstacles = null } = {},
+) {
   const base = new WeakMap(); // entity → its own pixelOffset
   const hidden = new WeakSet(); // labels this declutter hid
   let timer = 0;
@@ -183,6 +186,17 @@ export function createDeclutter(viewer, { bounds = null } = {}) {
           h: 20000,
           fixed: true,
         });
+    // The world overlay's plates paint above WebGL: Cesium labels yield.
+    (obstacles?.() || []).forEach((q, i) =>
+      items.push({
+        id: `#plate${i}`,
+        x: q.x,
+        y: q.y,
+        w: q.w,
+        h: q.h,
+        fixed: true,
+      }),
+    );
     const dxOf = new Map(items.map((it) => [it.id, it.dx || 0]));
     const shifts = declutter(items);
     let changed = false;

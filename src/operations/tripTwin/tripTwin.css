@@ -3986,3 +3986,46 @@ body[data-view='screen'] .tt-wall-card .box .tt-btn {
   color: var(--tt-attention);
   border-color: rgba(245, 158, 11, 0.45);
 }
+
+/* Map words on upstream's world overlay (review/map-labels L5). Trip Twin
+   does not load foundation.css, so the host's own rules are copied here. The
+   root sits inside #cesiumContainer and takes its box, hiding and dimming. */
+#world-overlay-root {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  overflow: hidden;
+  pointer-events: none;
+}
+#world-overlay-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+/* Trip Twin paints no detection field: the surface stays out of the way. */
+#world-overlay-detection-surface {
+  display: none;
+}
+.world-overlay-accessibility {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+/* Soft keep-out bands over the panels (z 7: a preference, never a veto). */
+.tt-label-keepout {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  z-index: 7;
+  background: transparent;
+  pointer-events: none;
+}

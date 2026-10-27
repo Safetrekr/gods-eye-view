@@ -3,11 +3,13 @@
 // being edited (numbered waypoints, labelled ends).
 import * as Cesium from 'cesium';
 import { AVOID_REASONS, crossingRuns } from './twinCustomPaths.js';
+import { mapLabel } from './twinMapLabelEntries.js';
 
 const css = (hex, a = 1) => Cesium.Color.fromCssColorString(hex).withAlpha(a);
 const reasonLabel = (key) =>
   (AVOID_REASONS.find(([k]) => k === key) || [, 'Other'])[1];
-const LABEL_RANGE = new Cesium.DistanceDisplayCondition(0, 6000);
+// Labels are on the world overlay (review/map-labels L5).
+const LABEL_FAR = 6000;
 
 export function createCustomPathsLayer(viewer, site) {
   const areasDs = new Cesium.CustomDataSource('trip-twin-avoid-areas');
@@ -16,14 +18,6 @@ export function createCustomPathsLayer(viewer, site) {
   for (const ds of [areasDs, savedDs, editDs]) viewer.dataSources.add(ds);
   const base = site.field.at(0, 0);
   const at = (p, dz) => Cesium.Cartesian3.fromDegrees(p.lon, p.lat, base + dz);
-  const plate = (fill) => ({
-    font: '500 11px Inter, sans-serif',
-    fillColor: css(fill),
-    showBackground: true,
-    backgroundColor: css('#040c12', 0.88),
-    disableDepthTestDistance: Number.POSITIVE_INFINITY,
-    distanceDisplayCondition: LABEL_RANGE,
-  });
   const render = () => viewer.scene.requestRender();
   /** Amber dashes with dark gaps on the parts inside avoid-areas. */
   const crossings = (ds, geometry, areas, dz) => {
@@ -62,11 +56,12 @@ export function createCustomPathsLayer(viewer, site) {
               outline: true,
               outlineColor: css('#f59e0b', 0.95),
             },
-            label: {
-              text: `Avoid · ${reasonLabel(a.reason)}${a.note ? ` · ${a.note}` : ''}`,
-              ...plate('#f8c471'),
-              pixelOffset: new Cesium.Cartesian2(0, -10),
-            },
+            mapLabel: mapLabel('avoid', {
+              title: `Avoid · ${reasonLabel(a.reason)}`,
+              details: a.note ? [a.note] : [],
+              far: LABEL_FAR,
+              pick: true,
+            }),
           });
         }
       render();
@@ -95,11 +90,13 @@ export function createCustomPathsLayer(viewer, site) {
           savedDs.entities.add({
             id: `twin-saved:${p.id}:label`,
             position: at(mid, 4),
-            label: {
-              text: `Saved · ${p.name}${p.reviewedBy ? '' : ' · draft'}`,
-              ...plate('#93bafa'),
-              pixelOffset: new Cesium.Cartesian2(0, -12),
-            },
+            mapLabel: mapLabel('saved', {
+              title: `Saved · ${p.name}`,
+              details: p.reviewedBy ? [] : ['Draft'],
+              draft: !p.reviewedBy,
+              far: LABEL_FAR,
+              pick: true,
+            }),
           });
       }
       render();
@@ -156,13 +153,12 @@ export function createCustomPathsLayer(viewer, site) {
             outlineWidth: 2,
             disableDepthTestDistance: Number.POSITIVE_INFINITY,
           },
-          label: {
-            text: end
+          mapLabel: mapLabel('edit', {
+            title: end
               ? `${i === 0 ? 'Start' : 'End'} · ${i === 0 ? fromLabel : toLabel}`
               : `${i}`,
-            ...plate(end ? '#93bafa' : '#eef5f3'),
-            pixelOffset: new Cesium.Cartesian2(0, end ? -16 : -15),
-          },
+            far: LABEL_FAR,
+          }),
         });
       });
       render();

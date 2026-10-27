@@ -6,7 +6,9 @@ import { RING, pinCanvas, ringKind } from './twinPins.js';
 import { UNKNOWN_TEXT, floorText } from './twinData.js';
 
 // Ruler text only where it can be read (Building / Neighborhood scale).
-const RULER_LABEL_RANGE = new Cesium.DistanceDisplayCondition(0, 1000);
+// The floor instrument's words are painted by Trip Twin's lane on the world
+// overlay, over every plate (review/map-labels L5 D10): `mapText` records.
+const RULER_FAR = 1000;
 const css = (hex, a = 1) => Cesium.Color.fromCssColorString(hex).withAlpha(a);
 const toCart = (ll, h) =>
   Cesium.Cartesian3.fromDegrees(ll.lon ?? ll.lng, ll.lat, h);
@@ -243,25 +245,21 @@ export function createPeopleLayer(viewer, site, twin) {
         l === top - 1
       )
         ds.entities.add({
-          // The ruler never moves; other labels slide around it (declutter).
-          declutterFixed: true,
           position: toCart(rulerAt(-4), z + fh / 2),
-          label: {
+          mapText: {
             text: String(lbl),
             font: isReported
-              ? '600 11px ui-monospace, Menlo, monospace'
-              : '11px ui-monospace, Menlo, monospace',
+              ? '600 11px "Intel One Mono", ui-monospace, monospace'
+              : '11px "Intel One Mono", ui-monospace, monospace',
             // The reported floor's tag is the incident's (red).
-            fillColor: isReported ? css('#f299a6', 1) : css('#eef5f3', 0.9),
-            showBackground: true,
-            backgroundColor: isReported
-              ? css('#3a1219', 0.95)
-              : css('#040c12', 0.92),
-            backgroundPadding: new Cesium.Cartesian2(4, 2),
-            horizontalOrigin: Cesium.HorizontalOrigin.RIGHT,
-            disableDepthTestDistance: Number.POSITIVE_INFINITY,
-            distanceDisplayCondition: RULER_LABEL_RANGE,
-            scale: 1,
+            color: isReported ? '#f299a6' : 'rgba(238,245,243,0.9)',
+            background: isReported
+              ? 'rgba(58,18,25,0.95)'
+              : 'rgba(4,12,18,0.92)',
+            align: 'right',
+            // The ruler never moves; other labels slide around it.
+            fixed: true,
+            far: RULER_FAR,
           },
         });
     }
@@ -321,23 +319,21 @@ export function createPeopleLayer(viewer, site, twin) {
       }
       ds.entities.add({
         id: `twin-bracket-label:${r.person.id}`,
-        // Tied to a floor: slides sideways only (review/phase5b).
-        declutterAxis: 'x',
         position: toCart(at, z1 + 1.2),
-        label: {
+        mapText: {
           text: `${initialsOf(r.person.name).replace(/\./g, '')}${e.moving === 'descending' ? ' ↓' : e.moving === 'ascending' ? ' ↑' : ''}`,
           font: '600 10px Inter, ui-sans-serif, sans-serif',
-          fillColor: css(color, 1),
-          showBackground: true,
-          backgroundColor: css('#040c12', 0.92),
-          backgroundPadding: new Cesium.Cartesian2(3, 2),
-          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          color,
+          background: 'rgba(4,12,18,0.92)',
+          padding: { x: 3, y: 2 },
+          baseline: 'bottom',
           // Right of the lane (floor numbers sit left of the ruler) and
           // staggered so neighbouring lanes do not overprint (phase 3 F).
-          horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
-          pixelOffset: new Cesium.Cartesian2(12, i % 2 ? -14 : 0),
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          distanceDisplayCondition: RULER_LABEL_RANGE,
+          align: 'left',
+          offset: { x: 12, y: i % 2 ? -14 : 0 },
+          // Tied to a floor: slides sideways only (review/phase5b).
+          axis: 'x',
+          far: RULER_FAR,
         },
       });
     });
@@ -479,18 +475,15 @@ export function createPeopleLayer(viewer, site, twin) {
         const away = projector.toLL(cx - ux * (len + 14), cy - uy * (len + 14));
         if (label !== null)
           focusDs.entities.add({
-            declutterFixed: true,
             position: toCart(away, (z0 + z1) / 2),
-            label: {
+            mapText: {
               text: `Floor ${label}`,
               font: '500 12px "Intel One Mono", ui-monospace, monospace',
-              fillColor: css('#eef5f3', 1),
-              showBackground: true,
-              backgroundColor: css('#0b1416', 0.8),
-              horizontalOrigin: Cesium.HorizontalOrigin.RIGHT,
-              verticalOrigin: Cesium.VerticalOrigin.CENTER,
-              disableDepthTestDistance: Number.POSITIVE_INFINITY,
-              distanceDisplayCondition: RULER_LABEL_RANGE,
+              color: '#eef5f3',
+              background: 'rgba(11,20,22,0.8)',
+              align: 'right',
+              fixed: true,
+              far: RULER_FAR,
             },
           });
       }

@@ -1924,6 +1924,85 @@ async function smoke(server, browser) {
   );
 
   await step(
+    'L6-S1',
+    "map labels (review/map-labels L5): S6 as People paints Trip Twin's words on upstream's world overlay inside the 3D view (same box), with the panels as keep-out areas and the floor instrument painted on top; no Cesium label is left but the storm's",
+    async () => {
+      let req = 950;
+      const send = async (cmd) => {
+        const id = ++req;
+        const ack = remote.c.next(
+          (m) => m.t === 'ack' && m.reqId === id,
+          8000,
+          'ack',
+        );
+        remote.c.say({ t: 'cmd', reqId: id, cmd });
+        must((await ack).ok, `${cmd.type} refused`);
+      };
+      try {
+        await send({ type: 'screens', target: 6, patch: { role: 'people' } });
+        const t0 = Date.now();
+        let d = null;
+        while (Date.now() - t0 < 60000) {
+          d = await page
+            .evaluate(() => {
+              const r = document.getElementById('world-overlay-root');
+              const c = document.getElementById('cesiumContainer');
+              const rb = r?.getBoundingClientRect();
+              const cb = c?.getBoundingClientRect();
+              const cv = document.getElementById('world-overlay-canvas');
+              let ink = 0;
+              if (cv?.width) {
+                const px = cv
+                  .getContext('2d')
+                  .getImageData(0, 0, cv.width, cv.height).data;
+                for (let i = 3; i < px.length; i += 64) if (px[i] > 0) ink++;
+              }
+              let cesiumLabels = 0;
+              const v = window.testTwinViewer;
+              for (let i = 0; i < v.dataSources.length; i++) {
+                const ds = v.dataSources.get(i);
+                if (/storm/i.test(ds.name || '')) continue;
+                for (const e of ds.entities.values) if (e.label) cesiumLabels++;
+              }
+              return {
+                ...window.testTwinLabels?.(),
+                inContainer: r?.parentElement === c,
+                sameBox:
+                  Boolean(rb && cb) &&
+                  Math.abs(rb.left - cb.left) < 1 &&
+                  Math.abs(rb.width - cb.width) < 1 &&
+                  Math.abs(rb.height - cb.height) < 1,
+                ink,
+                cesiumLabels,
+              };
+            })
+            .catch(() => null);
+          if (d && d.painted > 0 && d.floorPainted > 0 && d.ink > 0) break;
+          await sleep(1000);
+        }
+        must(d, 'no label diagnostics');
+        must(d.inContainer && d.sameBox, `overlay root ${JSON.stringify(d)}`);
+        must(d.painted > 0, `no overlay label painted: ${JSON.stringify(d)}`);
+        must(
+          d.floorPainted > 0,
+          `no floor words painted: ${JSON.stringify(d)}`,
+        );
+        must(d.uiRects >= 1, `no keep-out areas: ${JSON.stringify(d)}`);
+        must(d.cesiumLabels === 0, `${d.cesiumLabels} Cesium labels left`);
+        return {
+          detail: `${d.labels} labels (${d.painted} painted), ${d.floorPainted} floor words on top, ${d.uiRects} keep-out areas, scale ${d.scale.toFixed(2)}, 0 Cesium labels`,
+        };
+      } finally {
+        await send({
+          type: 'screens',
+          target: 6,
+          patch: { role: 'trips' },
+        }).catch(() => {});
+      }
+    },
+  );
+
+  await step(
     'T5-S1',
     "traffic cameras (review/traffic-cameras T5): the All-in-one sends a fixture camera to the Site wall; S6 as Site shows it in the plate's slot as TRAFFIC CAMERA with a still; Stop takes it off; no page asks an agency",
     async () => {

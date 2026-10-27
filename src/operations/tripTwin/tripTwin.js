@@ -2,6 +2,7 @@
 // exit sequences (03 §5.1, §5.4; 05 §3.1, §3.5). Idempotent open/close/dispose.
 import * as Cesium from 'cesium';
 import { createDeclutter } from './twinDeclutter.js';
+import { mapLabel } from './twinMapLabelEntries.js';
 import { createStreetsLayer } from './twinStreets.js';
 import { createContextLayer } from './twinContext.js';
 import { resolveEllipsoidalGround } from '../../data/terrainHeights.js';
@@ -149,6 +150,8 @@ export function createTripTwin({
   onDrawnPaths = () => {},
   glowStyle = DEFAULT_GLOW,
   simulateFires = false,
+  // Map words on the world overlay (review/map-labels L5).
+  mapLabels = null,
 }) {
   const scene = viewer.scene;
   let state = 'idle';
@@ -573,16 +576,25 @@ export function createTripTwin({
       applyHotelDim();
       twin.setContextDim?.(hotelStepBack);
       // Labels stay inside the area the panels leave free.
+      const freeX = () => {
+        const a = safeArea?.();
+        if (!a) return null;
+        return {
+          left: a.left + 4,
+          right: scene.canvas.clientWidth - a.right - 4,
+        };
+      };
+      mapLabels?.setBounds(freeX);
+      // The Cesium labels left (the storm) step aside from overlay plates.
       declutterer = createDeclutter(viewer, {
-        bounds: () => {
-          const a = safeArea?.();
-          if (!a) return null;
-          return {
-            left: a.left + 4,
-            right: scene.canvas.clientWidth - a.right - 4,
-          };
-        },
+        bounds: freeX,
+        obstacles: () => mapLabels?.paintRects() || [],
       });
+      // A map word picks what its entity picks (the overlay is not WebGL).
+      const pickAt = (pos) => {
+        const e = mapLabels?.pick(pos.x, pos.y);
+        return e ? { id: e } : scene.pick(pos);
+      };
       handler = new Cesium.ScreenSpaceEventHandler(scene.canvas);
       handler.setInputAction((click) => {
         // The click that closed a popover does nothing else (review/phase5 J7).
@@ -590,7 +602,10 @@ export function createTripTwin({
           swallowClick = false;
           return;
         }
-        const picked = scene.pick(click.position);
+        // Edit mode places waypoints through the words (L2 §Clicking).
+        const picked = pickHandler
+          ? scene.pick(click.position)
+          : pickAt(click.position);
         const entityId = typeof picked?.id?.id === 'string' ? picked.id.id : '';
         // Phase 4 edit mode: clicks place waypoints / areas, not selections.
         if (pickHandler) {
@@ -640,7 +655,7 @@ export function createTripTwin({
         const now = performance.now();
         if (now - hoverAt < 90) return;
         hoverAt = now;
-        const picked = scene.pick(move.endPosition);
+        const picked = pickAt(move.endPosition);
         const id = typeof picked?.id?.id === 'string' ? picked.id.id : '';
         const rec = picked?.id?.opsRecord;
         scene.canvas.style.cursor = CLICKABLE.test(id) || rec ? 'pointer' : '';
@@ -1127,12 +1142,14 @@ export function createTripTwin({
     for (const [pt, text] of [
       [
         g[0],
-        startText
-          ? new Cesium.CallbackProperty(() => `Start · ${startText()}`, false)
-          : `Start · ${fromLabel}`,
+        startText ? () => `Start · ${startText()}` : `Start · ${fromLabel}`,
       ],
       [g[g.length - 1], `End · ${toLabel}`],
-    ])
+    ]) {
+      // An End at a safety place is said on that place's label (L5 D12).
+      const atPlace =
+        pt === g[g.length - 1] &&
+        safety?.placeNear({ lat: pt.lat, lon: pt.lon });
       ends.entities.add({
         position: Cesium.Cartesian3.fromDegrees(pt.lon, pt.lat, base + 6),
         point: {
@@ -1142,19 +1159,18 @@ export function createTripTwin({
           outlineWidth: 2,
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },
-        label: {
-          text,
-          font: '500 11px Inter, sans-serif',
-          fillColor: Cesium.Color.fromCssColorString('#93bafa'),
-          showBackground: true,
-          backgroundColor:
-            Cesium.Color.fromCssColorString('#040c12').withAlpha(0.88),
-          pixelOffset: new Cesium.Cartesian2(0, -16),
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
-        },
+        // On the world overlay (review/map-labels L5); the start follows
+        // the live point.
+        mapLabel: atPlace ? undefined : mapLabel('route', { title: text }),
       });
+    }
+    safety?.setRouteEnd({
+      lat: g[g.length - 1].lat,
+      lon: g[g.length - 1].lon,
+    });
     disposeRoute = () => {
       disposeLines();
+      safety?.setRouteEnd(null);
       added.then(() => {
         if (!viewer.isDestroyed()) viewer.dataSources.remove(ends, true);
       });

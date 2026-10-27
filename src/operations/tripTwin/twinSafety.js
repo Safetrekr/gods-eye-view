@@ -2,6 +2,7 @@
 // filled green glyphs; drafts are hollow grey and dashed. Green means
 // "approved place of safety" and nothing else in Trip Twin.
 import * as Cesium from 'cesium';
+import { safetyLabel } from './twinMapLabelEntries.js';
 import { bearingLabel, formatDistance, haversineM } from './twinData.js';
 
 const css = (hex, a = 1) => Cesium.Color.fromCssColorString(hex).withAlpha(a);
@@ -101,6 +102,9 @@ export function createSafetyLayer(viewer, site) {
   let lastSig = null;
   let lastChips = [];
   let lastArgs = null;
+  // The shown route's end, when it is one of these places (L5 D12).
+  let routeEnd = null;
+  const drawnAt = [];
   const glowMat = (a = 0.95, power = 0.25) =>
     new Cesium.PolylineGlowMaterialProperty({
       color: css('#eef5f3', a),
@@ -113,6 +117,17 @@ export function createSafetyLayer(viewer, site) {
       selectedId = id;
       if (lastArgs) this.update(...lastArgs);
     },
+    /** The route ends here ({lat, lon} or null): that place says so. */
+    setRouteEnd(ll) {
+      const key = ll ? `${ll.lat.toFixed(6)},${ll.lon.toFixed(6)}` : null;
+      if (key === (routeEnd?.key ?? null)) return;
+      routeEnd = ll ? { ...ll, key } : null;
+      if (lastArgs) this.update(...lastArgs);
+    },
+    /** Is a place drawn within m metres of ll? (the route's End merges). */
+    placeNear(ll, m = 30) {
+      return drawnAt.some((q) => haversineM(q, ll) <= m);
+    },
     /** Returns edge chips for points beyond the hologram. */
     update(points = [], { show = true, covers = null } = {}) {
       lastArgs = [points, { show, covers }];
@@ -121,6 +136,7 @@ export function createSafetyLayer(viewer, site) {
       const sig = JSON.stringify([
         show,
         selectedId,
+        routeEnd?.key ?? null,
         points.map((p) => [
           p.id,
           p.category,
@@ -138,6 +154,7 @@ export function createSafetyLayer(viewer, site) {
       if (sig === lastSig) return lastChips;
       lastSig = sig;
       ds.entities.removeAll();
+      drawnAt.length = 0;
       const chips = [];
       lastChips = chips;
       if (!show) return chips;
@@ -172,6 +189,7 @@ export function createSafetyLayer(viewer, site) {
         const draft = p.approval_status !== 'active';
         const sel = p.id === selectedId;
         const pos = Cesium.Cartesian3.fromDegrees(ll.lon, ll.lat, h + 25);
+        drawnAt.push(ll);
         ds.entities.add({
           id: `twin-safety:${p.id}`,
           declutterGlyph: sel ? 36 : 24,
@@ -183,26 +201,14 @@ export function createSafetyLayer(viewer, site) {
             eyeOffset: new Cesium.Cartesian3(0, 0, sel ? -40 : 0),
             disableDepthTestDistance: Number.POSITIVE_INFINITY,
           },
-          label: {
-            text: `${label}${draft ? ' · not approved' : ''}${p.chaperone_only ? ' · chaperones only' : ''}\n${p.name && !p.name.startsWith(label) ? p.name : ''}`.trim(),
-            font: sel
-              ? '600 12px Inter, ui-sans-serif, sans-serif'
-              : '11px Inter, ui-sans-serif, sans-serif',
-            fillColor: sel
-              ? css('#eef5f3')
-              : css(draft ? '#7f949b' : '#81bf95'),
-            showBackground: true,
-            backgroundColor: sel ? css('#0d2d3a', 0.98) : css('#040c12', 0.92),
-            backgroundPadding: new Cesium.Cartesian2(5, 3),
-            // Overlaps are resolved on screen by the declutter (phase 5b).
-            pixelOffset: new Cesium.Cartesian2(0, sel ? -28 : -22),
-            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-            disableDepthTestDistance: Number.POSITIVE_INFINITY,
-            distanceDisplayCondition: new Cesium.DistanceDisplayCondition(
-              0,
-              2600,
-            ),
-          },
+          // On the world overlay (review/map-labels L5): protected, shown
+          // wherever the glyph is drawn, the state in words.
+          mapLabel: safetyLabel(p, {
+            label,
+            draft,
+            selected: sel,
+            endOfRoute: Boolean(routeEnd && haversineM(routeEnd, ll) <= 30),
+          }),
         });
         // Beacon to the ground and a ground ring (primary rally: double ring).
         ds.entities.add({

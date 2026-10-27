@@ -4,6 +4,7 @@
 // Precipitation and cloud are neutral grey, never blue (blue = paths).
 // Lightning glyphs are static (no flashing; WCAG 2.3.1).
 import * as Cesium from 'cesium';
+import { TT_OVERLAY_ACCENTS, mapLabel } from './twinMapLabelEntries.js';
 import {
   bearingLabel,
   formatDistance,
@@ -517,19 +518,15 @@ export function createWeatherLayer(viewer, site) {
   const bolt = boltCanvas();
   const grey = Cesium.Color.fromCssColorString('#b8c3c7');
   const pink = Cesium.Color.fromCssColorString('#ee7789');
+  // Weather words are on the world overlay (review/map-labels L5): ambient,
+  // first to go when crowded; a lightning note keeps the hazard bar.
   const plate = (pos, text, color) =>
     ds.entities.add({
       position: pos,
-      label: {
-        text,
-        font: '500 11px Inter, sans-serif',
-        fillColor: color,
-        showBackground: true,
-        backgroundColor:
-          Cesium.Color.fromCssColorString('#040c12').withAlpha(0.85),
-        horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
-        disableDepthTestDistance: Number.POSITIVE_INFINITY,
-      },
+      mapLabel: mapLabel('ambient', {
+        title: text,
+        accent: color === pink ? TT_OVERLAY_ACCENTS.hazard : null,
+      }),
     });
   /** Dashed edge of an image box with its source label (what, where, when). */
   const boxEdge = (bbox, h, text, color = grey) => {
@@ -653,16 +650,12 @@ export function createWeatherLayer(viewer, site) {
               verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
               disableDepthTestDistance: Number.POSITIVE_INFINITY,
             },
-            label: {
-              text: `${data.simulated?.lightning ? 'SIMULATED · ' : ''}${s.ageMin} min ago`,
-              font: '500 11px Inter, sans-serif',
-              fillColor: Cesium.Color.fromCssColorString('#f299a6'),
-              showBackground: true,
-              backgroundColor:
-                Cesium.Color.fromCssColorString('#040c12').withAlpha(0.85),
-              pixelOffset: new Cesium.Cartesian2(0, -42),
-              disableDepthTestDistance: Number.POSITIVE_INFINITY,
-            },
+            // The strike says what happened (L1): "SIMULATED lightning".
+            mapLabel: mapLabel('hazard', {
+              title: `${data.simulated?.lightning ? 'SIMULATED l' : 'L'}ightning`,
+              details: [`${s.ageMin} min ago`],
+              gap: 44, // above the bolt
+            }),
           });
       }
       const cl = data.summary?.cloud;
@@ -709,15 +702,10 @@ export function createWeatherLayer(viewer, site) {
           const edge = site.projector.toLL(0, -r);
           ds.entities.add({
             position: Cesium.Cartesian3.fromDegrees(edge.lon, edge.lat, h),
-            label: {
-              text: `${name} ${Math.round(cover)}% · ~${formatRadius(km * 1000)}`,
-              font: '500 11px Inter, sans-serif',
-              fillColor: grey,
-              showBackground: true,
-              backgroundColor:
-                Cesium.Color.fromCssColorString('#040c12').withAlpha(0.8),
-              disableDepthTestDistance: Number.POSITIVE_INFINITY,
-            },
+            mapLabel: mapLabel('ambient', {
+              title: `${name} ${Math.round(cover)}%`,
+              details: [`~${formatRadius(km * 1000)}`],
+            }),
           });
         }
       }

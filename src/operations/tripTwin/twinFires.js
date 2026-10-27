@@ -4,6 +4,7 @@
 // existing /api/firms proxy; or clearly labelled SIMULATED records (prototype).
 import * as Cesium from 'cesium';
 import { adaptFirmsRecords } from '../../data/firmsAdapt.js';
+import { TT_OVERLAY_ACCENTS, mapLabel } from './twinMapLabelEntries.js';
 import {
   bearingLabel,
   formatAge,
@@ -159,16 +160,14 @@ export function drawFires(
         r.lat,
         field.at(x, y) + 30,
       ),
-      label: {
-        text: `${r.simulated ? 'SIMULATED ' : ''}heat detection · ${formatAge(ageH * 3600)} ago`,
-        font: '11px Inter, ui-sans-serif, sans-serif',
-        fillColor: css('#f299a6'),
-        showBackground: true,
-        backgroundColor: css('#040c12', 0.92),
-        backgroundPadding: new Cesium.Cartesian2(5, 3),
-        disableDepthTestDistance: Number.POSITIVE_INFINITY,
-        distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 6000),
-      },
+      // On the world overlay (review/map-labels L5): SIMULATED first, the
+      // detections' amber (559da4f) on the bar.
+      mapLabel: mapLabel('hazard', {
+        title: `${r.simulated ? 'SIMULATED heat' : 'Heat'} detection`,
+        details: [`${formatAge(ageH * 3600)} ago`],
+        far: 6000,
+        accent: TT_OVERLAY_ACCENTS.check,
+      }),
     });
   }
   viewer.scene.requestRender();

@@ -5,6 +5,7 @@
 // paths, green = approved places). Data: the site's OpenStreetMap fixture —
 // not checked for closures, locked gates or private access.
 import * as Cesium from 'cesium';
+import { mapLabel } from './twinMapLabelEntries.js';
 import { haversineM } from './twinData.js';
 import { nearestStreet } from './twinCustomPaths.js';
 import { drape } from './twinScene.js';
@@ -289,30 +290,18 @@ export function createStreetsLayer(viewer, site) {
       )
     : center;
   for (const l of streetLabels(clipped, { hub })) {
-    const e = labels.entities.add({
+    // On the world overlay (review/map-labels L5): after places and
+    // people; a lower l.priority is the more important street.
+    labels.entities.add({
       position: ground(l.at, 3),
-      label: {
-        text: l.text,
-        font: `${l.cls === 'major' ? '600 ' : ''}11px Inter, sans-serif`,
-        fillColor: css(
-          l.cls === 'major'
-            ? '#eef5f3'
-            : l.cls === 'nowalk'
-              ? '#7f949b'
-              : '#b8c3c7',
-          1,
-        ),
-        showBackground: true,
-        backgroundColor: css('#040c12', 0.82),
-        backgroundPadding: new Cesium.Cartesian2(4, 2),
-        disableDepthTestDistance: Number.POSITIVE_INFINITY,
-        distanceDisplayCondition: new Cesium.DistanceDisplayCondition(
-          0,
-          l.cls === 'major' ? 3200 : 1800,
-        ),
-      },
+      mapLabel: mapLabel(l.cls === 'major' ? 'streetMajor' : 'street', {
+        title: l.text,
+        far: l.cls === 'major' ? 3200 : 1800,
+        priority:
+          (l.cls === 'major' ? 20 : l.cls === 'minor' ? 15 : 10) -
+          (l.priority || 0) * 0.1,
+      }),
     });
-    e.declutterPriority = 6 + l.priority; // after places and people
   }
   // Steps: a stairs glyph at each flight.
   for (const w of byClass.steps || []) {
@@ -346,19 +335,11 @@ export function createStreetsLayer(viewer, site) {
       },
       ...(d.label
         ? {
-            label: {
-              text: d.label,
-              font: '500 11px Inter, sans-serif',
-              fillColor: css('#eef5f3', 1),
-              showBackground: true,
-              backgroundColor: css('#040c12', 0.88),
-              pixelOffset: new Cesium.Cartesian2(0, -16),
-              disableDepthTestDistance: Number.POSITIVE_INFINITY,
-              distanceDisplayCondition: new Cesium.DistanceDisplayCondition(
-                0,
-                1200,
-              ),
-            },
+            mapLabel: mapLabel('entrance', {
+              title: d.label.split(' · ')[0],
+              details: d.label.split(' · ').slice(1),
+              far: 1200,
+            }),
           }
         : {}),
     });

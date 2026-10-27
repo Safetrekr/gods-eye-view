@@ -2,6 +2,7 @@
 // operator sees how spread out the trip is and can click one to switch.
 // Only drawn when the camera is high enough to need them (City scale).
 import * as Cesium from 'cesium';
+import { mapLabel } from './twinMapLabelEntries.js';
 
 const BEACON_RANGE = new Cesium.DistanceDisplayCondition(1200, 60000);
 
@@ -19,7 +20,7 @@ export function createSiteBeacons(viewer, site) {
         const p = s.anchors?.inside || s.center;
         const n = counts[s.key] ?? 0;
         const when =
-          s.kind === 'lodging' ? 'hotel' : `Day ${s.day} · ${s.start}`;
+          s.kind === 'lodging' ? 'Hotel' : `Day ${s.day} · ${s.start}`;
         ds.entities.add({
           id: `twin-site:${s.key}`,
           position: Cesium.Cartesian3.fromDegrees(p.lon, p.lat, base + 120),
@@ -31,17 +32,14 @@ export function createSiteBeacons(viewer, site) {
             disableDepthTestDistance: Number.POSITIVE_INFINITY,
             distanceDisplayCondition: BEACON_RANGE,
           },
-          label: {
-            text: `${s.short} · ${when}${n ? ` · ${n} here` : ''}`,
-            font: '500 12px Inter, sans-serif',
-            fillColor: text,
-            showBackground: true,
-            backgroundColor:
-              Cesium.Color.fromCssColorString('#040c12').withAlpha(0.85),
-            pixelOffset: new Cesium.Cartesian2(0, -18),
-            disableDepthTestDistance: Number.POSITIVE_INFINITY,
-            distanceDisplayCondition: BEACON_RANGE,
-          },
+          // On the world overlay (review/map-labels L5): a click switches.
+          mapLabel: mapLabel('site', {
+            title: s.short,
+            details: [`${when}${n ? ` · ${n} here` : ''}`],
+            near: BEACON_RANGE.near,
+            far: BEACON_RANGE.far,
+            pick: true,
+          }),
           polyline: {
             positions: [
               Cesium.Cartesian3.fromDegrees(p.lon, p.lat, base),
