@@ -16,6 +16,22 @@ import {
   uninstallRenderGovernor,
 } from '../../renderGovernor.js';
 import { createTripTwin, flightMs } from './tripTwin.js';
+import { createHazardLoad } from './twinHazardLoad.js';
+import { drawHazards } from './twinHazardsLayer.js';
+import {
+  assessFires,
+  assessTropical,
+  compassWord,
+  fireLines,
+  fireChip,
+  fireName,
+  fireShort,
+  hazardCoverage,
+  hazardPicture,
+  nearestFire,
+  tropicalLines,
+  tropicalShort,
+} from './twinHazards.js';
 import { TWIN_CITIES } from './twinCities.js';
 import {
   cityOfSite,
@@ -86,10 +102,12 @@ import {
   formatDistance,
   formatRadius,
   formatShort,
+  getDistanceUnit,
   setDistanceUnit,
   haversineM,
   bearingLabel,
 } from './twinData.js';
+import { SIM_DEMO_MAX_MS } from './twinSession.js';
 import { SAFETY_LABEL } from './twinSafety.js';
 import { createCompass, rotated } from './twinCompass.js';
 import {
@@ -353,6 +371,9 @@ async function main() {
 
   let lastFeed = Date.now();
   let lastCtx = null;
+  // Fire boundaries and hurricanes (review/hazards H5-PLAN), set up below.
+  let hazardLoad = null;
+  let hzPic = null;
   let lastA = null;
   // Change log (phase 11): what moved, for the S3 idle board. Counts and
   // attention-group membership are compared on every data tick.
@@ -1582,8 +1603,12 @@ async function main() {
     const max = 4;
     const selId = selection?.kind === 'place' ? selection.place.id : null;
     // S5's shown stop is among the four shown, first (S5 r2).
+    // Hazard and weather chips come next, so the four-chip cut never drops
+    // one silently (hazards H4).
+    const rank = (c) =>
+      (c.hz ? 4 : 0) + (c.shown ? 2 : 0) + (c.wx || c.hazard ? 1 : 0);
     const list = [...chips]
-      .sort((x, y) => (y.shown ? 1 : 0) - (x.shown ? 1 : 0))
+      .sort((x, y) => rank(y) - rank(x))
       .slice(0, max)
       .map((c) => {
         const b = document.createElement(c.onClick ? 'button' : 'span');
@@ -1591,8 +1616,9 @@ async function main() {
           b.type = 'button';
           b.addEventListener('click', c.onClick);
         }
-        b.className = `tt-chip${c.wx ? ` wx ${c.wx}` : ''}${c.draft || c.missing ? ' draft' : ''}${c.hazard ? ' hazard' : ''}${c.people ? ' people' : ''}${c.site ? ' site' : ''}${c.shown ? ' shown' : ''}${c.id && c.id === selId ? ' on' : ''}`;
+        b.className = `tt-chip${c.hz ? ' hz' : ''}${c.wx ? ` wx ${c.wx}` : ''}${c.draft || c.missing ? ' draft' : ''}${c.hazard ? ' hazard' : ''}${c.people ? ' people' : ''}${c.site ? ' site' : ''}${c.shown ? ' shown' : ''}${c.id && c.id === selId ? ' on' : ''}`;
         if (c.id && c.id === selId) b.setAttribute('aria-current', 'true');
+        if (c.merged) b.dataset.merged = c.merged;
         b.textContent =
           c.missing || c.people || c.plain
             ? c.label
@@ -1746,6 +1772,7 @@ async function main() {
             })()
           : null;
       const fires = firesLine(info.fires);
+      hzPic = hazardNow(a, info);
       const weather = weatherLines(a, snap, incident);
       const siteName = (placeId) => {
         const key = snap.places.find((p) => p.id === placeId)?.site_key;
@@ -1757,10 +1784,17 @@ async function main() {
         delayedS: info.delayed ? ageS : 0,
         asOf: new Date(lastFeed).toLocaleTimeString(),
         // EX-WX-01 outranks a heat detection: it is about people outdoors.
+        // A fire boundary or a cone at amber outranks a heat detection
+        // (hazards H5 badge order).
         hazard: weather.lightning
           ? { text: weather.lightning.text }
-          : fires.hazard || null,
+          : hzPic?.check
+            ? { text: hazardLead(hzPic), next: hazardNext(hzPic) }
+            : fires.hazard || null,
         dataAgeS: ageS,
+        // People inside or within 1 km of a fire boundary (hazards H5).
+        nearFire: new Set(hzPic?.peopleNearFire || []),
+        nearFireSim: Boolean(hzPic?.fireCheck?.some((f) => f.simulated)),
       });
       // An incident anywhere on the trip is never hidden (review/phase3 G3).
       const mode = withTripIncidents(baseMode, {
@@ -1853,6 +1887,8 @@ async function main() {
               label: `Reported ${elsewhere.kind} at ${elsewhereSite.short}, floor ${elsewhere.floor_label} · not verified — show`,
               hazard: true,
               missing: true,
+              // Never folds, and ranks with the hazards (round 2).
+              hz: true,
               onClick: () => switchSite(elsewhereSite.key),
             },
           ]
@@ -1890,9 +1926,16 @@ async function main() {
               ...incidentChips,
               ...ncChip,
               ...wxChips,
+              ...hazardChips(hzPic),
               ...placeChips.filter((c) => !c.people),
             ]
-          : [...incidentChips, ...ncChip, ...wxChips, ...placeChips],
+          : [
+              ...incidentChips,
+              ...ncChip,
+              ...wxChips,
+              ...hazardChips(hzPic),
+              ...placeChips,
+            ],
       );
       lastA = a;
       logChanges(a, mode, sampleClock(snap), incident);
@@ -1908,6 +1951,10 @@ async function main() {
         paths: info.paths,
         pathsLoading: info.pathsLoading,
         fires: { ...fires, simulated: info.fires.simulated },
+        hazards: hzPic,
+        fireBounds: hzPic?.fires.map((f) => f.row) || [],
+        hazardLines: hazardCardLines(hzPic),
+        hazardLead: hzPic?.check ? hazardLead(hzPic) : null,
         reportedLabel: info.reportedLabel,
         incident,
         weather,
@@ -1935,6 +1982,7 @@ async function main() {
             ? `Weather · MET Norway · forecast for ${hhmm(wxSummary()?.validTime)} · fetched ${hhmm(wx.fetchedAt)}`
             : 'Weather · unavailable',
           `Official warnings · ${WX.warnings === 'nws' ? 'NWS' : 'MeteoAlarm'} · ${wx.warningsStatus}`,
+          ...(hzPic ? [hzPic.fireStatus, hzPic.tropStatus] : []),
         ],
       };
       lastOcc = floorOccupancy(a, twin.activePlace(), info.reportedLabel);
@@ -1949,6 +1997,8 @@ async function main() {
           : null;
       renderCutaways();
       hud.render(a, lastCtx);
+      redrawHazards();
+      compass.setHazards?.(hazardTicks(hzPic));
       renderStations();
       if (twin.floorFocus !== null && lastOcc.available)
         twin.setFloorFocus(
@@ -2238,7 +2288,8 @@ async function main() {
       $('tt-simlightning').checked ||
       $('tt-simrain').checked ||
       $('tt-simsnow').checked ||
-      Boolean(nc.simStart)
+      Boolean(nc.simStart) ||
+      Boolean(hazardLoad?.sim().fire || hazardLoad?.sim().cyclone)
     );
   }
   /** The Prototype pill says SIM ON while any simulated feed is on. */
@@ -2613,6 +2664,7 @@ async function main() {
           profile,
           signal,
           hazards: twin.hazardPoints(),
+          fireBounds: twin.fireBounds?.() || [],
         }),
         primaryEstimate(from, to, { profile: other, signal }).catch(() => null),
       ]);
@@ -2949,6 +3001,7 @@ async function main() {
       routeChecked: drawn,
       timeZone: city.timezone,
     });
+    b.items.push(stopHazardItem(site));
     for (const it of b.items)
       it.checked = adv.checks[`${ev.key}:${it.key}`] || null;
     b.notes = adv.notes[ev.key] || '';
@@ -3635,6 +3688,7 @@ async function main() {
         points: p.points,
         areas: pathStore.areas,
         hazards: twin.hazardPoints(),
+        fireBounds: twin.fireBounds?.() || [],
         hazardsStatus: firesUnavailable() ? 'unavailable' : 'ok',
         dark: isDark(p.day),
         day: p.day,
@@ -3728,6 +3782,7 @@ async function main() {
     store: pathStore,
     persist: persistPaths,
     hazards: () => twin.hazardPoints(),
+    fireBounds: () => twin.fireBounds?.() || [],
     days: () =>
       [...new Set(advEvents().map((e) => e.day))].map((d) => ({
         day: d,
@@ -3870,6 +3925,7 @@ async function main() {
         points: [ends.from, ends.to],
         areas: pathStore.areas,
         hazards: twin.hazardPoints(),
+        fireBounds: twin.fireBounds?.() || [],
         hazardsStatus: firesUnavailable() ? 'unavailable' : 'ok',
         profile,
         day,
@@ -4741,7 +4797,9 @@ async function main() {
       'Hazards',
       [
         ['incidents', 'Reported incidents', true],
-        ['fires', 'Satellite heat detections', false],
+        ['fireBounds', 'Fire boundaries (NIFC)', false],
+        ['tropical', 'Hurricanes & tropical storms (NHC)', false],
+        ['fires', 'Satellite heat detections (FIRMS)', false],
       ],
     ],
     ['Safety', [['safety', 'Safety resources', false]]],
@@ -4772,6 +4830,8 @@ async function main() {
     if ($('tt-layers').hidden) return;
     const state = {
       ...twin.layers,
+      fireBounds: hzLayers.fireBounds,
+      tropical: hzLayers.tropical,
       grid: ground.grid,
       elevation: ground.contours,
       savedPaths: customVis.saved,
@@ -4840,6 +4900,10 @@ async function main() {
           if (key === 'grid' || key === 'elevation') {
             ground[key === 'grid' ? 'grid' : 'contours'] = box.checked;
             applyGround();
+          } else if (key === 'fireBounds' || key === 'tropical') {
+            hzLayers[key] = box.checked;
+            redrawHazards();
+            twin.refresh?.();
           } else if (key === 'context' || key === 'corridors') {
             twin.setContext({
               [key === 'context' ? 'ring' : 'corridors']: box.checked,
@@ -5095,6 +5159,328 @@ async function main() {
     ltgPrevKm: null,
     lensKind: null,
   };
+  // ---- Fire boundaries and hurricanes (review/hazards H5-PLAN) ----
+  // Upstream's NIFC and NHC routes, assessed against this site, its trip's
+  // other stops and its people; the demos lie over the real feeds.
+  const hzLayers = { fireBounds: true, tropical: true };
+  let hzDispose = null;
+  let hzKey = '';
+  let hzRowsKey = '';
+  const hzCenter = () => ({
+    lat: city.center.lat,
+    lon: city.center.lon ?? city.center.lng,
+  });
+  /** The real wind (MET Norway), for "upwind": {fromDeg, kmh, from} or null. */
+  function hzWind() {
+    const s = wx.summary;
+    return s && Number.isFinite(s.windFromDeg) && Number.isFinite(s.windMs)
+      ? {
+          fromDeg: s.windFromDeg,
+          kmh: s.windMs * 3.6,
+          from: compassWord(s.windFromDeg),
+        }
+      : null;
+  }
+  hazardLoad = createHazardLoad({
+    // Demos sit at the trip's hotel on every window and the remote (X18).
+    center: (() => {
+      const h = SITES[0]?.center || city.center;
+      return { lat: h.lat, lon: h.lon ?? h.lng };
+    })(),
+    slot: Number(params.get('slot')) || 0,
+    signal: abort.signal,
+    onChange: () => {
+      twin.setExtraHeat?.(hazardLoad.data().simHeat);
+      twin.refresh?.();
+    },
+  });
+  // ?fireDemo=1 / ?hurricaneDemo=1 start a demo here, as ?storm=1 does
+  // (review shots); &fireDemoAgo=12 starts it 12 min ago (re-mapped).
+  if (params.get('fireDemo') === '1')
+    hazardLoad.setSim(
+      'fire',
+      Date.now() - Math.min(44, Number(params.get('fireDemoAgo')) || 0) * 60e3,
+    );
+  if (params.get('hurricaneDemo') === '1')
+    hazardLoad.setSim('cyclone', Date.now());
+  /** Start (ms) or stop (null) a hazard demo: 'fire' | 'cyclone'. */
+  const simEnds = {};
+  function setSimHazard(kind, start) {
+    hazardLoad?.setSim(kind, start);
+    // A local demo (All-in-one, URL) ends itself as the host ends a wall's.
+    clearTimeout(simEnds[kind]);
+    if (start)
+      simEnds[kind] = setTimeout(
+        () => setSimHazard(kind, null),
+        Math.max(0, start + SIM_DEMO_MAX_MS - Date.now()),
+      );
+    const box = $(kind === 'fire' ? 'tt-simfirebound' : 'tt-simcyclone');
+    if (box) box.checked = Boolean(start);
+  }
+  /** The hazard picture for this site from the latest feeds and demos. */
+  function hazardNow(a, info = null) {
+    if (!hazardLoad) return null;
+    const now = Date.now();
+    const d = hazardLoad.data(now);
+    const center = hzCenter();
+    const people = (a?.rows || [])
+      .filter((r) => r.person?.coordinates)
+      .map((r) => ({
+        id: r.person.id,
+        name: r.person.name,
+        lat: r.person.coordinates.lat,
+        lon: r.person.coordinates.lng ?? r.person.coordinates.lon,
+      }));
+    const stops = SITES.filter((s2) => s2.key !== siteKey).map((s2) => {
+      const p = s2.anchors?.inside || s2.center;
+      // The stop's day is named in the line (round 3 UX).
+      const label = s2.day ? `${s2.short} (Day ${s2.day})` : s2.short;
+      return { label, lat: p.lat, lon: p.lon ?? p.lng };
+    });
+    const wind = hzWind();
+    const ctx = {
+      center,
+      stops,
+      people,
+      windFromDeg: wind?.fromDeg,
+      windKmh: wind?.kmh,
+    };
+    const fires = assessFires(d.rows, ctx, now);
+    const tropical = assessTropical(d.storms, ctx);
+    // The heat detections a boundary claims follow the boundaries shown.
+    const rowsKey = fires
+      .map((f) => `${f.row.stableId}:${f.row.updatedTime}`)
+      .join('|');
+    if (rowsKey !== hzRowsKey) {
+      hzRowsKey = rowsKey;
+      twin.setFireBoundaries?.(fires.map((f) => f.row));
+    }
+    const pic = hazardPicture({
+      fires,
+      tropical,
+      firesFeed: d.firesFeed,
+      tropicalFeed: d.tropicalFeed,
+      coverage: hazardCoverage(center),
+      storms: d.realStorms,
+      nearest: nearestFire(d.realRows, center),
+      now,
+      demo: d.demo,
+      noun: siteNounNow(),
+      heat: info?.fires?.byFire
+        ? { byFire: info.fires.byFire, outside: null }
+        : undefined,
+    });
+    return { ...pic, wind, now, demo: d.demo };
+  }
+  /** The worst hazard line, for the mode chip and the closed Hazards line. */
+  function hazardLead(pic) {
+    const f = pic?.fireCheck?.[0];
+    const t = pic?.tropCheck?.[0];
+    // FIRE › FIRE NEAR › CONE › TROPICAL NEAR (H5 order); both are named
+    // when both need a check (X4).
+    const parts = [
+      f && fireShort(f, siteNounNow()),
+      t && tropicalShort(t, pic.now),
+    ].filter(Boolean);
+    // SIMULATED once when both are the demo (round 2 brand).
+    if (parts.length === 2 && f?.simulated && t?.simulated)
+      parts[1] = parts[1].replace(/^SIMULATED · /, '');
+    // "also in the forecast cone", not "also In" (round 3 UX).
+    if (parts[1]) parts[1] = parts[1].replace(/^In /, 'in ');
+    return parts.length ? parts.join(' · also ') : null;
+  }
+  /** What to do next, by hazard (X22). */
+  function hazardNext(pic) {
+    const f = pic?.fireCheck?.[0];
+    const t = pic?.tropCheck?.[0];
+    return [
+      f && 'check paths and where the group is',
+      t && "check the next days' plan · read the advisory",
+    ]
+      .filter(Boolean)
+      .join(' · ');
+  }
+  /**
+   * One short chip per fire or storm at amber (H5, X4): never the red
+   * hazard chip, ranked first and never folded. They hold whatever the map
+   * layers show (X19): the layers only draw.
+   */
+  function hazardChips(pic) {
+    if (!pic) return [];
+    const out = [];
+    for (const f of pic.fireCheck.slice(0, 2))
+      out.push({
+        label: fireChip(f, siteNounNow()),
+        wx: 'attention',
+        plain: true,
+        hz: true,
+      });
+    for (const t of pic.tropCheck.slice(0, 1))
+      out.push({
+        label: t.inCone
+          ? `${t.simulated ? 'SIMULATED · ' : ''}In the forecast cone · ${t.title}`
+          : tropicalShort(t, pic.now),
+        wx: 'attention',
+        plain: true,
+        hz: true,
+      });
+    // A tight bar merges them into one chip before the compass loses room
+    // (round 2 N1): "SIMULATED · Fire 2.5 mi W + forecast cone".
+    if (out.length > 1) {
+      const f = pic.fireCheck[0];
+      const t = pic.tropCheck[0];
+      const allSim = f?.simulated && t?.simulated;
+      const strip = (x) => (allSim ? x.replace(/^SIMULATED · /, '') : x);
+      out[0].merged = `${allSim ? 'SIMULATED · ' : ''}${[
+        f && strip(fireChip(f, siteNounNow())),
+        t && (t.inCone ? 'forecast cone' : 'storm near'),
+      ]
+        .filter(Boolean)
+        .join(' + ')}`;
+    }
+    return out;
+  }
+  /** Compass ticks toward fires and storms at amber (hazards H4). */
+  function hazardTicks(pic) {
+    if (!pic) return [];
+    const out = [];
+    for (const f of pic.fireCheck)
+      if (f.dHotel > 0 && Number.isFinite(f.bearingDeg))
+        out.push({
+          deg: f.bearingDeg,
+          kind: 'fire',
+          label: `fire boundary to the ${f.bearing}`,
+        });
+    for (const t of pic.tropCheck)
+      if (Number.isFinite(t.towardDeg))
+        out.push({
+          deg: t.towardDeg,
+          kind: 'cyclone',
+          label: `${t.title} to the ${compassWord(t.towardDeg)}`,
+        });
+    return out;
+  }
+  /** S5's "Fire & hurricanes" row, checked at the stop itself (H5). */
+  function stopHazardItem(site) {
+    const item = { key: 'hazards', label: 'Fire & hurricanes' };
+    const d = hazardLoad?.data();
+    const p = site.anchors?.inside || site.center;
+    const center = { lat: p.lat, lon: p.lon ?? p.lng };
+    if (!d)
+      return {
+        ...item,
+        text: 'Fire boundaries and hurricanes · loading',
+        ok: false,
+      };
+    const ctx = { center, stops: [], people: [] };
+    const pic = hazardPicture({
+      fires: assessFires(d.rows, ctx),
+      tropical: assessTropical(d.storms, ctx),
+      coverage: hazardCoverage(center),
+      firesFeed: d.firesFeed,
+      tropicalFeed: d.tropicalFeed,
+      storms: d.realStorms,
+      demo: d.demo,
+    });
+    const now = Date.now();
+    // SIMULATED already leads a demo line; real lines name their source.
+    const src = (sim, real) => (sim ? '' : ` (${real})`);
+    const lines = [
+      ...pic.fires
+        .slice(0, 1)
+        .map((f) => `${fireShort(f, 'stop')}${src(f.simulated, 'NIFC')}`),
+      ...pic.tropical
+        .slice(0, 1)
+        .map(
+          (t) =>
+            `${t.simulated ? 'SIMULATED · ' : ''}${t.inCone ? `${t.title} · its cone covers the stop` : tropicalShort(t, now).replace(/^SIMULATED · /, '')}${src(t.simulated, 'NHC')}`,
+        ),
+    ];
+    const fireOff = pic.fireState === 'unavailable';
+    const tropOff = pic.tropState === 'unavailable';
+    const notChecked = [fireOff && 'fire boundaries', tropOff && 'hurricanes']
+      .filter(Boolean)
+      .join(' and ');
+    const quiet = [
+      !hazardCoverage(center).fire
+        ? 'fire boundaries: not covered here'
+        : !fireOff && !pic.fires.length
+          ? 'no fire boundary within 31 mi'.replace(
+              '31 mi',
+              getDistanceUnit() === 'm' ? '50 km' : '31 mi',
+            )
+          : null,
+      !hazardCoverage(center).tropical
+        ? 'hurricanes: not covered here'
+        : !tropOff && !pic.tropical.length
+          ? `no storm forecast within ${getDistanceUnit() === 'm' ? '1,000 km' : '621 mi'}`
+          : null,
+    ].filter(Boolean);
+    return {
+      ...item,
+      text: [
+        ...lines,
+        ...(lines.length ? [] : quiet),
+        notChecked ? `${notChecked} not checked right now` : null,
+        'checked now, not at the stop time',
+      ]
+        .filter(Boolean)
+        .join(' · '),
+      ok: !notChecked,
+      warn: pic.check || Boolean(notChecked),
+    };
+  }
+  /** Lines for the All-in-one Hazards card (and S3's closed line). */
+  function hazardCardLines(pic) {
+    if (!pic) return [];
+    const out = [];
+    const tone = (t) => (t === 'amber' ? 'warn' : t);
+    for (const f of pic.fires.slice(0, 2))
+      for (const l of fireLines(f, {
+        heatInside: pic.heat?.byFire?.get(f.row.stableId) || 0,
+        wind: pic.wind,
+        noun: siteNounNow(),
+      }))
+        out.push({ text: l.text, tone: tone(l.tone) });
+    for (const t of pic.tropical.slice(0, 2))
+      for (const l of tropicalLines(t, pic.now, siteNounNow()))
+        out.push({ text: l.text, tone: tone(l.tone) });
+    out.push({ text: pic.fireStatus, tone: 'dim' });
+    out.push({ text: pic.tropStatus, tone: 'dim' });
+    return out;
+  }
+  /** Draw the boundaries and storm geometry when what is shown changes. */
+  function redrawHazards() {
+    const site = twin.site;
+    const ready = twin.state === 'ready' || twin.state === 'degraded';
+    if (!site || !ready || !hzPic) {
+      hzDispose?.();
+      hzDispose = null;
+      hzKey = '';
+      return;
+    }
+    const key = [
+      scaleNow(),
+      hzLayers.fireBounds,
+      hzLayers.tropical,
+      ...hzPic.fires.map(
+        (f) => `${f.row.stableId}:${f.row.updatedTime}:${f.level}`,
+      ),
+      ...hzPic.tropical.map(
+        (t) => `${t.storm.id}:${t.storm.issuedAt}:${t.level}`,
+      ),
+    ].join('|');
+    if (key === hzKey) return;
+    hzKey = key;
+    hzDispose?.();
+    hzDispose = drawHazards(viewer, site, {
+      fires: hzPic.fires,
+      tropical: hzPic.tropical,
+      scale: scaleNow(),
+      wall: document.body.dataset.view === 'screen',
+      show: hzLayers,
+    });
+  }
   const ncCenter = () => ({
     lat: city.center.lat,
     lon: city.center.lon ?? city.center.lng,
@@ -5902,9 +6288,15 @@ async function main() {
               note: true,
               text: `Real ${src} under the demo: no active alerts returned · checked ${wx.warningsAt ? ago(wx.warningsAt) : 'at load'}`,
             }
-          : {
-              text: `${src} checked ${wx.warningsAt ? ago(wx.warningsAt) : 'at load'}: no active alerts returned for this point`,
-            },
+          : hazardLoad?.sim().fire || hazardLoad?.sim().cyclone
+            ? {
+                // A hazard demo has no simulated NWS product: the real
+                // state is said as the real state (round 2 UX).
+                text: `Real ${src} under the demo: no active alerts returned · checked ${wx.warningsAt ? ago(wx.warningsAt) : 'at load'} · the demo adds none`,
+              }
+            : {
+                text: `${src} checked ${wx.warningsAt ? ago(wx.warningsAt) : 'at load'}: no active alerts returned for this point`,
+              },
       );
     else
       for (const w of nc.alerts?.length ? nc.alerts : wx.warnings)
@@ -6494,21 +6886,22 @@ async function main() {
       if (out.length > 6)
         add('tt-wall-note', `+${out.length - 6} more · on People`);
     }
-    {
-      // Worst first: in a storm (or with lightning found) lightning leads,
-      // so a fold never keeps "heat · none" over it (S4 reviews, P0).
-      const ltg = ltgLine();
-      const add = card('sensed', 'SENSED', ltg || near ? 'keep' : '');
-      const lines = [
-        lastCtx?.fires?.line || 'Satellite heat detections · loading',
+    // Lightning (Sensed, renamed): heat moves to the fire card (hazards
+    // H5). In a storm, or with lightning found, it comes before the fires.
+    const ltg = ltgLine();
+    const lightningCard = () => {
+      const add = card('sensed', 'LIGHTNING', ltg || near ? 'keep' : '');
+      add(
+        'tt-wall-line',
         ltg?.text ||
           (ltgKnown()
             ? `Lightning: none within ${imperial() ? '19 mi' : '30 km'} in the latest grid`
             : 'Lightning: grid not loaded · not checked'),
-      ];
-      if (ltg || near) lines.reverse();
-      for (const t of lines) add('tt-wall-line', t);
-    }
+      );
+    };
+    if (ltg || near) lightningCard();
+    hazardCards(card);
+    if (!(ltg || near)) lightningCard();
     {
       const add = card('hotel', `AT THE ${siteNounNow().toUpperCase()}`);
       // From the chip's parts, said once: "Now · 73 °F · cloudy (SIMULATED)
@@ -6535,6 +6928,88 @@ async function main() {
         'tt-wall-note',
         'Sources and ages as shown · never a statement that conditions are fine',
       );
+    }
+  }
+  /**
+   * S4's fire and tropical cards (hazards H5): FIRE · NIFC + FIRMS and
+   * HURRICANES & TROPICAL STORMS · NHC when something is within reach;
+   * otherwise one quiet card. Amber at a check level, and then never folds.
+   */
+  function hazardCards(card) {
+    const hz = lastCtx?.hazards;
+    const heat = lastCtx?.fires?.line || 'Satellite heat detections · loading';
+    const line = (add, l) =>
+      add(
+        l.tone === 'dim'
+          ? 'tt-wall-note'
+          : `tt-wall-line${l.tone === 'amber' ? ' warn' : ''}`,
+        l.text,
+      );
+    if (!hz || (!hz.fires.length && !hz.tropical.length)) {
+      const add = card('hazards', 'FIRES · HURRICANES & TROPICAL STORMS');
+      add('tt-wall-line', heat);
+      add('tt-wall-note', hz?.fireStatus || 'Fire boundaries · loading');
+      add('tt-wall-note', hz?.tropStatus || 'Tropical storms · loading');
+      return;
+    }
+    // An NWS fire or tropical product in Official leads; the cards then add
+    // the shapes and drop their amber outline (X21).
+    const official = officialLines()
+      .map((l) => l.text)
+      .join(' ');
+    const nwsFire =
+      /\b(Fire|Red Flag|Evacuation)\b[^·]*\b(Warning|Watch)\b/i.test(official);
+    const nwsTrop =
+      /\b(Hurricane|Tropical Storm)\b[^·]*\b(Warning|Watch)\b/i.test(official);
+    if (hz.fires.length) {
+      const sim = hz.fires.some((f) => f.simulated);
+      const add = card(
+        'fire',
+        `FIRE · NIFC + FIRMS${sim ? ' · SIMULATED' : ''}${hz.fireState === 'stale' ? ' · DELAYED' : ''}`,
+        hz.fireCheck.length && !nwsFire ? 'amber keep' : 'keep',
+      );
+      if (nwsFire)
+        add(
+          'tt-wall-note',
+          'The NWS product in Official leads · this card adds the boundary',
+        );
+      const [top, ...rest] = hz.fires;
+      for (const l of fireLines(top, {
+        heatInside: hz.heat?.byFire?.get(top.row.stableId) || 0,
+        wind: hz.wind,
+        noun: siteNounNow(),
+      }))
+        line(add, l);
+      for (const f of rest.slice(0, 2))
+        line(add, {
+          text: fireShort(f, siteNounNow()),
+          tone: f.level === 'area' ? '' : 'amber',
+        });
+      add('tt-wall-line', heat);
+      add('tt-wall-note hz-status', hz.fireStatus);
+      if (!hz.tropical.length) add('tt-wall-note hz-status', hz.tropStatus);
+    }
+    if (hz.tropical.length) {
+      const sim = hz.tropical.some((t) => t.simulated);
+      const add = card(
+        'tropical',
+        `HURRICANES & TROPICAL STORMS · NHC${sim ? ' · SIMULATED' : ''}${hz.tropState === 'stale' ? ' · DELAYED' : ''}`,
+        hz.tropCheck.length && !nwsTrop ? 'amber keep' : 'keep',
+      );
+      if (nwsTrop)
+        add(
+          'tt-wall-note',
+          'The NWS product in Official leads · this card adds the cone',
+        );
+      const [top, ...rest] = hz.tropical;
+      for (const l of tropicalLines(top, hz.now, siteNounNow())) line(add, l);
+      for (const t of rest.slice(0, 1))
+        line(add, { text: tropicalShort(t, hz.now), tone: '' });
+      add('tt-wall-note hz-status', hz.tropStatus);
+      if (!hz.fires.length) {
+        add('tt-wall-line', heat);
+        add('tt-wall-note hz-status', hz.fireStatus);
+      }
     }
   }
   /** A day's first stop still ahead (today), else its first (B5-S5-PLAN). */
@@ -6757,7 +7232,7 @@ async function main() {
           : `${site.label} · ${ev.title}`,
       );
       for (const it of items) {
-        const wxRow = ['forecast', 'alerts'].includes(it.key);
+        const wxRow = ['forecast', 'alerts', 'hazards'].includes(it.key);
         const line = add(
           `tt-wall-line tt-day-check${it.warn ? ` look${wxRow ? ' wx' : ''}` : it.keep ? ' keep' : ' ok'}`,
           null,
@@ -7011,6 +7486,18 @@ async function main() {
     renderLayers();
   });
   $('tt-reduce-motion').addEventListener('change', () => drawFx());
+  // The hazard demos (hazards H5): All-in-one only; walls follow the session.
+  for (const [id, kind] of [
+    ['tt-simfirebound', 'fire'],
+    ['tt-simcyclone', 'cyclone'],
+  ]) {
+    const box = $(id);
+    if (!box) continue;
+    box.checked = Boolean(hazardLoad?.sim()[kind]);
+    box.addEventListener('change', (e) =>
+      setSimHazard(kind, e.target.checked ? Date.now() : null),
+    );
+  }
   $('tt-simstorm').checked = Boolean(nc.simStart);
   $('tt-simstorm').addEventListener('change', (e) => {
     // All-in-one only: the demo starts at now. Walls keep the session lens.
@@ -7632,6 +8119,9 @@ async function main() {
       beacons = null;
       customLayer?.dispose();
       customLayer = null;
+      hzDispose?.();
+      hzDispose = null;
+      hzKey = '';
       await twin.close();
       $('tt-exit').textContent = 'Open Trip Twin';
     } else if (twin.state === 'idle') {
@@ -7809,6 +8299,10 @@ async function main() {
         wx.layers[key] = on;
         if (on && !['clouds', 'fx'].includes(key)) ensureImage(key);
         drawWeather();
+      } else if (key === 'fireBounds' || key === 'tropical') {
+        hzLayers[key] = on;
+        redrawHazards();
+        twin.refresh?.();
       } else if (key === 'waysOut') {
         if (Boolean(waysOut) !== on) toggleWaysOut();
       } else if (key === 'grid' || key === 'elevation') {
@@ -8047,6 +8541,13 @@ async function main() {
     lensLine: () => lensLine(),
     setSimStorm(start) {
       if ((start || null) !== nc.simStart) setSimStorm(start);
+    },
+    /** The hazard demos from the session (hazards H5). */
+    setSimFire(start) {
+      setSimHazard('fire', start || null);
+    },
+    setSimCyclone(start) {
+      setSimHazard('cyclone', start || null);
     },
     /** S3 idle: what changed, what is next, what is official. */
     idlePanel(node, { reported = false } = {}) {
@@ -8384,6 +8885,9 @@ async function main() {
         near:
           ['near', 'over'].includes(ap?.status) ||
           Date.now() - lastLtgNear < 30 * 60e3,
+        // Fire boundaries and cones needing a check, or their demo (X19).
+        fireCheck: Boolean(hzPic?.fireCheck?.length || hzPic?.demo?.fire),
+        tropCheck: Boolean(hzPic?.tropCheck?.length || hzPic?.demo?.cyclone),
       };
     },
     /** Everyone outdoors in view, from above (S4 tile). */
@@ -8561,6 +9065,44 @@ async function main() {
       const headerIso = new Date(at).toLocaleDateString('en-CA', {
         timeZone: city.timezone,
       });
+      // Fire boundaries and hurricanes for every trip (hazards H5): the
+      // feeds are national. The trip in focus uses this wall's full
+      // picture (demos too); the others the real feeds at their hotel.
+      const hzData = hazardLoad?.data(now);
+      const tripHz = (t) => {
+        if (t.id === focusTrip.id) return hzPic;
+        const c = TWIN_CITIES[t.city]?.center;
+        if (!c || !hzData) return null;
+        const ctx = { center: c, stops: [], people: [] };
+        return hazardPicture({
+          fires: assessFires(hzData.realRows, ctx, now),
+          tropical: assessTropical(hzData.realStorms, ctx),
+          coverage: hazardCoverage(c),
+          firesFeed: hzData.firesFeed,
+          tropicalFeed: hzData.tropicalFeed,
+          storms: hzData.realStorms,
+          now,
+        });
+      };
+      // Both hazards when both need a check (X4).
+      const hzLines = (pic) =>
+        pic?.check
+          ? [
+              pic.fireCheck[0] && fireShort(pic.fireCheck[0]),
+              pic.tropCheck[0] && tropicalShort(pic.tropCheck[0], now),
+            ].filter(Boolean)
+          : [];
+      // A feed down, or a city outside both, is said on the tile (X11).
+      const hzNotChecked = (pic, c) => {
+        if (!pic) return null;
+        const cov = hazardCoverage(c);
+        if (!cov.fire && !cov.tropical) return 'not covered by NIFC or NHC';
+        const off = [
+          cov.fire && pic.fireState === 'unavailable' && 'fire boundaries',
+          cov.tropical && pic.tropState === 'unavailable' && 'hurricanes',
+        ].filter(Boolean);
+        return off.length ? `${off.join(' and ')} not checked right now` : null;
+      };
       const tiles = DEMO_TRIPS.map((t) => {
         const tile = tripTile(
           t,
@@ -8577,9 +9119,20 @@ async function main() {
         );
         if (!tile || tile.noData) return tile;
         tile.stale = degraded;
+        const hz = tripHz(t);
+        tile.hzWord = hz?.check ? hz.word : null;
+        tile.hzLines = hzLines(hz);
+        tile.hzNote = hzNotChecked(
+          hz,
+          t.id === focusTrip.id ? hzCenter() : TWIN_CITIES[t.city]?.center,
+        );
         // A storm on the trip in focus is a reason (S6 r1 P0-2): right
-        // after a report, and the tile never folds.
-        if (t.id === focusTrip.id && stormNear && !tile.incident)
+        // after a report, and the tile never folds. A fire boundary or a
+        // cone at amber takes the same tier, on any trip (hazards H5).
+        if (
+          ((t.id === focusTrip.id && stormNear) || tile.hzWord) &&
+          !tile.incident
+        )
           tile.tier = TIER.report + 0.5;
         else if (degraded && !tile.incident) tile.tier = TIER.stale;
         return tile;
@@ -8656,11 +9209,16 @@ async function main() {
                   'amber',
                   `STORM ${ap.status === 'over' ? 'OVER THE HOTEL' : 'NEAR'}${nc.simStart ? ' (SIMULATED)' : ''} · ${o.weatherWall || 'the remote'}`,
                 ]
-              : t.stale
-                ? ['amber', `DATA DELAYED · ${formatAge(ageS)}`]
-                : toCheck
-                  ? ['amber', `${toCheck} TO CHECK`]
-                  : ['', 'NOTHING FLAGGED'];
+              : t.hzWord
+                ? [
+                    'amber',
+                    `${t.hzWord} · ${focus ? o.weatherWall || 'the remote' : 'see the remote'}`,
+                  ]
+                : t.stale
+                  ? ['amber', `DATA DELAYED · ${formatAge(ageS)}`]
+                  : toCheck
+                    ? ['amber', `${toCheck} TO CHECK`]
+                    : ['', 'NOTHING FLAGGED'];
         add(`tt-kicker tt-trip-why ${reason[0]}`, reason[1]);
         // 2 · Title and tags.
         const title = add('t tt-trip-title', t.title);
@@ -8678,6 +9236,8 @@ async function main() {
         // 3 · The report, one wording; the storm's own line on the trip
         // in focus, with the band's figure.
         if (t.incident) add('tt-wall-line i tt-trip-rep', t.incident);
+        for (const l of t.hzLines || []) add('tt-wall-line tt-trip-hz', l);
+        if (t.hzNote) add('tt-wall-note tt-trip-hznote', t.hzNote);
         if (focus && stormNear)
           add(
             'tt-wall-line tt-trip-wx',
@@ -8739,7 +9299,7 @@ async function main() {
       const foot = document.createElement('div');
       foot.className = 'tt-wall-note tt-trips-foot';
       foot.textContent =
-        'Weather is watched for the trip in focus only · sample trips, fictional people';
+        'Weather is watched for the trip in focus only · fire boundaries (NIFC, US) and hurricanes (NHC) for every trip where covered · sample trips, fictional people';
       node.append(foot);
       // Nothing-flagged trips hidden by the menu: named, never silent;
       // the trip in focus never hides.

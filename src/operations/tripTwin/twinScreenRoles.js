@@ -48,7 +48,15 @@ export const ROLES = Object.freeze({
     canvas: true,
     scale: 'city',
     // Seen from across the room (review R7): the weather and heat layers.
-    layersOn: ['precip', 'clouds', 'lightning', 'radar3d', 'fires'],
+    layersOn: [
+      'precip',
+      'clouds',
+      'lightning',
+      'radar3d',
+      'fires',
+      'fireBounds',
+      'tropical',
+    ],
   },
   day: {
     key: 'day',
@@ -147,7 +155,13 @@ export const LAYER_CATALOG = Object.freeze([
     layers: [
       { key: 'radar3d', label: 'Storm shells (3D)', def: false },
       { key: 'alertAreas', label: 'Official alert areas', def: true },
-      { key: 'fires', label: 'Satellite heat detections', def: true },
+      { key: 'fireBounds', label: 'Fire boundaries (NIFC)', def: true },
+      {
+        key: 'tropical',
+        label: 'Hurricanes & tropical storms (NHC)',
+        def: true,
+      },
+      { key: 'fires', label: 'Satellite heat detections (FIRMS)', def: true },
       { key: 'lightning', label: 'Lightning', def: false },
       { key: 'precip', label: 'Rain map (flat)', def: false },
       { key: 'clouds', label: 'Clouds & haze (3D)', def: false },
@@ -279,6 +293,8 @@ export function layoutChanged(screen = {}) {
 export const SAFETY_LAYERS = Object.freeze([
   'alertAreas',
   'fires',
+  'fireBounds',
+  'tropical',
   'safety',
   'avoidAreas',
   'floors',

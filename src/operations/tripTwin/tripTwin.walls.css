@@ -2556,7 +2556,8 @@ body.tt-body[data-view='screen'] .tt-trip .tt-trip-rep {
   letter-spacing: 0;
   color: var(--tt-hazard-text);
 }
-.tt-trip .tt-trip-wx {
+.tt-trip .tt-trip-wx,
+.tt-trip .tt-trip-hz {
   color: var(--tt-attention);
 }
 .tt-trip .tt-trip-counts {

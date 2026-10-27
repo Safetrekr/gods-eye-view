@@ -50,6 +50,8 @@ export const FIELD_LABELS = Object.freeze({
   spotlight: 'spotlight',
   visitor: 'Visitor mode',
   simStorm: 'demo storm',
+  simFire: 'demo fire boundary',
+  simCyclone: 'demo hurricane',
   wallControls: 'wall controls',
   count: 'number of screens',
 });
@@ -63,6 +65,8 @@ export const SESSION_KEYS = Object.freeze([
   'spotlight',
   'visitor',
   'simStorm',
+  'simFire',
+  'simCyclone',
   'wallControls',
   'wxAt',
 ]);
@@ -254,6 +258,8 @@ export function describeChange(before, after, info = {}, at = Date.now()) {
   if (returnAll) {
     const ss0 = before?.session || {};
     if (ss0.simStorm) ended.push('demo storm');
+    if (ss0.simFire) ended.push('demo fire boundary');
+    if (ss0.simCyclone) ended.push('demo hurricane');
     if (ss0.wxAt != null) ended.push('lens');
     if (ss0.spotlight) ended.push('spotlight');
   }
@@ -362,6 +368,10 @@ export function phrase(
       return v ? 'Visitor mode on' : 'Visitor mode off';
     case 'simStorm':
       return v ? 'demo storm started' : 'demo storm ended';
+    case 'simFire':
+      return v ? 'demo fire boundary started' : 'demo fire boundary ended';
+    case 'simCyclone':
+      return v ? 'demo hurricane started' : 'demo hurricane ended';
     case 'wallControls':
       return v === false ? 'walls view only' : 'wall controls on';
     case 'wxAt': {

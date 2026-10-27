@@ -18,6 +18,10 @@ const SESSION_FIELDS = new Set([
   'spotlight', // {kind: 'person'|'place', id} or null
   'visitor', // visitor mode: walls show initials and counts only
   'simStorm', // demo: start (ms) of the simulated storm, or null (phase 12)
+  // demo: start (ms) of the simulated fire boundary / hurricane, or null
+  // (review/hazards H5-PLAN).
+  'simFire',
+  'simCyclone',
   // false = every wall view only: no menu or sheets, nothing saved at a
   // wall (Jesse, 25 Oct 2026: screens/20-S1-FIX-LIST Q2). Missing = on.
   'wallControls',
@@ -35,6 +39,11 @@ const SCREEN_FIELDS = new Set([
   'motion', // {live, event, cine}: this wall's motion tiers (phase 11)
   'layout', // {cards, width, order, off}: this wall's layout (screens/05-S1-PLAN)
 ]);
+
+/** The demos (start ms or null): Return all and a trip switch end them all. */
+export const SIM_KEYS = Object.freeze(['simStorm', 'simFire', 'simCyclone']);
+/** The host ends a demo this long after it started (hazards H5). */
+export const SIM_DEMO_MAX_MS = 45 * 60e3;
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
 
@@ -72,6 +81,8 @@ export function createSession({ count = 4, tripId = null, epochMs = 0 } = {}) {
       spotlight: null,
       visitor: false,
       simStorm: null,
+      simFire: null,
+      simCyclone: null,
       wallControls: true,
       epochMs,
     },
@@ -201,8 +212,8 @@ export function applyCommand(state, cmd, { by = null, at = Date.now() } = {}) {
       break;
     }
     case 'returnLive': {
-      // Return all also ends a demo storm (phase 12 review).
-      for (const k of ['wxAt', 'spotlight', 'simStorm']) {
+      // Return all also ends every demo (phase 12 review; hazards H5).
+      for (const k of SIM_KEYS.concat(['wxAt', 'spotlight'])) {
         undo.session[k] = clone(state.session[k] ?? null);
         next.session[k] = null;
         markSession(k);
@@ -290,8 +301,8 @@ export function needsConfirm(cmd) {
       'siteKey' in p ||
       ('report' in p && p.report === null) ||
       ('visitor' in p && p.visitor === false) ||
-      // Starting the demo storm puts SIMULATED weather on every wall.
-      Boolean(p.simStorm)
+      // Starting a demo puts SIMULATED weather or hazards on every wall.
+      SIM_KEYS.some((k) => Boolean(p[k]))
     );
   }
   if (cmd?.type === 'screens' && cmd.target === 'all')

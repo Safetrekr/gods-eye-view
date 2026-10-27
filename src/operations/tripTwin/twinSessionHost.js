@@ -48,7 +48,13 @@
 // Prototype only — production needs TLS, device enrolment, operator SSO,
 // signed commands and an audit log (07-production-delta).
 import { LIMITS } from '../../../server/tripTwin/twinLimits.js';
-import { applyCommand, applyUndo, createSession } from './twinSession.js';
+import {
+  applyCommand,
+  applyUndo,
+  createSession,
+  SIM_DEMO_MAX_MS,
+  SIM_KEYS,
+} from './twinSession.js';
 import {
   ACTOR_FIELDS as ACTOR_KEYS,
   CODE,
@@ -999,6 +1005,36 @@ export function createSessionHost({
      * every wall shows it; keyed by trip, stop and row. Not a remote
      * command: no lease, no Undo (untick at the All-in-one).
      */
+    /**
+     * End any demo past SIM_DEMO_MAX_MS (hazards H5): the host, not each
+     * wall, decides, so the session never shows a demo the walls dropped.
+     * Logged as the system's own command. Returns {ok, rev} when one ended.
+     */
+    expireDemos(at = now()) {
+      const patch = {};
+      for (const k of SIM_KEYS) {
+        const v = session.session[k];
+        if (Number.isFinite(v) && at - v >= SIM_DEMO_MAX_MS) patch[k] = null;
+      }
+      if (!Object.keys(patch).length) return { ok: false };
+      const before = session;
+      const cmd = { type: 'session', patch };
+      const r = applyCommand(session, cmd, { by: HOST_REF, at });
+      session = r.state;
+      say('cmd.applied', {
+        actor: actor(HOST_REF),
+        rev: { before: before.rev, after: session.rev },
+        data: {
+          type: 'session',
+          target: null,
+          fields: Object.keys(patch),
+          diffs: commandDiffs(before, session, cmd, r.changed),
+          changed: r.changed,
+          skipped: r.skipped,
+        },
+      });
+      return { ok: true, rev: session.rev };
+    },
     review({ by, stop, item, on, initials = null } = {}) {
       const bad = (error) => ({
         ok: false,
@@ -1125,6 +1161,25 @@ export function createSessionHost({
         )
           return refused(
             'The demo storm is running (SIMULATED) · alert areas stay on at the wall',
+            CODE.SAFETY_LAYER,
+          );
+        // The hazard demos keep their own layer on (hazards H5).
+        if (
+          patch.layers &&
+          session.session.simFire &&
+          patch.layers.fireBounds === false
+        )
+          return refused(
+            'The demo fire is running (SIMULATED) · fire boundaries stay on at the wall',
+            CODE.SAFETY_LAYER,
+          );
+        if (
+          patch.layers &&
+          session.session.simCyclone &&
+          patch.layers.tropical === false
+        )
+          return refused(
+            'The demo hurricane is running (SIMULATED) · hurricanes & tropical storms stay on at the wall',
             CODE.SAFETY_LAYER,
           );
         // Layout only where the wall's frame reads it (F18).

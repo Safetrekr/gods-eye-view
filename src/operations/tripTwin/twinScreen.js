@@ -64,6 +64,23 @@ const mmss = (s) =>
  * captureCanvas() → Promise<dataURL|null>, siteLabel(), dayLabel(),
  * weatherPanel(node), tripsPanel(node), incidentOpen()}
  */
+/** LIVE, or which demos run: LIVE · DEMO FIRE, LIVE · DEMOS: STORM, FIRE. */
+function demoBadge(ss) {
+  const on = demoNames(ss);
+  // Short, so the report pill and the site name keep their room (X7):
+  // the names go in the badge's title and on the cards.
+  if (!on.length) return 'LIVE';
+  return on.length === 1 ? `LIVE · DEMO ${on[0]}` : `LIVE · ${on.length} DEMOS`;
+}
+/** The demos running: STORM, FIRE, HURRICANE. */
+function demoNames(ss) {
+  return [
+    ss.simStorm && 'STORM',
+    ss.simFire && 'FIRE',
+    ss.simCyclone && 'HURRICANE',
+  ].filter(Boolean);
+}
+
 export function createScreenMode({ api, slot = null, setup = null }) {
   document.body.dataset.view = 'screen';
   // The All-in-one's top bar on every wall (screens/05-S1-PLAN §2): the
@@ -590,6 +607,41 @@ export function createScreenMode({ api, slot = null, setup = null }) {
               ),
             );
       },
+      // Fire and tropical cards (hazards X5): the quiet card folds to its
+      // first line, then each amber card keeps its headline and its feed's
+      // status, and says the rest is on the remote.
+      () => {
+        const q = panel.querySelector('.tt-board-hazards');
+        if (!q) return;
+        for (const n of [...q.querySelectorAll('.tt-wall-note')]) n.remove();
+        q.append(el('div', 'tt-wall-note', 'Feed status · on the remote'));
+      },
+      // Each amber card keeps its headline, one fact (where the storm is,
+      // the fire's size) and its feed status (round 2 N3).
+      ...['.tt-board-tropical', '.tt-board-fire'].map((sel) => () => {
+        const c = panel.querySelector(sel);
+        if (!c || c.dataset.folded) return;
+        const rows = [
+          ...c.querySelectorAll('.tt-wall-line, .tt-wall-note:not(.hz-status)'),
+        ];
+        // The storm keeps where it is now and when it comes nearest.
+        const keep = sel === '.tt-board-tropical' ? 3 : 2;
+        if (rows.length <= keep) return;
+        for (const n of rows.slice(keep)) n.remove();
+        c.dataset.folded = '1';
+        c.querySelector('.hz-status')?.before(
+          el('div', 'tt-wall-note', 'Details · on the remote'),
+        );
+      }),
+      // Then the feed status lines fold into one note.
+      () => {
+        const notes = [...panel.querySelectorAll('.hz-status')];
+        if (notes.length < 2) return;
+        const last = notes.at(-1);
+        for (const n of notes) n.remove();
+        last.textContent = 'Feed status and ages · on the remote';
+        panel.querySelector('.tt-board-tropical, .tt-board-fire')?.append(last);
+      },
       () => {
         const lines = [
           ...panel.querySelectorAll('.tt-board-outdoors .tt-wall-line'),
@@ -617,6 +669,21 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         for (const n of h.querySelectorAll('.tt-wall-line, .tt-wall-note'))
           n.remove();
         h.append(el('div', 'tt-wall-note', 'On the remote'));
+      },
+      // Before the facts go, the feed-status pointer does (round 3): where
+      // the storm is and when it comes nearest matter more on a wall.
+      () => {
+        for (const n of panel.querySelectorAll('.hz-status')) n.remove();
+      },
+      // Very last: the amber cards keep only their headline (and say so).
+      () => {
+        for (const c of panel.querySelectorAll(
+          '.tt-board-tropical, .tt-board-fire',
+        )) {
+          const rows = [...c.querySelectorAll('.tt-wall-line, .tt-wall-note')];
+          for (const n of rows.slice(1)) n.remove();
+          c.append(el('div', 'tt-wall-note', 'More · on the remote'));
+        }
       },
     ];
     for (const step of steps) {
@@ -1009,6 +1076,10 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     if (ss.wxAt !== applied.wxAt) api.setWxTime(ss.wxAt);
     if ((ss.simStorm || null) !== (applied.simStorm || null))
       api.setSimStorm?.(ss.simStorm || null);
+    if ((ss.simFire || null) !== (applied.simFire || null))
+      api.setSimFire?.(ss.simFire || null);
+    if ((ss.simCyclone || null) !== (applied.simCyclone || null))
+      api.setSimCyclone?.(ss.simCyclone || null);
     applied = {
       ...applied,
       rev: next.rev,
@@ -1018,6 +1089,8 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       spotlight: ss.spotlight,
       wxAt: ss.wxAt,
       simStorm: ss.simStorm || null,
+      simFire: ss.simFire || null,
+      simCyclone: ss.simCyclone || null,
     };
     // This wall's own ref, from a change it made (SET AT WALL, aia §4).
     if (info.by?.kind === 'screen' && Number(info.by.slot) === mySlot)
@@ -1128,10 +1201,11 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       ? api.planBadge?.() || `PLAN · ${api.dayLabel()}`
       : advance
         ? `ADVANCE · ${api.dayLabel()}`
-        : ss.simStorm
-          ? 'LIVE · DEMO STORM'
-          : 'LIVE';
+        : demoBadge(ss);
     badgeNow = badgeText;
+    badge.title = demoNames(ss).length
+      ? `Demos running (SIMULATED): ${demoNames(ss).join(', ').toLowerCase()}`
+      : '';
     if (badge.dataset.text !== badgeText) {
       badge.dataset.text = badgeText;
       // The live dot breathes under the Live tier (phase 11).
@@ -1142,7 +1216,9 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     }
     badge.classList.toggle(
       'demo',
-      Boolean(ss.simStorm) && !advance && !dayPlan,
+      Boolean(ss.simStorm || ss.simFire || ss.simCyclone) &&
+        !advance &&
+        !dayPlan,
     );
     badge.classList.toggle('adv', advance || dayPlan);
     document.body.classList.toggle('tt-dayplan-live', dayPlan && !advance);
@@ -1418,7 +1494,15 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     chipsWatch.disconnect();
     box.querySelector('.tt-chip-more')?.remove();
     const chips = [...box.children];
-    for (const c of chips) c.classList.remove('tt-chip-fit');
+    for (const c of chips) {
+      c.classList.remove('tt-chip-fit');
+      // A merged hazard chip gets its own words back before each fit.
+      if (c.dataset.full) {
+        c.textContent = c.dataset.full;
+        delete c.dataset.full;
+      }
+      if (c.dataset.merged === 'in') delete c.dataset.merged;
+    }
     // The page's own "+n more" (it shows four) joins the count.
     const pageMore = chips.find((c) => /^\+\d+ more$/.test(c.textContent));
     if (pageMore) {
@@ -1434,14 +1518,17 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       // People beyond the area, hazards and weather hide last; approved
       // places next; the trip's other sites first (70-S2-FIX-LIST G14).
       const keep = (c) =>
-        c.classList.contains('shown') ||
-        c.classList.contains('people') ||
-        c.classList.contains('hazard') ||
-        c.classList.contains('wx')
-          ? 3
-          : c.classList.contains('site')
-            ? 1
-            : 2;
+        // A fire or storm needing a check never folds (hazards X4).
+        c.classList.contains('hz')
+          ? 9
+          : c.classList.contains('shown') ||
+              c.classList.contains('people') ||
+              c.classList.contains('hazard') ||
+              c.classList.contains('wx')
+            ? 3
+            : c.classList.contains('site')
+              ? 1
+              : 2;
       const items = chips.filter((c) => c !== pageMore);
       const order = items
         .map((c, i) => ({ c, i }))
@@ -1453,11 +1540,29 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       let hidden = 0;
       for (const c of order) {
         if (!over()) break;
+        if (c.classList.contains('hz')) continue;
         c.classList.add('tt-chip-fit');
         hidden += 1;
         more.textContent = `+${base + hidden} more`;
       }
       if (!hidden && !pageMore) more.remove();
+      // Still too wide with the never-folding chips: the hazard chips merge
+      // into one (round 2 N1), so the compass keeps its room.
+      if (over()) {
+        const hz = items.filter(
+          (c) => c.classList.contains('hz') && !c.classList.contains('hazard'),
+        );
+        const first = hz.find((c) => c.dataset.merged);
+        if (first && hz.length > 1) {
+          first.dataset.full ??= first.textContent;
+          first.textContent = first.dataset.merged;
+          for (const c of hz)
+            if (c !== first) {
+              c.classList.add('tt-chip-fit');
+              c.dataset.merged = 'in';
+            }
+        }
+      }
       // Still too wide (1728 with the menu open): the scale shows its
       // current step only, so the compass is never pushed off (S5 build).
       bar.classList.toggle('tighter', over());
@@ -1465,7 +1570,10 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       // while they fit, the shown stop's first (S5 r3).
       if (bar.classList.contains('tighter') || hidden) {
         const back = order
-          .filter((c) => c.classList.contains('tt-chip-fit'))
+          .filter(
+            (c) =>
+              c.classList.contains('tt-chip-fit') && c.dataset.merged !== 'in',
+          )
           .reverse();
         for (const c of back) {
           c.classList.remove('tt-chip-fit');
@@ -1696,6 +1804,11 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       return `${wg.warning ? 'An official warning is active' : 'The demo storm is running (SIMULATED)'} · alert areas stay on at the wall`;
     if (offs.includes('fires') && wg.fireWarning)
       return 'A fire or smoke warning is active · heat detections stay on at the wall';
+    // A fire or a cone needing a check keeps its layer on (hazards X19).
+    if (offs.includes('fireBounds') && wg.fireCheck)
+      return 'A fire boundary needs a check · fire boundaries stay on at the wall';
+    if (offs.includes('tropical') && wg.tropCheck)
+      return 'A storm cone or track needs a check · hurricanes & tropical storms stay on at the wall';
     if (s?.role === 'weather' && (wg.warning || wg.near)) {
       const val = (k) => (k in lay ? lay[k] : layerValue(s, k));
       if (

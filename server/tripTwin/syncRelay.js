@@ -1041,6 +1041,9 @@ export function createRelay({
     record,
     /** Presence every 5 s (links and leases age visibly), and the codes. */
     presenceTick() {
+      // A demo past its time ends here, for every wall at once (hazards H5).
+      if (host.expireDemos?.(now()).ok)
+        broadcastState({ cause: CAUSE.CMD, changed: ['session'] });
       presence();
       sweep();
     },

@@ -27,7 +27,8 @@ import {
   planPaths,
 } from './twinPaths.js';
 import { drawFires, fireSummary, loadFires } from './twinFires.js';
-import { assessSnapshot, bearingLabel } from './twinData.js';
+import { attributeHeat } from './twinHazards.js';
+import { assessSnapshot, bearingLabel, formatDistance } from './twinData.js';
 
 const OVERPASS_TIMEOUT_MS = 25000;
 const FIELD = '#040c12';
@@ -264,6 +265,13 @@ export function createTripTwin({
   let hoverKind = null;
   let suggestionFaded = false; // a saved path covers the same ends
   let fires = { status: 'loading', records: [] };
+  // Fire boundaries (NIFC) claim the heat detections inside or next to
+  // them; the demo fire adds its own SIMULATED detections (hazards H5).
+  let fireRows = [];
+  let extraHeat = [];
+  const allHeat = () =>
+    extraHeat.length ? [...fires.records, ...extraHeat] : fires.records;
+  const heatSplit = () => attributeHeat(allHeat(), fireRows);
   let disposeFires = null;
   let simulatedFires = simulateFires;
   let snapshot = null;
@@ -984,12 +992,13 @@ export function createTripTwin({
           },
         ) || [];
       if (!paths && !pathsPlanning) planOnce();
-      const fsum = fireSummary(site.center, fires.records);
+      // Only detections outside any mapped fire boundary get a chip.
+      const fsum = fireSummary(site.center, heatSplit().outside);
       if (fsum.nearest && fsum.nearest.d > site.radius + 100)
         chips = [
           ...chips,
           {
-            label: `${simulatedFires ? 'SIMULATED ' : ''}Heat detection`,
+            label: `${simulatedFires || fsum.nearest.simulated ? 'SIMULATED ' : ''}Heat detection`,
             distance: formatDistance(fsum.nearest.d),
             bearing: bearingLabel(site.center, fsum.nearest),
             hazard: true,
@@ -1015,13 +1024,25 @@ export function createTripTwin({
       paths: pathsVisible && paths?.paths ? paths.paths : [],
       pathsLoading: pathsPlanning,
       pathNote: paths?.note || null,
-      fires: {
-        status: fires.status,
-        fetchedAt: fires.fetchedAt || null,
-        summary: fireSummary(site.center, fires.records),
-        simulated: simulatedFires,
-        visible: firesVisible,
-      },
+      fires: (() => {
+        const split = heatSplit();
+        return {
+          status: fires.status,
+          fetchedAt: fires.fetchedAt || null,
+          summary: (() => {
+            const sum = fireSummary(site.center, split.outside);
+            // Beside mapped fire boundaries, a leftover detection is said
+            // to be outside them: it may be a new fire (round 2 UX).
+            if (fireRows.length && sum.count)
+              sum.text += ' · outside any mapped fire boundary';
+            return sum;
+          })(),
+          simulated: simulatedFires,
+          visible: firesVisible,
+          byFire: split.byFire,
+          claimed: allHeat().length - split.outside.length,
+        };
+      })(),
       pathsVisible,
       safetyVisible,
       night: isNight(),
@@ -1044,7 +1065,9 @@ export function createTripTwin({
 
   function hazardPoints() {
     const now = Date.now();
-    return fires.records
+    // Every detection, claimed or not: a path near heat is flagged even
+    // inside a mapped fire (hazards X1); fire boundaries flag paths too.
+    return allHeat()
       .filter((r) => now - r.acqMs <= 24 * 3600000)
       .map((r) => ({ lat: r.lat, lon: r.lon }));
   }
@@ -1228,7 +1251,14 @@ export function createTripTwin({
     disposeFires?.();
     disposeFires =
       firesVisible && state === 'ready'
-        ? drawFires(viewer, site, fires.records)
+        ? drawFires(viewer, site, allHeat(), Date.now(), {
+            owned: fireRows.length
+              ? (() => {
+                  const outside = new Set(heatSplit().outside);
+                  return new Set(allHeat().filter((r) => !outside.has(r)));
+                })()
+              : null,
+          })
         : null;
   }
 
@@ -1410,6 +1440,17 @@ export function createTripTwin({
     setFloorFocus,
     frameFloor,
     hazardPoints,
+    /** Fire boundary rows (hazards H5): they claim the heat inside them. */
+    setFireBoundaries(rows) {
+      fireRows = Array.isArray(rows) ? rows : [];
+      if (state === 'ready') redrawFires();
+    },
+    /** The demo fire's SIMULATED heat detections, drawn with the real ones. */
+    setExtraHeat(records) {
+      extraHeat = Array.isArray(records) ? records : [];
+      if (state === 'ready') redrawFires();
+    },
+    fireBounds: () => fireRows,
     /** Phase 6: travelers dimmed while the weather shows another time. */
     setPeopleDim(on) {
       if (peopleDim === Boolean(on)) return;

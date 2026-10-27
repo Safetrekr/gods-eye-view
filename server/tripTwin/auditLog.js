@@ -148,6 +148,8 @@ const SESSION_FIELDS = [
   'spotlight',
   'visitor',
   'simStorm',
+  'simFire',
+  'simCyclone',
   'wallControls',
 ];
 
@@ -284,6 +286,8 @@ const FIELD_VALUE = {
   visitor: bool,
   wallControls: bool,
   simStorm: nul(num),
+  simFire: nul(num),
+  simCyclone: nul(num),
 };
 
 /** Copy only the named fields, each through its kind; drop the rest. */

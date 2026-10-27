@@ -449,6 +449,8 @@ function tripsOnWatch(ctx) {
                 report: null,
                 incidentAck: null,
                 simStorm: null,
+                simFire: null,
+                simCyclone: null,
               },
             },
             // The confirm names the open report the switch closes (Jesse,
@@ -1085,8 +1087,88 @@ function weather(ctx) {
     );
   out.push(kick('Lightning', WALL));
   out.push(el('div', 'rm-note', wx?.ltgText || 'Lightning grid loading…'));
+  // Fire boundaries and hurricanes (review/hazards H5): S4's own lines.
+  const hz = ctx.ui.hz;
+  const hzLine = (l) =>
+    el(
+      'div',
+      l.tone === 'dim'
+        ? 'rm-note'
+        : `rm-wx-alert${l.tone === 'amber' ? ' warn' : ''}`,
+      l.text,
+    );
+  out.push(kick('Fire boundaries · NIFC', WALL));
+  for (const l of hz?.fire || []) out.push(hzLine(l));
+  out.push(
+    el('div', 'rm-note', hz?.pic.fireStatus || 'Fire boundaries loading…'),
+  );
+  out.push(kick('Hurricanes & tropical storms · NHC', WALL));
+  for (const l of hz?.tropical || []) out.push(hzLine(l));
+  out.push(el('div', 'rm-note', hz?.pic.tropStatus || 'NHC loading…'));
+  if (hz?.advisories?.length) {
+    const links = el('div', 'rm-actions');
+    for (const a of hz.advisories.slice(0, 2))
+      links.append(
+        btn('rm-btn', `Read the NHC advisory · ${a.title}`, () =>
+          window.open(a.url, '_blank', 'noopener,noreferrer'),
+        ),
+      );
+    out.push(links);
+  }
   out.push(kick('Demo', WALL));
   const demo = el('div', 'rm-actions');
+  const noFire = hz && !hz.coverage.fire;
+  const noTropical = hz && !hz.coverage.tropical;
+  demo.append(
+    btn(
+      `rm-btn${ss.simFire ? ' on' : ''}`,
+      ss.simFire
+        ? 'Simulated fire boundary on · stop'
+        : 'Simulated fire boundary nearby · start (every wall)',
+      () =>
+        ctx.send(
+          {
+            type: 'session',
+            patch: { simFire: ss.simFire ? null : Date.now() },
+          },
+          ss.simFire
+            ? 'Simulated fire boundary stopped'
+            : 'Start a SIMULATED fire boundary near the hotel on every wall? Real NIFC data stays under it. It ends itself after 45 min, and Return all ends it.',
+        ),
+      {
+        'aria-pressed': String(Boolean(ss.simFire)),
+        ...(noFire && !ss.simFire ? { disabled: '' } : {}),
+      },
+    ),
+    btn(
+      `rm-btn${ss.simCyclone ? ' on' : ''}`,
+      ss.simCyclone
+        ? 'Simulated hurricane on · stop'
+        : 'Simulated hurricane cone · start (every wall)',
+      () =>
+        ctx.send(
+          {
+            type: 'session',
+            patch: { simCyclone: ss.simCyclone ? null : Date.now() },
+          },
+          ss.simCyclone
+            ? 'Simulated hurricane stopped'
+            : 'Start a SIMULATED hurricane with its forecast cone over the hotel on every wall? Real NHC data stays under it. It ends itself after 45 min, and Return all ends it.',
+        ),
+      {
+        'aria-pressed': String(Boolean(ss.simCyclone)),
+        ...(noTropical && !ss.simCyclone ? { disabled: '' } : {}),
+      },
+    ),
+  );
+  if (noFire || noTropical)
+    out.push(
+      el(
+        'div',
+        'rm-note',
+        `Not available here: ${[noFire && 'NIFC maps US fires only', noTropical && 'NHC covers the Atlantic and E/C Pacific'].filter(Boolean).join(' · ')}`,
+      ),
+    );
   demo.append(
     btn(
       `rm-btn${ss.simStorm ? ' on' : ''}`,

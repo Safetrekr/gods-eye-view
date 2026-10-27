@@ -54,6 +54,9 @@ const WIRE_SCHEMA = Object.freeze({
   // The wall menu: every screen carries `layout`, the session
   // `wallControls` (screens/05-S1-PLAN, Q2).
   5: 'e34b496a7165fd723ea0ec559622a24bd1c78195982a3d6a0f0a17caded7d04f',
+  // The hazard demos: the session carries `simFire` and `simCyclone`
+  // (review/hazards H5-PLAN).
+  6: 'bf856c9db174d7e75e1a214b792992751e70374de294927f16cc02a29c7035e8',
 });
 
 /** A host on a fake clock with a seeded random (deterministic tokens). */
@@ -318,7 +321,7 @@ test('K5 S-15: a launcher page from before K5 cannot start a setup (RELOAD); thi
 });
 
 test('K5 S-15: every welcome says PROTO; PROTO_MIN equals PROTO at this slice; protoOk takes integers from PROTO_MIN up', () => {
-  assert.equal(PROTO, 5);
+  assert.equal(PROTO, 6);
   assert.equal(PROTO_MIN, PROTO);
   for (const p of [PROTO, PROTO + 1]) assert.equal(protoOk(p), true);
   for (const p of [undefined, null, 0, 1, '2', 1.5, NaN])

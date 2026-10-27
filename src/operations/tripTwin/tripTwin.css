@@ -343,6 +343,16 @@ input[type='search'] {
   }
 }
 .tt-roster-foot,
+/* Hazard lines on the All-in-one cards (hazards X12): amber needs a check,
+   dim is source and age. */
+.tt-line.warn {
+  color: var(--tt-attention, #f59e0b);
+}
+.tt-line.dim {
+  /* Dimmer than a plain line (round 2 brand). */
+  color: var(--tt-text-dim);
+  opacity: 0.72;
+}
 .tt-line {
   font-size: 12px;
   color: var(--tt-text-dim);
@@ -1695,6 +1705,32 @@ body.tt-advance-mode #tt-incident {
   border-left: 5px solid transparent;
   border-right: 5px solid transparent;
   border-bottom: 7px solid var(--tt-text);
+}
+/* Off-scene hazard ticks (hazards H4): amber, on the dial's rim. */
+.tt-compass-hzs,
+.tt-compass-hzarm {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.tt-compass-hz {
+  position: absolute;
+  left: 50%;
+  top: 1px;
+  transform: translateX(-50%);
+}
+.tt-compass-hz.fire {
+  width: 3px;
+  height: 10px;
+  background: var(--tt-attention, #f59e0b);
+  box-shadow: 0 0 0 1px rgba(4, 12, 18, 0.8);
+}
+.tt-compass-hz.cyclone {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 7px solid var(--tt-attention, #f59e0b);
 }
 .tt-compass-caption {
   position: absolute;

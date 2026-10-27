@@ -8,6 +8,7 @@ import {
   makeProjector,
 } from './twinData.js';
 import { HAZARD_NEAR_M, hazardProximity, walkMinutes } from './twinPaths.js';
+import { pathFireHit, pathFireText } from './twinHazards.js';
 import { driveMinutes } from './twinRoutes.js';
 
 export const AVOID_REASONS = Object.freeze([
@@ -198,6 +199,9 @@ export function pathChecks(result, ctx) {
       warn: true,
       text: 'Avoid-areas not applied by the router (fallback) — checked instead: none entered',
     });
+  // Fire boundaries (hazards X1).
+  const fire = pathFireHit(result.geometry, ctx.fireBounds || []);
+  if (fire) flags.push({ key: 'fire', warn: true, text: pathFireText(fire) });
   const hz = hazardProximity(result.geometry, ctx.hazards || []);
   if (ctx.hazardsStatus === 'unavailable')
     flags.push({

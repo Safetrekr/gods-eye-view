@@ -1090,6 +1090,57 @@ async function smoke(server, browser) {
   );
 
   await step(
+    'H5-S1',
+    'hazard demos (review/hazards H5): the remote starts the demo fire; the S6 wall shows LIVE · DEMO FIRE and the SIMULATED fire line on the trip in focus; Return all ends it on the wall',
+    async () => {
+      const send = async (reqId, cmd) => {
+        const ack = remote.c.next(
+          (m) => m.t === 'ack' && m.reqId === reqId,
+          8000,
+          'ack',
+        );
+        remote.c.say({ t: 'cmd', reqId, cmd });
+        must((await ack).ok, `${cmd.type} refused`);
+      };
+      const look = () =>
+        page.evaluate(() => ({
+          badge: document.querySelector('.tt-wall-badge')?.textContent || '',
+          hz: [...document.querySelectorAll('.tt-trip-hz')].map(
+            (n) => n.textContent,
+          ),
+        }));
+      const until = async (pred, what, ms = 45000) => {
+        const t0 = Date.now();
+        let last = null;
+        while (Date.now() - t0 < ms) {
+          last = await look().catch(() => null);
+          if (last && pred(last)) return last;
+          await sleep(500);
+        }
+        throw new Error(
+          `timed out waiting for ${what}: ${JSON.stringify(last)}`,
+        );
+      };
+      await send(61, { type: 'session', patch: { simFire: Date.now() } });
+      const on = await until(
+        (x) =>
+          /LIVE · DEMO FIRE/.test(x.badge) &&
+          x.hz.some((t) => /^SIMULATED · Demo Fire boundary/.test(t)),
+        'the demo fire on S6',
+      );
+      await send(62, { type: 'returnLive' });
+      const off = await until(
+        (x) =>
+          x.badge.trim() === 'LIVE' && !x.hz.some((t) => /SIMULATED/.test(t)),
+        'Return all to end the demo on S6',
+      );
+      return {
+        detail: `on: "${on.badge}" · "${on.hz[0]}"; after Return all: "${off.badge}", ${off.hz.length} hazard lines`,
+      };
+    },
+  );
+
+  await step(
     'K5-S2',
     'protocol: a wall and a remote page from before K5 (no proto) are told RELOAD with readable text; nothing joins; the S6 chip still reads the remote',
     async () => {

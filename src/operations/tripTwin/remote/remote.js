@@ -18,6 +18,16 @@ import { DEMO_TRIPS, tripById, tripDays } from '../demoTrips.js';
 import { tripTwinDemoSnapshot } from '../demoTripTwin.js';
 import { siteConfig, sitesForCity } from '../twinSites.js';
 import { approachNow, approachText } from '../twinNowcast.js';
+import { createHazardLoad } from '../twinHazardLoad.js';
+import {
+  assessFires,
+  assessTropical,
+  fireLines,
+  hazardCoverage,
+  hazardPicture,
+  nearestFire,
+  tropicalLines,
+} from '../twinHazards.js';
 import {
   loadAlertAreas,
   loadLightningNearest,
@@ -91,6 +101,7 @@ const ui = {
   link: 'connecting',
   denied: null,
   wx: null, // phase 12: the nowcast for the trip in focus (same as the walls)
+  hz: null, // fire boundaries and hurricanes for the trip in focus (hazards H5)
   // K8: since when the link is down; the page is out of date (RELOAD);
   // the newest change seen per scope (slot or 'wall') and anywhere;
   // pairing's last answer and pause; an undo waiting for its broadcast.
@@ -719,6 +730,75 @@ let wxSeq = 0;
 let wxKey = '';
 let wxAt = 0;
 let wxReal = null; // {nc, alerts, alertsAt, ltg}
+// Fire boundaries and hurricanes for the trip in focus (review/hazards H5):
+// the same feeds, rules and demos as the walls, so the words agree.
+let hzLoad = null;
+let hzAbort = null;
+let hzWhere = '';
+const llOf = (p) => ({ lat: p.lat, lon: p.lon ?? p.lng });
+/**
+ * The walls' own check: the site shown, the trip's other stops, demos at
+ * the trip's hotel (hazards X18). People stay on the walls: the remote
+ * holds no positions.
+ */
+function updateHazards(center, ss, trip, siteKey) {
+  const sites = sitesForCity(trip.city);
+  const hotel = llOf(sites[0]?.center || center);
+  const key = `${trip.id}`;
+  if (key !== hzWhere) {
+    hzAbort?.abort();
+    hzAbort = new AbortController();
+    hzWhere = key;
+    hzLoad = createHazardLoad({
+      center: hotel,
+      signal: hzAbort.signal,
+      onChange: () => hazardsNow(),
+    });
+  }
+  hzCtx = {
+    center,
+    stops: sites
+      .filter((s2) => s2.key !== siteKey)
+      .map((s2) => ({
+        label: s2.short,
+        ...llOf(s2.anchors?.inside || s2.center),
+      })),
+    people: [],
+  };
+  hzLoad.setSim('fire', ss.simFire || null);
+  hzLoad.setSim('cyclone', ss.simCyclone || null);
+  hazardsNow();
+}
+let hzCtx = null;
+function hazardsNow() {
+  if (!hzLoad || !hzCtx) return;
+  const now = Date.now();
+  const d = hzLoad.data(now);
+  const c = hzCtx;
+  const center = c.center;
+  const pic = hazardPicture({
+    fires: assessFires(d.rows, c, now),
+    tropical: assessTropical(d.storms, c),
+    coverage: hazardCoverage(center),
+    firesFeed: d.firesFeed,
+    tropicalFeed: d.tropicalFeed,
+    storms: d.realStorms,
+    nearest: nearestFire(d.realRows, center),
+    now,
+    demo: d.demo,
+  });
+  ui.hz = {
+    pic,
+    coverage: hazardCoverage(center),
+    fire: pic.fires.slice(0, 2).flatMap((f) => fireLines(f)),
+    tropical: pic.tropical.slice(0, 2).flatMap((t) => tropicalLines(t, now)),
+    advisories: pic.tropical
+      .filter((t) => t.storm.advisoryUrl)
+      .map((t) => ({ title: t.title, url: t.storm.advisoryUrl })),
+  };
+  if (ui.station === 'weather') renderContent(true);
+}
+
 async function refreshWx(force = false) {
   const ss = ui.state?.session;
   if (!ss) return;
@@ -732,6 +812,7 @@ async function refreshWx(force = false) {
   };
   const region = regionOf(site.timezone);
   const us = region === 'us';
+  updateHazards(center, ss, t, site.key);
   if (force || key !== wxKey || Date.now() - wxAt > 180e3) {
     if (key !== wxKey) wxReal = null;
     wxKey = key;

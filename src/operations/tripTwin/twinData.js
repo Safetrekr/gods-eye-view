@@ -714,11 +714,11 @@ export function formatDistance(m, unit = distanceUnit) {
     // Feet up to 1,500 ft (0.3 mi reads too coarse for a walk); yards to 1,000.
     return v < (unit === 'ft' ? 1500 : 1000)
       ? `${(Math.round(v / 10) * 10).toLocaleString('en-US')} ${unit}`
-      : `${(m / 1609.344).toFixed(1)} mi`;
+      : `${(m / 1609.344).toFixed(m < 160934 ? 1 : 0)} mi`;
   }
   return m < 1000
     ? `${Math.round(m / 10) * 10} m`
-    : `${(m / 1000).toFixed(1)} km`;
+    : `${(m / 1000).toFixed(m < 100000 ? 1 : 0)} km`;
 }
 
 /** Rule distances ("within 1 km", "10 km watch") without a trailing ".0". */
@@ -910,10 +910,12 @@ const GROUP_LABEL = {
   not_current: () => 'Not current',
   alone: () => 'Unaccompanied or outside group zone',
   not_located: () => 'Not located',
+  // Fire boundaries (review/hazards H5).
+  near_fire: () => 'Within 1 km of a fire boundary (NIFC)',
 };
 
 /** Reason a row needs attention, one group per person (first match wins). */
-function groupFor(row, { incident, atOrAbove }) {
+function groupFor(row, { incident, atOrAbove, nearFire }) {
   const { pos, person, verdict } = row;
   if (incident && atOrAbove.has(person.id)) return 'at_or_above';
   if (!pos.located) return 'not_located';
@@ -924,6 +926,8 @@ function groupFor(row, { incident, atOrAbove }) {
       verdict.bucket === 'At hotel, undetermined')
   )
     return 'in_building';
+  // Inside or within 1 km of a fire boundary (hazards H5).
+  if (nearFire?.has(person.id)) return 'near_fire';
   if (person.unaccompanied || person.group_zone_state === 'outside')
     return 'alone';
   return null;
@@ -945,7 +949,7 @@ export function deriveMode(assessment, ctx = {}) {
   const atOrAbove = new Set([...byEstimate, ...byLast, ...assignedAbove]);
   const groups = {};
   for (const row of assessment.rows) {
-    const g = groupFor(row, { incident, atOrAbove });
+    const g = groupFor(row, { incident, atOrAbove, nearFire: ctx.nearFire });
     if (!g) continue;
     (groups[g] ||= []).push(row);
   }
@@ -969,8 +973,15 @@ export function deriveMode(assessment, ctx = {}) {
     ).length,
   };
   const order = incident
-    ? ['at_or_above', 'in_building', 'not_current', 'alone', 'not_located']
-    : ['alone', 'not_current', 'not_located'];
+    ? [
+        'at_or_above',
+        'in_building',
+        'not_current',
+        'alone',
+        'near_fire',
+        'not_located',
+      ]
+    : ['alone', 'near_fire', 'not_current', 'not_located'];
   // In a report a person sits in the first group that fits; when that
   // leaves a count short of People's, the heading says so (S3 reviews:
   // People "4 not current" beside "Not current 3").
@@ -990,7 +1001,7 @@ export function deriveMode(assessment, ctx = {}) {
     .filter((k) => groups[k]?.length)
     .map((k) => ({
       key: k,
-      label: `${GROUP_LABEL[k](ctx.reportedLabel)}${listedAbove[k] ? ' · not listed above' : ''}`,
+      label: `${GROUP_LABEL[k](ctx.reportedLabel)}${k === 'near_fire' && ctx.nearFireSim ? ' · SIMULATED' : ''}${listedAbove[k] ? ' · not listed above' : ''}`,
       rows: groups[k],
     }));
   const total = list.reduce((n, g) => n + g.rows.length, 0);
@@ -1019,7 +1030,7 @@ export function deriveMode(assessment, ctx = {}) {
   } else if (degraded) {
     topLine = `Traveler data delayed ${formatAge(ctx.delayedS)} — counts as of ${ctx.asOf}; positions shown one state older`;
   } else if (mode === 'watch') {
-    topLine = `${ctx.hazard.text} — check paths and outdoor plans`;
+    topLine = `${ctx.hazard.text} — ${ctx.hazard.next || 'check paths and outdoor plans'}`;
   } else if (total) {
     const first = list[0].rows[0];
     const reason =

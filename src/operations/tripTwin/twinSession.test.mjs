@@ -12,6 +12,7 @@ import {
   applyUndo,
   createSession,
   needsConfirm,
+  SIM_KEYS,
   previewAll,
 } from './twinSession.js';
 import {
@@ -492,4 +493,25 @@ test('phase 12: demo storm asks first and Return all ends it', () => {
   assert.equal(s.session.simStorm, 123);
   s = applyCommand(s, { type: 'returnLive' }).state;
   assert.equal(s.session.simStorm, null);
+});
+
+test('hazards H5: the fire and hurricane demos ask first, and Return all ends every demo', () => {
+  assert.deepEqual(SIM_KEYS, ['simStorm', 'simFire', 'simCyclone']);
+  for (const k of ['simFire', 'simCyclone']) {
+    assert.equal(needsConfirm({ type: 'session', patch: { [k]: 1 } }), true);
+    assert.equal(
+      needsConfirm({ type: 'session', patch: { [k]: null } }),
+      false,
+    );
+  }
+  let s = applyCommand(createSession({ count: 4 }), {
+    type: 'session',
+    patch: { simStorm: 1, simFire: 2, simCyclone: 3 },
+  }).state;
+  assert.deepEqual([s.session.simFire, s.session.simCyclone], [2, 3]);
+  const r = applyCommand(s, { type: 'returnLive' });
+  for (const k of SIM_KEYS) assert.equal(r.state.session[k], null, k);
+  // Undo brings each back (field-level, its own start time).
+  assert.equal(r.undo.session.simFire, 2);
+  assert.equal(r.undo.session.simCyclone, 3);
 });

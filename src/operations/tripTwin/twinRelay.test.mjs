@@ -619,3 +619,49 @@ test('upgrade today: only a loopback peer can start a setup through the real han
     v.close();
   }
 });
+
+test('hazards H5: each demo keeps its own layer on at a wall; the host ends a demo after 45 min', () => {
+  let t = 1_000_000;
+  const relay = createRelay({ now: () => t });
+  const launcher = fakeSocket();
+  relay.attach(launcher);
+  launcher.say({ t: 'setup', count: 4 });
+  const { setup } = launcher.last('setup');
+  const s4 = fakeSocket();
+  relay.attach(s4);
+  s4.say({ t: 'hello', id: 'S4', kind: 'screen', setup, slot: 4 });
+  const remote = fakeSocket();
+  relay.attach(remote);
+  remote.say({ t: 'hello', id: 'R', kind: 'remote', setup, name: 'iPad' });
+  let req = 0;
+  const wall = (patch) => {
+    s4.say({
+      t: 'screen-cmd',
+      reqId: ++req,
+      cmd: { type: 'screens', target: 4, patch },
+    });
+    return s4.last('ack');
+  };
+  assert.equal(wall({ layers: { fireBounds: false } }).ok, true);
+  assert.equal(wall({ layers: { fireBounds: true } }).ok, true);
+  remote.say({
+    t: 'cmd',
+    reqId: ++req,
+    cmd: { type: 'session', patch: { simFire: t, simCyclone: t } },
+  });
+  let r = wall({ layers: { fireBounds: false } });
+  assert.equal(r.code, 'SAFETY_LAYER');
+  r = wall({ layers: { tropical: false } });
+  assert.equal(r.code, 'SAFETY_LAYER');
+  // 44 min: still on. 45 min: the host ends both, for every wall at once.
+  t += 44 * 60e3;
+  relay.presenceTick();
+  assert.equal(s4.last('state').state.session.simFire, t - 44 * 60e3);
+  t += 60e3;
+  relay.presenceTick();
+  const ss = s4.last('state').state.session;
+  assert.equal(ss.simFire, null);
+  assert.equal(ss.simCyclone, null);
+  assert.equal(s4.last('state').state.session.meta.simFire.by, 'D0');
+  assert.equal(wall({ layers: { fireBounds: false } }).ok, true);
+});

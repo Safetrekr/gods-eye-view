@@ -144,6 +144,7 @@ export function summarizeMet(json, now = Date.now()) {
     },
     precipMmH: n1?.details?.precipitation_amount ?? null,
     windMs: d.wind_speed ?? null,
+    windFromDeg: d.wind_from_direction ?? null,
     symbol: n1?.summary?.symbol_code || null,
     condition: conditionText(n1?.summary?.symbol_code),
   };

@@ -90,7 +90,8 @@ export const MSG_TYPES = Object.freeze([
 // Protocol version (S-15, review U-B1, ET S1). Every slice that changes a
 // message shape raises PROTO and sets PROTO_MIN = PROTO: K5 → 2, K7 → 3,
 // wall keyboard commands (shell D5) → 4, the wall menu's layout
-// (screens/05-S1-PLAN) → 5, then K9 → 6, K10 → 7, K11 → 8. A hello below PROTO_MIN (or with no `proto`:
+// (screens/05-S1-PLAN) → 5, the hazard demos (review/hazards H5) → 6, then
+// K9 → 7, K10 → 8, K11 → 9. A hello below PROTO_MIN (or with no `proto`:
 // every page from before K5) is refused RELOAD with text an old page can
 // show. twinProtocol.test.mjs keeps one schema hash per PROTO: a shape
 // change without a bump fails it.
@@ -106,11 +107,12 @@ export const MSG_TYPES = Object.freeze([
  * 'keyboard'. 5 (wall menu, screens/05-S1-PLAN): every screen in the
  * state carries `layout` {cards, width, order, off}; a wall's own command may set
  * it, and is refused PINNED, VISITOR, SAFETY_LAYER or VIEW_ONLY; the
- * session carries `wallControls` (false = every wall view only).
+ * session carries `wallControls` (false = every wall view only). 6 (hazards
+ * H5): the session carries `simFire` and `simCyclone` beside `simStorm`.
  */
-export const PROTO = 5;
+export const PROTO = 6;
 /** The oldest page the relay still talks to. */
-export const PROTO_MIN = 5;
+export const PROTO_MIN = 6;
 
 /** True when a page says a protocol this relay still talks to. */
 export const protoOk = (proto) => Number.isInteger(proto) && proto >= PROTO_MIN;
@@ -367,6 +369,8 @@ export const REVIEW_ITEMS = Object.freeze([
   'light',
   'forecast',
   'alerts',
+  // Fire boundaries and hurricanes at the stop (review/hazards H5).
+  'hazards',
 ]);
 /** At most this many ticks are kept (the oldest go first). */
 export const REVIEW_MAX = 300;

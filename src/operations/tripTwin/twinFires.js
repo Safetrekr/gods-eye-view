@@ -94,7 +94,17 @@ export function fireSummary(center, records, now = Date.now()) {
   };
 }
 
-export function drawFires(viewer, site, records, now = Date.now()) {
+/**
+ * `owned`: detections a fire boundary claims (hazards H5): drawn as faint
+ * outlines so the eye does not count the same fire twice.
+ */
+export function drawFires(
+  viewer,
+  site,
+  records,
+  now = Date.now(),
+  { owned = null } = {},
+) {
   const ds = new Cesium.CustomDataSource('trip-twin-fires');
   const added = viewer.dataSources.add(ds); // resolves in a microtask
   const { projector, field } = site;
@@ -119,7 +129,8 @@ export function drawFires(viewer, site, records, now = Date.now()) {
         field.at(cx, cy) + 0.6,
       );
     });
-    const alpha = lowConf ? 0.1 : recent ? 0.3 : 0.14;
+    const claimed = owned?.has(r);
+    const alpha = claimed ? 0 : lowConf ? 0.1 : recent ? 0.3 : 0.14;
     ds.entities.add({
       id: `twin-fire:${r.index}`,
       polygon: {
@@ -131,12 +142,15 @@ export function drawFires(viewer, site, records, now = Date.now()) {
         positions: corners,
         width: 1.5,
         arcType: Cesium.ArcType.NONE,
-        material: recent
-          ? css('#ee7789', 0.9)
-          : new Cesium.PolylineDashMaterialProperty({
-              color: css('#ee7789', 0.7),
-              dashLength: 10,
-            }),
+        // Claimed by a fire boundary: the fire's amber, faint (hazards X24).
+        material: claimed
+          ? css('#f59e0b', 0.5)
+          : recent
+            ? css('#ee7789', 0.9)
+            : new Cesium.PolylineDashMaterialProperty({
+                color: css('#ee7789', 0.7),
+                dashLength: 10,
+              }),
       },
     });
     ds.entities.add({

@@ -14,6 +14,7 @@ import { UNKNOWN_TEXT, floorText, initialsOf } from './twinPeople.js';
 import { arriveBy, HAZARD_NEAR_M } from './twinPaths.js';
 import { ringKind } from './twinPins.js';
 import { avoidCrossings } from './twinCustomPaths.js';
+import { pathFireHit, pathFireText } from './twinHazards.js';
 
 // SOC walls (phase 10): names as "Emi S."; visitor mode, initials only.
 // The console keeps full names (identity function).
@@ -89,6 +90,7 @@ function rowReason(row, groupKey, ctx) {
     return ft || 'Floor unknown';
   }
   if (groupKey === 'not_located') return 'No location reported';
+  if (groupKey === 'near_fire') return 'Near a fire boundary · NIFC';
   if (groupKey === 'alone')
     return row.person.unaccompanied
       ? 'Unaccompanied · outside group zone'
@@ -114,6 +116,7 @@ export function pathCards(
     simulated = false,
     pace = null,
     areas = [],
+    fireBounds = [],
   } = {},
 ) {
   const cards = paths.map((p) => {
@@ -123,11 +126,15 @@ export function pathCards(
       p.hazard.distanceM <= HAZARD_NEAR_M;
     const entered =
       p.kind !== 'unavailable' ? avoidCrossings(p.geometry || [], areas) : [];
+    // Fire boundaries (hazards X1): a path through or beside one is flagged.
+    const fire =
+      p.kind !== 'unavailable' ? pathFireHit(p.geometry, fireBounds) : null;
     return {
       p,
-      flagged: Boolean(flagged) || entered.length > 0,
+      flagged: Boolean(flagged) || entered.length > 0 || Boolean(fire),
       heat: Boolean(flagged),
       entered,
+      fire,
     };
   });
   cards.sort(
@@ -136,7 +143,7 @@ export function pathCards(
       (a.p.kind === 'primary' ? -1 : 1),
   );
   let arriveShown = false;
-  return cards.map(({ p, flagged, entered, heat }) => {
+  return cards.map(({ p, flagged, entered, heat, fire }) => {
     // Paths rank Main / Alternate; "primary" is a rally point's rank
     // (review/phase9 O9).
     const name =
@@ -152,6 +159,7 @@ export function pathCards(
     const lines = [
       'Suggested · unverified · not checked for closures, crowds or lighting',
     ];
+    if (fire) lines.push(pathFireText(fire));
     if (heat)
       lines.push(
         `Within ${formatRadius(1000)} of a ${simulated ? 'SIMULATED ' : ''}heat detection (${formatDistance(p.hazard.distanceM)} ${bearingLabel(p.geometry[p.hazard.index], p.hazard.hazard)}) — check before use`,
@@ -679,13 +687,35 @@ export function createHud({
     // ---- Hazards (above Safety & paths, as in Layers; 04-ia §4) ----
     // Worst first (review/shell X10): an approach or an official warning
     // leads the closed line; heat detections otherwise.
+    // Then a fire boundary or a cone at amber (hazards H5), then heat.
     hazardsCard.line.textContent =
       ctx.weather?.approach?.text ||
       ctx.weather?.official?.[0] ||
+      ctx.hazardLead ||
       ctx.fires?.line ||
       'Satellite heat detections · loading';
+    // With a fire or a cone at amber, the body opens on their own lines
+    // (amber headline first): the closed line is not said twice (brand R2).
+    const hzLead =
+      Boolean(ctx.hazardLead) &&
+      !ctx.weather?.approach &&
+      !ctx.weather?.official?.length;
     hazardsCard.body.replaceChildren(
-      el('div', 'tt-line', hazardsCard.line.textContent),
+      ...(hzLead ? [] : [el('div', 'tt-line', hazardsCard.line.textContent)]),
+      ...(ctx.hazardLines || [])
+        .filter(
+          (l) => l.text && (hzLead || l.text !== hazardsCard.line.textContent),
+        )
+        .map((l) =>
+          el(
+            'div',
+            `tt-line${l.tone === 'warn' ? ' warn' : l.tone === 'dim' ? ' dim' : ''}`,
+            l.text,
+          ),
+        ),
+      ...(ctx.hazardLead && ctx.fires?.line
+        ? [el('div', 'tt-line', ctx.fires.line)]
+        : []),
       ...(ctx.fires?.details || []).map((l) => el('div', 'tt-line', l)),
     );
 
@@ -697,6 +727,7 @@ export function createHud({
         simulated: ctx.fires?.simulated,
         pace: ctx.weather?.pace,
         areas: ctx.avoidAreas || [],
+        fireBounds: ctx.fireBounds || [],
       });
       safetyCard.cnt.textContent = pc.length ? String(pc.length) : '';
       safetyCard.line.textContent = pc[0]
@@ -738,7 +769,7 @@ export function createHud({
       const state = {
         needs: incidentNow ? 'hazard' : m.total ? 'attention' : '',
         people: c['Not current'] || c['Not located'] ? 'attention' : '',
-        hazards: hasNear || wxAttn ? 'attention' : '',
+        hazards: hasNear || wxAttn || ctx.hazards?.check ? 'attention' : '',
         safety: '',
         sources: m.degraded ? 'attention' : '',
       };
@@ -1023,6 +1054,7 @@ export function createHud({
       simulated: ctx.fires?.simulated,
       pace: ctx.weather?.pace,
       areas: ctx.avoidAreas || [],
+      fireBounds: ctx.fireBounds || [],
     });
     if (moveCards[0])
       incident.append(
@@ -1379,6 +1411,7 @@ export function responderText(ctx) {
     simulated: ctx.fires?.simulated,
     pace: ctx.weather?.pace,
     areas: ctx.avoidAreas || [],
+    fireBounds: ctx.fireBounds || [],
   })[0];
   if (p) lines.push('', p.title, ...p.lines);
   lines.push(

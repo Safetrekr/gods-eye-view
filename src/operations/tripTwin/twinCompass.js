@@ -72,6 +72,13 @@ export function createCompass({ onView, onNorthUp }) {
   north.className = 'tt-compass-north';
   north.setAttribute('aria-hidden', 'true');
   dial.append(north);
+  // Off-scene hazards at amber (hazards H4): a tick on the dial's edge
+  // toward each, turning with the dial; at most two.
+  const hzLayer = document.createElement('div');
+  hzLayer.className = 'tt-compass-hzs';
+  hzLayer.setAttribute('aria-hidden', 'true');
+  dial.append(hzLayer);
+  const baseLabel = root.getAttribute('aria-label');
   const center = document.createElement('button');
   center.type = 'button';
   center.className = 'tt-compass-center';
@@ -83,8 +90,33 @@ export function createCompass({ onView, onNorthUp }) {
   caption.setAttribute('aria-hidden', 'true'); // buttons carry the names
   root.append(dial, center, caption);
   let last = null;
+  let lastHz = '';
   return {
     el: root,
+    /** items: [{deg, kind: 'fire'|'cyclone', label}] (at most two shown). */
+    setHazards(items = []) {
+      const list = items.filter((i) => Number.isFinite(i.deg)).slice(0, 2);
+      const key = list.map((i) => `${i.kind}:${Math.round(i.deg)}`).join('|');
+      if (key === lastHz) return;
+      lastHz = key;
+      hzLayer.replaceChildren(
+        ...list.map((i) => {
+          const arm = document.createElement('span');
+          arm.className = 'tt-compass-hzarm';
+          arm.style.transform = `rotate(${Math.round(i.deg)}deg)`;
+          const tick = document.createElement('span');
+          tick.className = `tt-compass-hz ${i.kind}`;
+          arm.append(tick);
+          return arm;
+        }),
+      );
+      root.setAttribute(
+        'aria-label',
+        list.length
+          ? `${baseLabel} · ${list.map((i) => i.label).join(' · ')}`
+          : baseLabel,
+      );
+    },
     /** pitch (radians, optional): near straight down reads as plan view. */
     update(headingDeg, pitch = null) {
       const h = Math.round(norm(headingDeg));
