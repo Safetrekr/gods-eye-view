@@ -36,7 +36,7 @@ const DOC_PRIME = {
   stop_demo: { type: 'session', patch: { simStorm: SAMPLE_NOW } },
   reset_screen: {
     type: 'screens',
-    target: 2,
+    target: 'all',
     patch: { layers: { streets: true } },
   },
   return_all_live: {
@@ -126,7 +126,10 @@ export async function buildFitzroyOutputs(root) {
     twin: {
       state: () => state,
       now: () => SAMPLE_NOW,
-      lastUndo: () => ({ undoId: 'u-sample' }),
+      lastUndo: () => ({ undoId: 'u-sample', before: base }),
+      incidentOpen: () => Boolean(state.session.report),
+      tripDays: () => 3,
+      reportedFloor: () => state.session.report?.floor ?? null,
       names: {
         person: (id) => people.get(id) || null,
         place: (id) => places.get(id) || null,

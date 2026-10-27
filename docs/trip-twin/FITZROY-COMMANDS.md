@@ -26,7 +26,7 @@ Fitzroy says: read from the Austin demo, six screens (1 Site, 2 People, 3 Incide
 | `frame_screen` | "Frame the storm on the weather screen" | `screens 4 {frame:{subject:{kind:storm},nonce:1792681200000}}` | act | Screen 4, Weather: frames the storm. |
 | `set_screen_motion` | "Stop the movement on screen one" | `screens 1 {motion:{live:false,event:false,cine:false}}` | act | Screen 1, Site: motion off. |
 | `pin_screen` | "Keep screen six as it is" | `screens 6 {pinned:true}` | act | Screen 6, Trips: pinned. |
-| `reset_screen` | "Reset everything" | `reset all` | act / ask first | Screen 2, People: back to role defaults. Reset now? |
+| `reset_screen` | "Reset everything" | `reset all` | act / ask first | Every screen: back to role defaults. Reset now? |
 
 ## Wall
 
@@ -105,7 +105,7 @@ Fitzroy says: read from the Austin demo, six screens (1 Site, 2 People, 3 Incide
 | 3 | `step_screen_text` {screen:2,direction:up} | act |
 | 4 | `step_screen_text` {screen:2,direction:down} | act |
 | 5 | `set_screen_layer` {screen:1,layer:streets,on:true} · site → 1 | act |
-| 6 | `set_screen_layer` {screen:4,layer:fires,on:false} · refused while a report is open | refused |
+| 6 | `set_screen_layer` {screen:4,layer:fires,on:false} · refused while a report is open | act |
 | 7 | `set_screen_scale` {screen:1,scale:neighborhood} | act |
 | 8 | `set_screen_scale` {screen:1,scale:building} | act |
 | 9 | `set_screen_role` {screen:5,role:day} | act |

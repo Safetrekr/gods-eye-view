@@ -13,10 +13,14 @@
 // words, and a raised question says why.
 import { composeCatalog } from '../../../tools/catalog.js';
 import { describeCommand } from '../twinDescribe.js';
-import { SIM_KEYS } from '../twinSession.js';
 import { FITZROY_COMMANDS } from './fitzroyCommands.js';
 import { FITZROY_POLICY } from './fitzroyCommand.js';
-import { ACTOR_FIELDS, lowersProtection, tierFor } from './fitzroyPolicy.js';
+import {
+  ACTOR_FIELDS,
+  lowersProtection,
+  tierFor,
+  undoLowers,
+} from './fitzroyPolicy.js';
 import { closedQuestion, speakChange } from './fitzroySpeech.js';
 
 const policyOf = (name) => FITZROY_POLICY.get(name);
@@ -29,23 +33,8 @@ const refusal = (data, code, say, tier = 'refused') => ({
   refusal: { code, say },
 });
 
-/** Would undoing this change make the wall less safe? (Visitor off, a demo back.) */
-function undoLowers(last) {
-  if (!last?.message?.cmd || !last.before) return false;
-  const change = describeCommand(last.message.cmd, last.before);
-  return Boolean(
-    change?.parts.some(
-      (p) =>
-        (p.field === 'visitor' && p.to?.value === true) ||
-        (SIM_KEYS.includes(p.field) &&
-          p.to?.value == null &&
-          last.before.session?.[p.field]),
-    ),
-  );
-}
-
 /** The guard: one outermost interceptor (upstream `(call, next)`). */
-export function fitzroyGuard(twin) {
+export function fitzroyGuard(twin, unsure = new WeakSet()) {
   return async (call, next) => {
     const state = twin.state();
     const policy = policyOf(call.tool.name);
@@ -54,7 +43,10 @@ export function fitzroyGuard(twin) {
         summary: NOTHING,
         data: refusal({}, 'no_state', NOTHING),
       };
-    const ctx = { incidentOpen: Boolean(twin.incidentOpen?.()) };
+    const ctx = {
+      incidentOpen: Boolean(twin.incidentOpen()),
+      fuzzy: unsure.has(call.args),
+    };
     const result = await next(call);
     const data = { ...result.data };
     const base = tierFor(policy, call.args, null, state, ctx).tier;
@@ -66,8 +58,10 @@ export function fitzroyGuard(twin) {
     const msg = data.message;
     if (!msg) return { ...result, data: { ...data, tier: base } };
     if (msg.t === 'undo') {
-      // Undo by voice never takes back a protective change (F16 P0-1).
-      if (undoLowers(twin.lastUndo?.()))
+      // Undo by voice never makes the wall less safe, never changes what
+      // touch asks about, and never goes ahead without the record (F16, F13).
+      const last = twin.lastUndo();
+      if (!last?.before || undoLowers(state, last.before, ctx))
         return {
           ...result,
           data: refusal(
@@ -143,15 +137,36 @@ export function fitzroyGuard(twin) {
  * placeWord(id)}}.
  */
 export function createFitzroyCatalog({ twin }) {
+  // Every check needs its source: a missing one would let things through
+  // silently (F13/F14 R2), so it is refused at creation.
+  for (const k of [
+    'state',
+    'now',
+    'lastUndo',
+    'incidentOpen',
+    'tripDays',
+    'reportedFloor',
+  ])
+    if (typeof twin?.[k] !== 'function')
+      throw new TypeError(`Fitzroy needs twin.${k}()`);
+  if (
+    typeof twin.names?.person !== 'function' ||
+    typeof twin.names?.place !== 'function'
+  )
+    throw new TypeError('Fitzroy needs twin.names.person() and .place()');
+  const unsure = new WeakSet();
   const catalog = composeCatalog({
     tools: FITZROY_COMMANDS.map((c) => c.tool),
     services: { twin },
-    interceptors: [fitzroyGuard(twin)],
+    interceptors: [fitzroyGuard(twin, unsure)],
   });
-  async function propose(name, args = {}) {
+  /** o.fuzzy: the resolver was not sure of a name (the tier is raised). */
+  async function propose(name, args = {}, o = {}) {
     const rev = twin.state()?.rev ?? null;
     let r;
     try {
+      // The hint rides beside the arguments (upstream's schema is strict).
+      if (o.fuzzy) unsure.add(args);
       r = await catalog.call(name, args);
     } catch {
       // A slot the model got wrong is said, never silence (F11 P1-2).
@@ -205,7 +220,9 @@ export function createFitzroyCatalog({ twin }) {
         return {
           ...proposal,
           stale: true,
+          tier: 'refused',
           message: null,
+          question: null,
           say: 'The wall changed. Ask again.',
         };
       return propose(proposal.name, proposal.args);

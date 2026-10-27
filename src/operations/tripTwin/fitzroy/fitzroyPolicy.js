@@ -84,6 +84,8 @@ export function tierFor(policy, args, message, state, ctx = {}) {
   if (base === 'ask') return { tier: 'ask', why: null };
   const cmd = message?.t === 'cmd' ? message.cmd : null;
   if (cmd && needsConfirm(cmd)) return { tier: 'ask', why: null };
+  // A name the resolver was not sure of is asked about (§3.2 fuzzy).
+  if (ctx.fuzzy) return { tier: 'ask', why: 'I may have misheard the name' };
   const incident = incidentOpen(state, ctx);
   if (cmd?.type === 'screens') {
     const slots = targets(cmd, state);
@@ -115,6 +117,41 @@ export function tierFor(policy, args, message, state, ctx = {}) {
   )
     return { tier: 'ask', why: 'An incident is open' };
   return { tier: 'act', why: null };
+}
+
+/**
+ * Would going back from `now` to `before` (an undo) make the wall less
+ * safe, or change what touch asks about first? Returns why, or null. The
+ * whole wall is compared, so anything that differs is caught; a record
+ * that is missing is refused by the caller (fails closed: F13/F16 R2).
+ */
+export function undoLowers(now, before, ctx = {}) {
+  if (!now?.session || !before?.session) return 'no record';
+  const a = now.session;
+  const b = before.session;
+  const same = (x, y) =>
+    JSON.stringify(x ?? null) === JSON.stringify(y ?? null);
+  if (a.visitor && !b.visitor) return 'visitor off';
+  if (!same(a.report, b.report)) return 'report';
+  if (!same(a.incidentAck, b.incidentAck)) return 'acknowledgement';
+  for (const k of SIM_KEYS) if (!a[k] && b[k]) return 'demo started';
+  if (a.wallControls === false && b.wallControls !== false)
+    return 'wall controls on';
+  if (!same(a.tripId, b.tripId) || !same(a.siteKey, b.siteKey))
+    return 'trip or site';
+  if ((now.count ?? null) !== (before.count ?? null)) return 'screen count';
+  const incident = incidentOpen(now, ctx);
+  for (const [slot, sa] of Object.entries(now.screens || {})) {
+    const sb = before.screens?.[slot] || {};
+    if (sa.pinned && !sb.pinned) return 'unpinned';
+    for (const k of SAFETY_LAYERS)
+      if (incident && sa.layers?.[k] === true && sb.layers?.[k] !== true)
+        return 'safety layer off';
+    for (const [sim, k] of Object.entries(DEMO_LAYERS))
+      if (a[sim] && sa.layers?.[k] === true && sb.layers?.[k] !== true)
+        return 'demo layer off';
+  }
+  return null;
 }
 
 /** Is this proposal protective (always act, no speaker check)? */

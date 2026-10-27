@@ -12,7 +12,9 @@ import {
   SCREENS_ALL,
 } from './fitzroyCommands.js';
 import { createFitzroyCatalog } from './fitzroyCatalog.js';
-import { lowersProtection } from './fitzroyPolicy.js';
+import { lowersProtection, undoLowers } from './fitzroyPolicy.js';
+import { ACTOR_FIELDS } from '../twinProtocol.js';
+import { fitzroyGuard } from './fitzroyCatalog.js';
 import { V0_CARDS } from './fitzroyCards.js';
 import { YES_WORDS, speakable } from './fitzroySpeech.js';
 import { toLlamaSchema } from './fitzroyExport.js';
@@ -30,10 +32,14 @@ function catalogOn(state, extra = {}) {
       twin: {
         state: () => st,
         now: () => NOW,
-        lastUndo: () => ({ undoId: 'u1' }),
+        lastUndo: () => ({ undoId: 'u1', before: st }),
+        incidentOpen: () => Boolean(st?.session?.report),
+        tripDays: () => 3,
+        reportedFloor: () => st?.session?.report?.floor ?? null,
         names: {
-          person: (id) => (id === 'twin-NF' ? 'Noah Fox' : null),
-          place: () => null,
+          person: (id) =>
+            ({ 'twin-NF': 'Noah Fox', 'twin-JP': 'Jay Patel' })[id] || null,
+          place: (id) => (/^sp-austin-/.test(id) ? 'A place' : null),
         },
         ...extra,
       },
@@ -96,8 +102,7 @@ test('every sampled proposal applies cleanly, never carries an actor field, and 
       if (!p.message || p.message.t !== 'cmd') continue;
       const r = applyCommand(fresh(), p.message.cmd, { at: NOW });
       assert.equal(r.error, undefined, `${entry.tool.name}: ${r.error}`);
-      for (const k of ['by', 'via', 'proposalId'])
-        assert.equal(k in p.message.cmd, false);
+      for (const k of ACTOR_FIELDS) assert.equal(k in p.message.cmd, false);
       assert.equal(lowersProtection(p.message, fresh()), null, entry.tool.name);
       // Voice never asks less than touch.
       if (needsConfirm(p.message.cmd))
@@ -447,7 +452,7 @@ test('words in a demo: Simulated first for the storm frame; demos named when Ret
   );
   assert.match(
     (await cat.propose('return_all_live')).question,
-    /The simulated storm and fire boundary ends\. Return now\?$/,
+    /The simulated storm and fire boundary end\. Return now\?$/,
   );
   assert.equal(
     (await cat.propose('stop_demo')).say,
@@ -588,4 +593,146 @@ test('the whole import graph stays free of Cesium and node: (F13 P1-3)', () => {
   walk(new URL('./fitzroyExport.js', import.meta.url));
   assert.deepEqual(bad, []);
   assert.ok(![...seen].some((u) => u.endsWith('/tools/index.js')));
+});
+
+// ---------------------------------------------------------------- round 2
+
+test('undo is checked against the whole wall and fails closed (F13/F16 round 2)', async () => {
+  const base = fresh();
+  const cases = [
+    ['a report opened since', { type: 'session', patch: { report: REPORT } }],
+    ['a pin', { type: 'screens', target: 3, patch: { pinned: true } }],
+    ['a screen count', { type: 'count', n: 4 }],
+  ];
+  for (const [label, cmd] of cases) {
+    const now = apply(base, cmd);
+    const { cat } = catalogOn(now, {
+      lastUndo: () => ({ undoId: 'u', before: base }),
+    });
+    assert.equal((await cat.propose('undo_last')).message, null, label);
+  }
+  // A safety layer voice turned on while an incident is open stays on.
+  const rep = apply(base, { type: 'session', patch: { report: REPORT } });
+  const on = apply(rep, {
+    type: 'screens',
+    target: 1,
+    patch: { layers: { safety: true } },
+  });
+  assert.equal(undoLowers(on, rep, {}), 'safety layer off');
+  // No record: refused.
+  const { cat } = catalogOn(base, { lastUndo: () => ({ undoId: 'u' }) });
+  assert.equal(
+    (await cat.propose('undo_last')).refusal.code,
+    'undo_protective',
+  );
+});
+
+test('every check needs its source: a missing hook is refused at creation', () => {
+  assert.throws(
+    () =>
+      createFitzroyCatalog({ twin: { state: () => fresh(), now: () => NOW } }),
+    /Fitzroy needs/,
+  );
+});
+
+test('the guard refuses an actor field or an undeclared field, whatever an entry builds', async () => {
+  defineCommand({
+    name: 'zz_stub_actor',
+    group: 'test',
+    title: 'stub',
+    description: 'stub',
+    tier: 'act',
+    emits: { type: 'session', fields: ['visitor'] },
+    build: () => ({}),
+  });
+  const twin = {
+    state: () => fresh(),
+    now: () => NOW,
+    incidentOpen: () => false,
+    lastUndo: () => null,
+  };
+  const guard = fitzroyGuard(twin);
+  const call = (cmd) =>
+    guard({ tool: { name: 'zz_stub_actor' }, args: {} }, async () => ({
+      summary: 'x',
+      data: { message: { t: 'cmd', cmd }, effect: 'relay' },
+    }));
+  assert.equal(
+    (await call({ type: 'session', patch: { visitor: true }, by: 'D1' })).data
+      .refusal.code,
+    'actor_field',
+  );
+  assert.equal(
+    (await call({ type: 'session', patch: { tripId: 'trip-band-dc' } })).data
+      .refusal.code,
+    'undeclared',
+  );
+});
+
+test('the safety sweep holds in every state, not only a fresh one', async () => {
+  const states = [
+    apply(fresh(), { type: 'session', patch: { report: REPORT } }),
+    apply(fresh(), {
+      type: 'session',
+      patch: { visitor: true, simStorm: NOW },
+    }),
+    apply(fresh(), { type: 'screens', target: 4, patch: { pinned: true } }),
+  ];
+  for (const st of states) {
+    const { cat } = catalogOn(st);
+    for (const entry of FITZROY_COMMANDS)
+      for (const args of samples(entry)) {
+        const p = await cat.propose(entry.tool.name, args);
+        if (!p.message || p.message.t !== 'cmd') continue;
+        assert.equal(
+          lowersProtection(p.message, st, {
+            incidentOpen: Boolean(st.session.report),
+          }),
+          null,
+          entry.tool.name,
+        );
+        if (needsConfirm(p.message.cmd))
+          assert.equal(p.tier, 'ask', entry.tool.name);
+      }
+  }
+});
+
+test('round 2 words and raises: a fuzzy name asks, the incident screen asks, demos named right, frame only the spotlit person', async () => {
+  const { cat, set } = catalogOn(fresh());
+  const fz = await cat.propose(
+    'spotlight_person',
+    { person: 'twin-JP' },
+    { fuzzy: true },
+  );
+  assert.equal(fz.tier, 'ask');
+  assert.match(fz.question, /^I may have misheard the name\. /);
+  set(apply(fresh(), { type: 'session', patch: { report: REPORT } }));
+  assert.equal(
+    (await cat.propose('set_screen_scale', { screen: '3', scale: 'city' }))
+      .tier,
+    'ask',
+  );
+  set(apply(fresh(), { type: 'session', patch: { simStorm: NOW } }));
+  assert.equal(
+    (await cat.propose('stop_demo', { hazard: 'fire' })).say,
+    "The simulated fire boundary isn't running. The simulated storm is on.",
+  );
+  set(
+    apply(fresh(), { type: 'session', patch: { simStorm: NOW, simFire: NOW } }),
+  );
+  assert.match(
+    (await cat.propose('return_all_live')).question,
+    /storm and fire boundary end\. Return now\?$/,
+  );
+  set(fresh());
+  assert.equal(
+    (
+      await cat.propose('frame_screen', {
+        screen: '1',
+        subject: 'person',
+        person: 'twin-NF',
+      })
+    ).say,
+    'Spotlight them first, then frame them.',
+  );
 });

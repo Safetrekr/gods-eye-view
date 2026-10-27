@@ -71,9 +71,7 @@ export function toAnswerKey(cards = V0_CARDS) {
               ? 'clarify'
               : FITZROY_POLICY.get(k.command)?.group === 'Fitzroy'
                 ? 'control'
-                : /^refused/.test(k.note || '')
-                  ? 'refused'
-                  : baseTier(k.command, k.args),
+                : k.expect || baseTier(k.command, k.args),
           ...(k.ask ? { ask: k.ask } : {}),
           ...(k.note ? { note: k.note } : {}),
         },

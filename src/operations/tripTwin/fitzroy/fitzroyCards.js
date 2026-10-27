@@ -2,12 +2,13 @@
 // to the catalog (review/fitzroy-commands F1 §7). Screens are resolved for
 // the default six-screen room (1 Site, 2 People, 3 Incident, 4 Weather,
 // 5 Day plan, 6 Trips). The generated answer key comes from here.
-const c = (card, command, args = {}, note = '') => ({
+const c = (card, command, args = {}, note = '', expect = null) => ({
   card,
   kind: 'command',
   command,
   args,
   note,
+  ...(expect ? { expect } : {}),
 });
 const none = (card, intent, note = '') => ({
   card,
@@ -44,6 +45,7 @@ export const V0_CARDS = Object.freeze([
     'set_screen_layer',
     { screen: '4', layer: 'fires', on: false },
     'refused while a report is open',
+    'act',
   ),
   c(7, 'set_screen_scale', { screen: '1', scale: 'neighborhood' }),
   c(8, 'set_screen_scale', { screen: '1', scale: 'building' }),
@@ -99,6 +101,7 @@ export const V0_CARDS = Object.freeze([
     'go_to_site',
     { site: 'london-abbey' },
     'refused other_trip; offers switch_trip',
+    'refused',
   ),
   c(47, 'spotlight_person', { person: 'twin-JP' }, 'only one Jay'),
   ...[48, 49, 50, 51, 52].map((n) => none(n, 'route', 'V4')),

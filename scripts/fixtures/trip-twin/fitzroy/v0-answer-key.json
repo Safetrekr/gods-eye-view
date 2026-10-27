@@ -63,7 +63,7 @@
       "layer": "fires",
       "on": false
     },
-    "tier": "refused",
+    "tier": "act",
     "note": "refused while a report is open"
   },
   {

@@ -143,7 +143,7 @@ const screens = [
     }),
     heard: { screen: 'screen' },
     tier: 'act',
-    raiseWhen: ['pinned'],
+    raiseWhen: ['pinned', 'reportOpen'],
     emits: { type: 'screens', fields: ['textScale'] },
     build(args, twin) {
       const miss = noScreen(args, twin);
@@ -179,7 +179,7 @@ const screens = [
     heard: { screen: 'screen' },
     tier: { one: 'act', all: 'ask' },
     verb: 'Apply',
-    raiseWhen: ['pinned'],
+    raiseWhen: ['pinned', 'reportOpen'],
     emits: { type: 'screens', fields: ['scale'] },
     build: (args, twin) =>
       noScreen(args, twin) || screensCmd(args, { scale: args.scale }),
@@ -269,7 +269,7 @@ const screens = [
     heard: { screen: 'screen' },
     tier: { one: 'act', all: 'ask' },
     verb: 'Apply',
-    raiseWhen: ['pinned'],
+    raiseWhen: ['pinned', 'reportOpen'],
     emits: { type: 'screens', fields: ['mode'] },
     build: (args, twin) =>
       noScreen(args, twin) || screensCmd(args, { mode: 'live' }),
@@ -295,7 +295,7 @@ const screens = [
     ),
     heard: { screen: 'screen', person: 'person' },
     tier: 'act',
-    raiseWhen: ['pinned'],
+    raiseWhen: ['pinned', 'reportOpen'],
     emits: { type: 'screens', fields: ['frame'] },
     build(args, twin) {
       const miss = noScreen(args, twin);
@@ -326,7 +326,15 @@ const screens = [
           return {
             refuse: { code: 'which_person', say: 'Who should it frame?' },
           };
-        if (twin.names?.person && !twin.names.person(args.person))
+        // Touch frames the spotlit person (stations.js): never anyone else.
+        if (st?.session?.spotlight?.id !== args.person)
+          return {
+            refuse: {
+              code: 'not_spotlit',
+              say: 'Spotlight them first, then frame them.',
+            },
+          };
+        if (!twin.names.person(args.person))
           return {
             refuse: {
               code: 'no_person',
@@ -391,7 +399,7 @@ const screens = [
     heard: { screen: 'screen' },
     tier: { one: 'act', all: 'ask' },
     verb: 'Reset',
-    raiseWhen: ['pinned'],
+    raiseWhen: ['pinned', 'reportOpen'],
     emits: { type: 'reset' },
     build: (args, twin) =>
       noScreen(args, twin) || { type: 'reset', target: target(args) },
@@ -517,7 +525,7 @@ const wall = [
     raiseWhen: ['reportOpen'],
     emits: { type: 'session', fields: ['spotlight'] },
     build: (args, twin) =>
-      twin.names?.person && !twin.names.person(args.person)
+      !twin.names.person(args.person)
         ? {
             refuse: {
               code: 'no_person',
@@ -543,7 +551,7 @@ const wall = [
     build(args, twin) {
       const id = `sp-${currentSite(twin)}-${PLACES[args.place]}`;
       // Only a place this site has (a venue has no relocation site).
-      if (twin.names?.place && !twin.names.place(id))
+      if (!twin.names.place(id))
         return {
           refuse: {
             code: 'no_place',
@@ -599,7 +607,7 @@ const wall = [
         ss.simFire && 'fire boundary',
         ss.simCyclone && 'hurricane',
       ].filter(Boolean);
-      return `Every screen, pinned ones too, back to Live and its role defaults${demos.length ? `. The simulated ${demos.join(' and ')} ends` : ''}`;
+      return `Every screen, pinned ones too, back to Live and its role defaults${demos.length ? `. The simulated ${demos.join(' and ')} ${demos.length > 1 ? 'end' : 'ends'}` : ''}`;
     },
     build: () => ({ type: 'returnLive' }),
     examples: [['Put everything back to live', {}]],
@@ -637,9 +645,11 @@ const protective = [
     already: (args, state) => {
       const ss = state?.session || {};
       const h = args.hazard || 'all';
-      const on =
-        h === 'all' ? Object.values(SIM_OF).some((k) => ss[k]) : ss[SIM_OF[h]];
-      return on ? null : 'No demo is running.';
+      const running = Object.keys(SIM_OF).filter((k) => ss[SIM_OF[k]]);
+      if (h === 'all') return running.length ? null : 'No demo is running.';
+      if (ss[SIM_OF[h]]) return null;
+      // Never "no demo" while another runs (F11/F16 R2).
+      return `The ${HAZARD_WORDS[h].replace(/^the demo /, 'simulated ')} isn't running.${running.length ? ` The ${running.map((k) => HAZARD_WORDS[k].replace(/^the demo /, 'simulated ')).join(' and ')} is on.` : ''}`;
     },
     emits: { type: 'session', fields: ['simStorm', 'simFire', 'simCyclone'] },
     build: (args) => ({
