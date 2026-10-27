@@ -3,6 +3,10 @@
 // what falls, how hard and where come from data (see twinWeatherTime.js and
 // PHASE-6-PLAN). Neutral white / grey only — blue means paths.
 import * as Cesium from 'cesium';
+import {
+  holdContinuousRender,
+  releaseContinuousRender,
+} from '../../renderGovernor.js';
 
 const css = (hex, a = 1) => Cesium.Color.fromCssColorString(hex).withAlpha(a);
 
@@ -118,10 +122,12 @@ export function createWeatherFx(viewer, site) {
       clockWas = { animate: clock.shouldAnimate, multiplier: clock.multiplier };
       clock.multiplier = 1;
       clock.shouldAnimate = true;
+      holdContinuousRender('twin-weather-fx');
     } else if (!on && clockWas) {
       clock.shouldAnimate = clockWas.animate;
       clock.multiplier = clockWas.multiplier;
       clockWas = null;
+      releaseContinuousRender('twin-weather-fx');
     }
   }
   function clearPrecip() {

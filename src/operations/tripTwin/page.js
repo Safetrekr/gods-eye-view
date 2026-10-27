@@ -7,6 +7,14 @@ import './tripTwin.instrument.css';
 import './tripTwin.walls.css';
 import { createMotion, MOTION_DEFAULTS } from './twinMotion.js';
 import { createStandaloneScene } from '../../standalone/scene.js';
+import {
+  getRenderGovernorDiagnostics,
+  governorRequestRender,
+  holdContinuousRender,
+  installRenderGovernor,
+  releaseContinuousRender,
+  uninstallRenderGovernor,
+} from '../../renderGovernor.js';
 import { createTripTwin, flightMs } from './tripTwin.js';
 import { TWIN_CITIES } from './twinCities.js';
 import {
@@ -294,6 +302,25 @@ async function main() {
   if (params.has('twinDebug')) viewer.scene.debugShowFramesPerSecond = true;
   window.testTwinViewer = viewer;
   window.testCesium = Cesium;
+  // Idle rendering (upstream src/renderGovernor.js): the map redraws only
+  // while something moves (holds: opening/closing, cine drift, weather
+  // particles, filming), on camera input and tile loads, on request, and
+  // twice a second as a heartbeat, so every data change reaches the screen
+  // within 0.5 s without each one asking. ?twinRender=continuous keeps the
+  // old always-on loop.
+  if (params.get('twinRender') === 'continuous')
+    holdContinuousRender('twin-pref');
+  if (params.has('film')) holdContinuousRender('twin-film');
+  installRenderGovernor(viewer);
+  const renderBeat = setInterval(
+    () => governorRequestRender('twin-heartbeat'),
+    500,
+  );
+  cleanups.push(() => {
+    clearInterval(renderBeat);
+    uninstallRenderGovernor(viewer);
+  });
+  window.testTwinRender = getRenderGovernorDiagnostics;
   // `city` is the site on screen (hotel or venue); the trip's city is cityKey.
   const SITES = sitesForCity(cityKey);
   let siteKey =
@@ -1943,6 +1970,10 @@ async function main() {
         ? ''
         : detail || state;
       document.body.dataset.twinState = state;
+      // The opening and closing animations need every frame.
+      if (['loading', 'entering', 'closing'].includes(state))
+        holdContinuousRender('twin-transition');
+      else releaseContinuousRender('twin-transition');
       // Harness only: hide the scene while primitives compile.
       $('tt-veil').classList.toggle('on', state === 'loading');
     },
@@ -7826,7 +7857,11 @@ async function main() {
         cam.rotateRight(step);
         cam.lookAtTransform(Cesium.Matrix4.IDENTITY);
       });
-      driftOff = () => off();
+      holdContinuousRender('twin-cine');
+      driftOff = () => {
+        off();
+        releaseContinuousRender('twin-cine');
+      };
     },
     applyRoleDefaults(role) {
       // Roles look different from across the room (review R7): weather
