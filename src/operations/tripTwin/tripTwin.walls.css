@@ -2789,3 +2789,7 @@ body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-map
 body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-map .tt-photo-plate.top {
   bottom: auto;
 }
+/* Traffic camera on S1/S5: the plate's slot and rules (T5). */
+body.tt-body[data-view='screen'].tt-wall-shell.tt-wall-map .tt-photo-plate.cam {
+  width: 300px;
+}

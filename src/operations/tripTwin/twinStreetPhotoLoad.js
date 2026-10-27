@@ -7,7 +7,7 @@
 const RETRY_MS = 60e3;
 const FRESH_MS = 6 * 3600e3;
 
-const keyOf = (t) => `${t.lat.toFixed(4)},${t.lon.toFixed(4)}`;
+const keyOf = (t) => `${t.lat.toFixed(4)},${t.lon.toFixed(4)},${t.r || ''}`;
 
 /**
  * @param {{onChange?: () => void, fetchImpl?: typeof fetch}} o
@@ -16,6 +16,9 @@ const keyOf = (t) => `${t.lat.toFixed(4)},${t.lon.toFixed(4)}`;
 export function createPhotoLoader({
   onChange = () => {},
   fetchImpl = (...a) => fetch(...a),
+  // Traffic cameras reuse this loader with their own route (T5).
+  url = (t) =>
+    `/api/twin-photos/near?lat=${t.lat.toFixed(5)}&lon=${t.lon.toFixed(5)}`,
 } = {}) {
   const results = new Map(); // key → {search, at}
   const pending = new Set();
@@ -24,9 +27,7 @@ export function createPhotoLoader({
   async function load(t, k) {
     pending.add(k);
     try {
-      const res = await fetchImpl(
-        `/api/twin-photos/near?lat=${t.lat.toFixed(5)}&lon=${t.lon.toFixed(5)}`,
-      );
+      const res = await fetchImpl(url(t));
       const search = res.ok
         ? await res.json()
         : { status: 'unavailable', items: [] };

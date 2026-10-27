@@ -751,3 +751,212 @@ test('hazards H5: each demo keeps its own layer on at a wall; the host ends a de
   assert.equal(s4.last('state').state.session.meta.simFire.by, 'D0');
   assert.equal(wall({ layers: { fireBounds: false } }).ok, true);
 });
+
+test('traffic cameras: one for the room, from the launcher; the remote may only stop it; it ends itself at 30 min (T5)', () => {
+  let t = 1_000_000;
+  const relay = createRelay({ now: () => t });
+  const launcher = fakeSocket();
+  relay.attach(launcher);
+  launcher.say({ t: 'setup', count: 6 });
+  const { setup } = launcher.last('setup');
+  const s1 = fakeSocket();
+  relay.attach(s1);
+  s1.say({ t: 'hello', id: 'S1', kind: 'screen', setup, slot: 1 });
+  const remote = fakeSocket();
+  relay.attach(remote);
+  remote.say({ t: 'hello', id: 'R', kind: 'remote', setup, name: 'iPad' });
+  const cam = () => s1.last('state').state.session.camera ?? null;
+  launcher.say({
+    t: 'camera',
+    tripId: 'trip-choir-austin',
+    place: 'hotel:austin',
+    role: 'site',
+    id: 'austin-1427',
+    initials: 'JT',
+  });
+  assert.deepEqual(Object.keys(cam()).sort(), [
+    'at',
+    'by',
+    'id',
+    'place',
+    'slot',
+    'tripId',
+  ]);
+  assert.equal(cam().slot, 1);
+  // A wall cannot send one (the remote's rule is tested below); bad fields
+  // are refused.
+  s1.say({ t: 'camera', place: 'hotel:austin', role: 'site', id: 'x' });
+  launcher.say({
+    t: 'camera',
+    place: 'hotel:austin',
+    role: 'weather',
+    id: 'x',
+  });
+  launcher.say({ t: 'camera', place: 'nowhere', role: 'site', id: 'x' });
+  launcher.say({
+    t: 'camera',
+    place: 'hotel:austin',
+    role: 'site',
+    id: '../x',
+  });
+  assert.equal(cam().id, 'austin-1427');
+  // Sending another replaces it: one camera for the room.
+  launcher.say({
+    t: 'camera',
+    place: 'stop:austin-long-center',
+    role: 'day',
+    id: 'austin-9',
+  });
+  assert.equal(cam().slot, 5);
+  // The remote cannot put one up through a session command…
+  let req = 0;
+  remote.say({ t: 'request-control' });
+  remote.say({
+    t: 'cmd',
+    reqId: ++req,
+    cmd: { type: 'session', patch: { camera: { slot: 2, id: 'evil' } } },
+  });
+  assert.equal(cam().id, 'austin-9');
+  // …but it can stop it.
+  remote.say({
+    t: 'cmd',
+    reqId: ++req,
+    cmd: { type: 'session', patch: { camera: null } },
+  });
+  assert.equal(cam(), null);
+  // 30 min after it was sent, the host ends it for every wall.
+  launcher.say({
+    t: 'camera',
+    place: 'hotel:austin',
+    role: 'site',
+    id: 'austin-1427',
+  });
+  t += 29 * 60e3;
+  relay.presenceTick();
+  assert.equal(cam()?.id, 'austin-1427');
+  t += 60e3;
+  relay.presenceTick();
+  assert.equal(cam(), null);
+});
+
+test('traffic cameras: a trip switch or a role change at its wall clears it; the launcher hears every change and a refusal (round 1)', () => {
+  const relay = createRelay();
+  const launcher = fakeSocket();
+  relay.attach(launcher);
+  launcher.say({ t: 'setup', count: 6 });
+  const { setup } = launcher.last('setup');
+  const s1 = fakeSocket();
+  relay.attach(s1);
+  s1.say({ t: 'hello', id: 'S1', kind: 'screen', setup, slot: 1 });
+  const remote = fakeSocket();
+  relay.attach(remote);
+  remote.say({ t: 'hello', id: 'R', kind: 'remote', setup, name: 'iPad' });
+  remote.say({ t: 'request-control' });
+  let req = 0;
+  const cmd = (c) => remote.say({ t: 'cmd', reqId: ++req, cmd: c });
+  const cam = () => s1.last('state').state.session.camera ?? null;
+  const told = () => launcher.last('camera-state');
+  launcher.say({ t: 'camera', place: 'hotel:austin', role: 'site', id: 'c-1' });
+  assert.equal(told().camera.id, 'c-1');
+  // A refusal is told back.
+  launcher.say({
+    t: 'camera',
+    place: 'hotel:austin',
+    role: 'weather',
+    id: 'c-2',
+  });
+  assert.match(told().refused, /wall is not valid/);
+  assert.equal(told().camera.id, 'c-1');
+  // A trip switch clears it, and the launcher hears.
+  cmd({ type: 'session', patch: { tripId: 'trip-youth-london' } });
+  assert.equal(cam(), null);
+  assert.equal(told().camera, null);
+  // A role change at its wall clears it.
+  launcher.say({ t: 'camera', place: 'hotel:london', role: 'site', id: 'c-3' });
+  assert.equal(cam().slot, 1);
+  cmd({ type: 'screens', target: 1, patch: { role: 'weather' } });
+  assert.equal(cam(), null);
+});
+
+test('traffic cameras: a wall stops only its own; fewer walls drop it; the launcher can ask (round 2)', () => {
+  const relay = createRelay();
+  const launcher = fakeSocket();
+  relay.attach(launcher);
+  launcher.say({ t: 'setup', count: 6 });
+  const { setup } = launcher.last('setup');
+  const walls = {};
+  for (const slot of [1, 5]) {
+    walls[slot] = fakeSocket();
+    relay.attach(walls[slot]);
+    walls[slot].say({
+      t: 'hello',
+      id: `S${slot}`,
+      kind: 'screen',
+      setup,
+      slot,
+    });
+  }
+  const remote = fakeSocket();
+  relay.attach(remote);
+  remote.say({ t: 'hello', id: 'R', kind: 'remote', setup, name: 'iPad' });
+  remote.say({ t: 'request-control' });
+  const cam = () => walls[1].last('state').state.session.camera ?? null;
+  let req = 0;
+  const wallStop = (slot) => {
+    walls[slot].say({
+      t: 'screen-cmd',
+      reqId: ++req,
+      cmd: { type: 'session', patch: { camera: null } },
+    });
+    return walls[slot].last('ack');
+  };
+  launcher.say({
+    t: 'camera',
+    place: 'stop:austin-long-center',
+    role: 'day',
+    id: 'c-9',
+  });
+  assert.equal(cam().slot, 5);
+  // S1 cannot stop S5's camera; S5 can.
+  assert.equal(wallStop(1).ok, false);
+  assert.equal(cam().slot, 5);
+  assert.equal(wallStop(5).ok, true);
+  assert.equal(cam(), null);
+  // The launcher asks: none, said plainly.
+  launcher.say({ t: 'camera', query: true });
+  assert.equal(launcher.last('camera-state').camera, null);
+  // Four walls: S5 goes, and its camera with it.
+  launcher.say({
+    t: 'camera',
+    place: 'stop:austin-long-center',
+    role: 'day',
+    id: 'c-9',
+  });
+  assert.equal(cam().slot, 5);
+  remote.say({ t: 'cmd', reqId: ++req, cmd: { type: 'count', count: 4 } });
+  assert.equal(cam(), null);
+});
+
+test('traffic cameras: the remote that holds control can send one; without control it cannot (Jesse, 27 Oct)', () => {
+  const relay = createRelay();
+  const launcher = fakeSocket();
+  relay.attach(launcher);
+  launcher.say({ t: 'setup', count: 6 });
+  const { setup } = launcher.last('setup');
+  const s1 = fakeSocket();
+  relay.attach(s1);
+  s1.say({ t: 'hello', id: 'S1', kind: 'screen', setup, slot: 1 });
+  const remote = fakeSocket();
+  relay.attach(remote);
+  remote.say({ t: 'hello', id: 'R', kind: 'remote', setup, name: 'iPad' });
+  const other = fakeSocket();
+  relay.attach(other);
+  other.say({ t: 'hello', id: 'R2', kind: 'remote', setup, name: 'Phone' });
+  const cam = () => s1.last('state').state.session.camera ?? null;
+  remote.say({ t: 'request-control' });
+  other.say({ t: 'camera', place: 'hotel:austin', role: 'site', id: 'c-x' });
+  assert.equal(cam(), null);
+  remote.say({ t: 'camera', place: 'hotel:austin', role: 'site', id: 'c-1' });
+  assert.equal(cam()?.id, 'c-1');
+  assert.equal(launcher.last('camera-state').camera.id, 'c-1');
+});

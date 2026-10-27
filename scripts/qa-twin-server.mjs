@@ -179,6 +179,8 @@ export async function startQaServer({
     TRIP_TWIN_AUDIT_DIR: auditDir,
     // Street photos from canned fixtures: QA never asks a provider (P5).
     TRIP_TWIN_PHOTOS: 'fixture',
+    // Traffic cameras from canned fixtures: QA never asks an agency (T5).
+    TRIP_TWIN_CAMERAS: 'fixture',
     QA_HOST: host,
     QA_PORT: String(port),
     QA_CACHE_DIR: cacheDir,

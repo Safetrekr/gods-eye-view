@@ -115,6 +115,103 @@ export function currentReport(state, data) {
 }
 
 // --------------------------------------------------------------- 01 Incident
+/**
+ * The traffic camera on the walls (review/traffic-cameras T5): which wall,
+ * its still, and Stop. Cameras are sent from the All-in-one.
+ */
+const CAMERA_WALL = {
+  site: 'the Site wall',
+  day: 'the Day plan wall',
+  incident: 'the Incident wall',
+};
+/** Nearby traffic cameras the remote can send (Jesse, 27 Oct). */
+function cameraSendRows(ctx) {
+  const list = ctx.ui.cameraList;
+  if (!list?.cameras?.length) return [];
+  const out = [kick('Send a traffic camera')];
+  const up = ctx.state.session.camera;
+  for (const c of list.cameras) {
+    if (up?.id === c.id) continue;
+    const row = el('div', 'rm-actions');
+    row.append(
+      el('div', 'rm-note strong', `${c.name} · ${Math.round(c.d)} m`),
+      btn('rm-btn', `Show on ${CAMERA_WALL[list.role]}`, () => {
+        ctx.sendCamera({
+          tripId: list.tripId,
+          place: list.place,
+          role: list.role,
+          id: c.id,
+        });
+        ctx.notify?.(`Traffic camera sent to ${CAMERA_WALL[list.role]}`);
+      }),
+    );
+    out.push(row);
+  }
+  return out.length > 1 ? out : [];
+}
+
+function cameraSection(ctx) {
+  const sc = ctx.state.session.camera;
+  const out = [kick('Traffic camera on the walls')];
+  if (!sc) {
+    out.push(el('div', 'rm-note', 'None on the walls'), ...cameraSendRows(ctx));
+    return out;
+  }
+  const f = ctx.ui.cameraFrame;
+  const old = f?.fetchedAt && Date.now() - f.fetchedAt > 75e3;
+  const pic = f?.url
+    ? Object.assign(new Image(), {
+        className: `rm-photo${f.stale || old ? ' stale' : ''}`,
+        alt: ctx.ui.camera?.name || 'The traffic camera on the walls',
+        src: f.url,
+      })
+    : el(
+        'div',
+        'rm-note',
+        f?.failed ? 'Not answering right now' : 'Fetching the traffic camera…',
+      );
+  const mins = Math.max(0, 30 - Math.floor((Date.now() - sc.at) / 60e3));
+  // The walls hide it in visitor mode (every-time round 2).
+  const where = ctx.state.session.visitor
+    ? `Hidden on the walls in visitor mode · S${sc.slot}`
+    : `On S${sc.slot} · stops by itself in ${mins} min`;
+  out.push(
+    pic,
+    ...(f?.url && (f.stale || old)
+      ? [
+          el(
+            'div',
+            'rm-note',
+            `Not refreshing · last image fetched ${Math.max(1, Math.round((Date.now() - f.fetchedAt) / 60e3))} min ago`,
+          ),
+        ]
+      : []),
+    ...(ctx.ui.camera?.name
+      ? [el('div', 'rm-note strong', ctx.ui.camera.name)]
+      : []),
+    el('div', 'rm-note', where),
+    el(
+      'div',
+      'rm-note',
+      'Public road camera · not a view of the group · the time on the picture is the camera’s own',
+    ),
+    ...(ctx.ui.camera?.credit
+      ? [el('div', 'rm-note', ctx.ui.camera.credit)]
+      : []),
+  );
+  const a = el('div', 'rm-actions');
+  a.append(
+    btn('rm-btn', 'Stop traffic camera', () =>
+      ctx.send(
+        { type: 'session', patch: { camera: null } },
+        `Traffic camera stopped on S${sc.slot}`,
+      ),
+    ),
+  );
+  out.push(a, ...cameraSendRows(ctx));
+  return out;
+}
+
 function incident(ctx) {
   const { state, target } = ctx;
   const ss = state.session;
@@ -239,6 +336,7 @@ function incident(ctx) {
     }),
   );
   out.push(f);
+  out.push(...cameraSection(ctx));
   return out;
 }
 
@@ -923,6 +1021,7 @@ function site(ctx) {
       `${how ? `${how} · ` : ''}change it at the All-in-one · turn it off on one wall in Layers & display · a public photo, not an inspection`,
     ),
   );
+  out.push(...cameraSection(ctx));
   out.push(
     el(
       'div',

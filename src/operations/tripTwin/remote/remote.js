@@ -28,6 +28,7 @@ import {
   rankPhotos,
 } from '../twinStreetPhotos.js';
 import { createPhotoLoader } from '../twinStreetPhotoLoad.js';
+import { cameraCredit, cameraName } from '../twinCameras.js';
 import {
   assessFires,
   assessTropical,
@@ -591,6 +592,8 @@ function ctx() {
     local: ui.local,
     sync,
     send,
+    /** Send a traffic camera to a wall (Jesse, 27 Oct), or stop it. */
+    sendCamera: (c) => sync.send({ t: 'camera', ...c }),
     ask,
     notify,
     setTarget,
@@ -845,6 +848,123 @@ function updatePhoto() {
   if (ui.station === 'site') renderContent(true);
 }
 
+// The traffic camera on the walls (review/traffic-cameras round 1): its
+// name and credit for the Site and Incident stations, and a refresh of the
+// still and the minutes left every 30 s while one is up.
+let camKey = '';
+async function updateCamera() {
+  const ss = ui.state?.session;
+  updateCameraList(ss);
+  const sc = ss?.camera;
+  if (!sc) {
+    ui.camera = null;
+    ui.cameraFrame = null;
+    camKey = '';
+    return;
+  }
+  const key = `${sc.place}|${sc.id}|${sc.at}`;
+  if (key === camKey) return;
+  camKey = key;
+  // The old camera's still never shows under the new one's name.
+  ui.cameraFrame = null;
+  pullCameraFrame();
+  const trip = tripById(ss.tripId);
+  const siteKey = String(sc.place).split(':')[1];
+  const site = sitesForCity(trip.city).find((x) => x.key === siteKey);
+  if (!site) return;
+  try {
+    const res = await fetch(
+      `/api/twin-cameras/near?lat=${site.center.lat}&lon=${site.center.lon ?? site.center.lng}&r=1000`,
+    );
+    const json = await res.json();
+    const c = (json.cameras || []).find((x) => x.id === sc.id);
+    ui.camera = c
+      ? { name: cameraName(c.name), credit: cameraCredit(c) }
+      : null;
+  } catch {
+    ui.camera = null;
+  }
+  if (['site', 'incident'].includes(ui.station)) renderContent(true);
+}
+/** The still as the walls get it: dimmed and dated when held over. */
+let camUrl = null;
+async function pullCameraFrame() {
+  const sc = ui.state?.session?.camera;
+  if (!sc) {
+    ui.cameraFrame = null;
+    return;
+  }
+  const want = `${sc.id}|${sc.at}`;
+  try {
+    const res = await fetch(
+      `/api/twin-cameras/frame?id=${encodeURIComponent(sc.id)}&t=${Date.now()}`,
+    );
+    if (!res.ok) throw new Error(String(res.status));
+    const blob = await res.blob();
+    const now = ui.state?.session?.camera;
+    if (!now || `${now.id}|${now.at}` !== want) return;
+    const url = URL.createObjectURL(blob);
+    if (camUrl) URL.revokeObjectURL(camUrl);
+    camUrl = url;
+    ui.cameraFrame = {
+      url,
+      fetchedAt: Number(res.headers.get('x-twin-fetched')) || Date.now(),
+      stale: res.headers.get('x-twin-stale') === '1',
+    };
+  } catch {
+    ui.cameraFrame = ui.cameraFrame
+      ? { ...ui.cameraFrame, stale: true }
+      : { failed: true };
+  }
+  if (['site', 'incident'].includes(ui.station)) renderContent(true);
+}
+setInterval(() => {
+  updateCamera();
+  pullCameraFrame();
+}, 30e3);
+/**
+ * The cameras near the site on screen, for sending from the remote: the
+ * hotel or a stop, or the Incident wall while a report is open there.
+ */
+let listKey = '';
+async function updateCameraList(ss) {
+  if (!ss?.tripId) return;
+  const trip = tripById(ss.tripId);
+  const sites = sitesForCity(trip.city);
+  const site = sites.find((x) => x.key === ss.siteKey) || sites[0];
+  if (!site) return;
+  const incident = Boolean(ss.report);
+  const kind = incident
+    ? 'incident'
+    : site.key === sites[0].key
+      ? 'hotel'
+      : 'stop';
+  const role = incident ? 'incident' : kind === 'hotel' ? 'site' : 'day';
+  const key = `${ss.tripId}|${kind}:${site.key}`;
+  if (key === listKey) return;
+  listKey = key;
+  try {
+    const res = await fetch(
+      `/api/twin-cameras/near?lat=${site.center.lat}&lon=${site.center.lon ?? site.center.lng}&r=${incident ? 1000 : 500}`,
+    );
+    const json = await res.json();
+    ui.cameraList = {
+      place: `${kind}:${site.key}`,
+      role,
+      tripId: ss.tripId,
+      cameras: (json.cameras || []).slice(0, 3).map((c) => ({
+        id: c.id,
+        name: cameraName(c.name),
+        d: c.d,
+      })),
+    };
+  } catch {
+    ui.cameraList = null;
+    listKey = '';
+  }
+  if (['site', 'incident'].includes(ui.station)) renderContent(true);
+}
+
 async function refreshWx(force = false) {
   const ss = ui.state?.session;
   if (!ss) return;
@@ -860,6 +980,8 @@ async function refreshWx(force = false) {
   const us = region === 'us';
   updateHazards(center, ss, t, site.key);
   updatePhoto();
+  updateCamera();
+  if (ui.state?.session?.camera && !ui.cameraFrame) pullCameraFrame();
   if (force || key !== wxKey || Date.now() - wxAt > 180e3) {
     if (key !== wxKey) wxReal = null;
     wxKey = key;

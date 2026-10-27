@@ -37,6 +37,11 @@ import { createWallSheet } from './twinWallSheet.js';
 import { createWallRail } from './twinWallRail.js';
 import { MAP_ROLES, wallPage } from './twinWallPages.js';
 import { createPhotoPlate } from './twinStreetPhoto.js';
+import {
+  createCameraCard,
+  createCameraFeed,
+  createCameraPlate,
+} from './twinCameraView.js';
 import { widthBucket } from './twinStreetPhotos.js';
 import {
   CHIP_RECENT_MS,
@@ -392,10 +397,42 @@ export function createScreenMode({ api, slot = null, setup = null }) {
   document.body.append(plate.el);
   // S5's stop brief says so when the plate stepped aside (Jesse, 27 Oct).
   let photoAside = false;
+  /**
+   * A plate on the right (Jesse): bottom right first, then top right under
+   * the map bar; true when both would cover a rally point or shelter.
+   */
+  function placeRight(pe, scale) {
+    pe.classList.remove('top');
+    pe.style.top = '';
+    let covers = Boolean(api.safetyUnder?.(pe.getBoundingClientRect()));
+    if (covers) {
+      const bar = document.querySelector('.tt-mapbar')?.getBoundingClientRect();
+      pe.classList.add('top');
+      pe.style.top = `${((bar?.bottom || 0) + 12) / scale}px`;
+      covers = Boolean(api.safetyUnder?.(pe.getBoundingClientRect()));
+      if (covers) {
+        pe.classList.remove('top');
+        pe.style.top = '';
+      }
+    }
+    pe.classList.toggle('yield', covers);
+    return covers;
+  }
+  const wallScale = () =>
+    parseFloat(
+      getComputedStyle(document.body).getPropertyValue('--wall-scale'),
+    ) || 1;
   function renderPhoto() {
     const b = document.body;
     const role = b.dataset.role;
     const s = me();
+    // A traffic camera on this wall takes the plate's place (T5), only
+    // while its plate actually shows: else the photo stays (every-time P1-3).
+    if (!camPlate.el.hidden && (role === 'site' || role === 'day')) {
+      plate.hide();
+      api.streetPhotoOff?.();
+      return;
+    }
     const on =
       (role === 'site' || role === 'day') &&
       b.classList.contains('tt-wall-shell') &&
@@ -416,28 +453,11 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       }
       return;
     }
-    const scale =
-      parseFloat(getComputedStyle(b).getPropertyValue('--wall-scale')) || 1;
+    const scale = wallScale();
     // A rally point or shelter under the plate: it steps aside, keeping
     // its place so the check stays steady, and its map fan goes too (UI
     // round 2).
-    // Bottom right first, then top right under the map bar; only when both
-    // would cover one does it step aside (Jesse: the right-hand side).
-    const pe = plate.el;
-    pe.classList.remove('top');
-    pe.style.top = '';
-    let covers = Boolean(api.safetyUnder?.(pe.getBoundingClientRect()));
-    if (covers) {
-      const bar = document.querySelector('.tt-mapbar')?.getBoundingClientRect();
-      pe.classList.add('top');
-      pe.style.top = `${((bar?.bottom || 0) + 12) / scale}px`;
-      covers = Boolean(api.safetyUnder?.(pe.getBoundingClientRect()));
-      if (covers) {
-        pe.classList.remove('top');
-        pe.style.top = '';
-      }
-    }
-    pe.classList.toggle('yield', covers);
+    const covers = placeRight(plate.el, scale);
     const aside = covers && role === 'day';
     if (aside !== photoAside) {
       photoAside = aside;
@@ -452,6 +472,79 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     plate.update({ lines: info.lines, url: info.url, pick: info.pick });
   }
   api.onStreetPhoto?.(() => renderPhoto());
+
+  // Traffic camera (review/traffic-cameras T5): only when the All-in-one
+  // sent one to this wall. S1/S5 show it in the plate's slot (same
+  // right-hand rule); S3 as a card at the end of the board's right column,
+  // the first thing to fold. A still every 30 s; never in visitor mode.
+  const camPlate = createCameraPlate();
+  document.body.append(camPlate.el);
+  const camCard = createCameraCard();
+  const camFeed = createCameraFeed(() => renderCamera());
+  let camStopped = '';
+  function cameraHere() {
+    const ss = state?.session;
+    const sc = ss?.camera;
+    if (!sc || sc.slot !== mySlot || ss.visitor) return null;
+    if (sc.tripId && ss.tripId && sc.tripId !== ss.tripId) return null;
+    return sc;
+  }
+  function renderCamera() {
+    const b = document.body;
+    const role = b.dataset.role;
+    const sc = cameraHere();
+    camFeed.show(sc?.id || null);
+    // S5 shows a stop's camera only while it shows that stop (IA, UX P1).
+    const placeOk = !sc || role !== 'day' || api.cameraPlaceShown?.(sc.place);
+    const info =
+      sc && placeOk ? api.cameraForWall?.(sc, camFeed.current) : null;
+    const mapWall =
+      (role === 'site' || role === 'day') &&
+      b.classList.contains('tt-wall-shell') &&
+      b.dataset.wallCards !== 'map' &&
+      !b.classList.contains('tt-wst-open');
+    // A camera this wall cannot show is stopped here, so the All-in-one and
+    // the remote hear (IA, UI round 2): S5 on another stop, or a report
+    // open on S1/S5 (the report leads; the Incident wall takes cameras).
+    const cannot =
+      sc &&
+      ((role === 'day' && !placeOk) ||
+        ((role === 'site' || role === 'day') && api.incidentOpen?.()));
+    if (cannot && camStopped !== `${sc.id}|${sc.at}`) {
+      camStopped = `${sc.id}|${sc.at}`;
+      sync
+        ?.request({
+          t: 'screen-cmd',
+          cmd: { type: 'session', patch: { camera: null } },
+          label: 'Traffic camera stopped',
+        })
+        .catch(() => {});
+    }
+    camPlate.el.hidden = !(sc && mapWall && info) || Boolean(cannot);
+    if (!camPlate.el.hidden) {
+      camPlate.update({ ...info, frame: camFeed.current });
+      placeRight(camPlate.el, wallScale());
+    }
+    if (role === 'incident' && sc && info) {
+      camCard.update({ ...info, frame: camFeed.current });
+      if (!camCard.el.isConnected) renderPanel();
+    } else if (camCard.el.isConnected) camCard.el.remove();
+    // The street photo comes back when the camera stops.
+    renderPhoto();
+  }
+  api.onCamera?.(() => renderCamera());
+  /** S3: the card goes at the end of the right column; it folds first. */
+  function boardCamera(node) {
+    const sc = cameraHere();
+    if (!sc || !api.cameraForWall?.(sc, camFeed.current)) return;
+    camCard.el.classList.remove('noimg', 'strip');
+    node.append(camCard.el);
+    // The image folds first, then the card keeps one line: never gone while
+    // the camera is up (IA, UX, every-time P1).
+    const over = () => node.scrollHeight > node.clientHeight + 2;
+    if (over()) camCard.el.classList.add('noimg');
+    if (over()) camCard.el.classList.add('strip');
+  }
 
   function renderPanel() {
     const role = document.body.dataset.role;
@@ -560,6 +653,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         hasDay: roles.includes('day'),
       });
       fitBoard();
+      boardCamera(panel);
     } else if (role === 'incident') {
       // Idle: say so plainly; the board fills when a floor is reported.
       const open = api.incidentOpen();
@@ -595,6 +689,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
         );
       else api.idlePanel(panel);
       fitPanel();
+      boardCamera(panel);
     }
   }
 
@@ -1080,7 +1175,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
     );
     if (s) {
       applyRole(s);
-      renderPhoto();
+      renderCamera();
       // Live / Advance and the day are this screen's own (review R2).
       const dayRole = s.role === 'day';
       const mode = dayRole ? 'advance' : s.mode || 'live';
@@ -2609,7 +2704,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
   // Weather, trips and the incident board follow their data.
   const panelTimer = setInterval(() => {
     renderPanel();
-    renderPhoto();
+    renderCamera();
   }, 5000);
   paint();
   return {

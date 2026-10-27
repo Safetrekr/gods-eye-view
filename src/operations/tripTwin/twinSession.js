@@ -22,6 +22,10 @@ const SESSION_FIELDS = new Set([
   // (review/hazards H5-PLAN).
   'simFire',
   'simCyclone',
+  // The one traffic camera on the walls: {tripId, place, slot, id, at, by}
+  // or null (review/traffic-cameras T5). Set by the All-in-one only (host
+  // camera()); a command may only clear it.
+  'camera',
   // false = every wall view only: no menu or sheets, nothing saved at a
   // wall (Jesse, 25 Oct 2026: screens/20-S1-FIX-LIST Q2). Missing = on.
   'wallControls',
@@ -134,8 +138,17 @@ export function applyCommand(state, cmd, { by = null, at = Date.now() } = {}) {
       // A new report needs a fresh acknowledgement.
       if ('report' in patch && !('incidentAck' in patch))
         patch.incidentAck = null;
+      // Another trip: the wall camera belonged to the last one (AIA round 1).
+      if (
+        'tripId' in patch &&
+        patch.tripId !== state.session.tripId &&
+        state.session.camera
+      )
+        patch.camera = null;
       for (const [k, v] of Object.entries(patch))
         if (SESSION_FIELDS.has(k)) {
+          // A command stops the wall camera; it never puts one up.
+          if (k === 'camera' && v !== null) continue;
           if (!(k in undo.session))
             undo.session[k] = clone(state.session[k] ?? null);
           next.session[k] = v;
@@ -158,6 +171,17 @@ export function applyCommand(state, cmd, { by = null, at = Date.now() } = {}) {
           if (k === 'pinned' && all) continue; // pins are per screen
           if (k === 'role') {
             for (const f of ['role', 'scale', 'merged']) keepField(slot, f);
+            // The wall camera goes with the role it was sent to (AIA round 1).
+            if (
+              state.session.camera?.slot === slot &&
+              v !== state.screens[slot]?.role
+            ) {
+              if (!('camera' in undo.session))
+                undo.session.camera = clone(state.session.camera);
+              next.session.camera = null;
+              markSession('camera');
+              if (!changed.includes('session')) changed.push('session');
+            }
             const d = screenDefaults(v);
             s.role = d.role;
             s.scale = d.scale;
@@ -197,6 +221,13 @@ export function applyCommand(state, cmd, { by = null, at = Date.now() } = {}) {
         if (slot > n) {
           keepWhole(slot);
           delete next.screens[slot];
+          // The wall camera goes with its wall (every-time round 2).
+          if (state.session.camera?.slot === slot) {
+            undo.session.camera = clone(state.session.camera);
+            next.session.camera = null;
+            markSession('camera');
+            if (!changed.includes('session')) changed.push('session');
+          }
         }
       for (const d of roles) {
         if (!next.screens[d.slot]) {
@@ -213,7 +244,7 @@ export function applyCommand(state, cmd, { by = null, at = Date.now() } = {}) {
     }
     case 'returnLive': {
       // Return all also ends every demo (phase 12 review; hazards H5).
-      for (const k of SIM_KEYS.concat(['wxAt', 'spotlight'])) {
+      for (const k of SIM_KEYS.concat(['wxAt', 'spotlight', 'camera'])) {
         undo.session[k] = clone(state.session[k] ?? null);
         next.session[k] = null;
         markSession(k);

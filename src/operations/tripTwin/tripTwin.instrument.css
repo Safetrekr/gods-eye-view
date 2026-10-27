@@ -3267,3 +3267,168 @@ body.tt-film * {
 .tt-photo-block.hidden-on-walls .tt-photo-thumb img {
   opacity: 0.45;
 }
+
+/* ================= Traffic cameras (review/traffic-cameras T5) ==========
+   The street photo's frame, 16:9, the whole picture (no crop: agencies
+   print their own time on it), dimmed alike; a failed refresh dims it. */
+.tt-cam-frame {
+  aspect-ratio: 16 / 9;
+}
+.tt-cam-frame img {
+  object-fit: contain;
+  object-position: 50% 50%;
+}
+.tt-cam-frame.stale img {
+  opacity: 0.45;
+}
+.tt-cam-time,
+.tt-cam-note {
+  margin-top: 4px;
+}
+.tt-board-camera .tt-cam-frame {
+  max-width: 480px;
+}
+.tt-board-camera.noimg .tt-cam-frame {
+  display: none;
+}
+/* All-in-one: the list, collapsed by default. */
+.tt-cam-slot {
+  margin: 8px 0 6px;
+}
+.tt-cam-block > summary {
+  cursor: pointer;
+  list-style: none;
+}
+.tt-cam-block > summary::after {
+  content: ' ▾';
+}
+.tt-cam-block:not([open]) > summary::after {
+  content: ' ▸';
+}
+.tt-cam-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+.tt-cam-row {
+  padding: 6px 0;
+  border-top: 1px solid var(--tt-hair);
+}
+.tt-cam-row.on .tt-cam-row-name::after {
+  content: ' · on the wall';
+  color: var(--tt-text-2);
+  font-weight: 400;
+}
+.tt-cam-row-name {
+  font: 500 13px/18px var(--tt-font);
+  color: var(--tt-text);
+}
+.tt-cam-row-meta {
+  font: 12px/16px var(--tt-font);
+  color: var(--tt-text-2);
+}
+/* Justin's player, in Trip Twin's colours (his file is untouched). */
+dialog.ops-camera-player {
+  width: min(960px, calc(100vw - 2 * var(--rail) - 48px));
+  padding: 12px;
+  color: var(--tt-text);
+  background: var(--tt-glass);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg);
+  box-shadow: var(--tt-depth-1);
+}
+dialog.ops-camera-player::backdrop {
+  background: rgba(4, 12, 18, 0.5);
+}
+dialog.ops-camera-player header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 12px;
+}
+dialog.ops-camera-player .ops-eyebrow {
+  font: 11px/1 var(--tt-mono);
+  letter-spacing: 0.12em;
+  color: var(--tt-text-2);
+  margin: 0 0 4px;
+}
+dialog.ops-camera-player h2 {
+  font: 500 16px/20px var(--tt-font);
+  margin: 0;
+}
+dialog.ops-camera-player .ops-camera-stage img,
+dialog.ops-camera-player .ops-camera-stage video {
+  display: block;
+  width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  background: var(--tt-field);
+}
+dialog.ops-camera-player .ops-camera-credit,
+dialog.ops-camera-player .ops-camera-explanation,
+dialog.ops-camera-player .ops-camera-status {
+  font: 12px/16px var(--tt-font);
+  color: var(--tt-text-2);
+}
+dialog.ops-camera-player button {
+  font: 12px/1 var(--tt-font);
+  color: var(--tt-text);
+  background: transparent;
+  border: 1px solid var(--tt-border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+/* Round 1: the status line, the still viewer, and Justin's player never
+   showing a reference (Street View or drawn) picture. */
+.tt-cam-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+.tt-cam-stage.stale img,
+.tt-cam-frame.stale img {
+  opacity: 0.45;
+}
+.tt-cam-stage .tt-photo-wait[hidden] {
+  display: none;
+}
+dialog.ops-camera-player.tt-ref-only .ops-camera-stage {
+  display: none;
+}
+dialog.ops-camera-player.tt-ref-only .ops-camera-toolbar::before {
+  content: 'No camera picture · a reference image is not shown';
+  color: var(--tt-text-2);
+  font: 12px/16px var(--tt-font);
+  margin-right: 8px;
+}
+/* S3 card (UI round 1): image beside the text, 320 px, not stacked; it
+   folds to text, then to one line, never away. */
+.tt-board-camera {
+  display: grid;
+  grid-template-columns: minmax(0, 320px) 1fr;
+  column-gap: 14px;
+  align-items: start;
+}
+.tt-board-camera > .tt-photo-kicker {
+  grid-column: 1 / -1;
+}
+.tt-board-camera > .tt-cam-frame {
+  grid-column: 1;
+  grid-row: 2 / span 6;
+  max-width: 320px;
+}
+.tt-board-camera > :not(.tt-photo-kicker):not(.tt-cam-frame) {
+  grid-column: 2;
+}
+.tt-board-camera.noimg {
+  grid-template-columns: 1fr;
+}
+.tt-board-camera.noimg > :not(.tt-photo-kicker) {
+  grid-column: 1;
+}
+.tt-board-camera.strip > :not(.tt-photo-kicker):not(.tt-cam-name) {
+  display: none;
+}

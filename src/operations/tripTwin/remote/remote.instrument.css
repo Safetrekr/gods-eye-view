@@ -504,3 +504,6 @@ body.rm-alert .rm-content.sw-out {
   color: inherit;
   font-weight: 500;
 }
+.rm-photo.stale {
+  opacity: 0.45;
+}

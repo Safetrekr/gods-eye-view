@@ -1924,6 +1924,104 @@ async function smoke(server, browser) {
   );
 
   await step(
+    'T5-S1',
+    "traffic cameras (review/traffic-cameras T5): the All-in-one sends a fixture camera to the Site wall; S6 as Site shows it in the plate's slot as TRAFFIC CAMERA with a still; Stop takes it off; no page asks an agency",
+    async () => {
+      const hits = [];
+      const onReq = (r) => {
+        const u = r.url();
+        if (/\/api\/cctv\/|austintexas|tfl\.gov|txdot/i.test(u)) hits.push(u);
+      };
+      page.on('request', onReq);
+      let req = 950;
+      const send = async (cmd) => {
+        const id = ++req;
+        const ack = remote.c.next(
+          (m) => m.t === 'ack' && m.reqId === id,
+          8000,
+          'ack',
+        );
+        remote.c.say({ t: 'cmd', reqId: id, cmd });
+        must((await ack).ok, `${cmd.type} refused`);
+      };
+      const look = () =>
+        page.evaluate(() => {
+          const n = document.querySelector('.tt-photo-plate.cam');
+          return {
+            shown: Boolean(n && !n.hidden && n.offsetWidth > 0),
+            kicker: n?.querySelector('.tt-photo-kicker')?.textContent || '',
+            name: n?.querySelector('.tt-cam-name')?.textContent || '',
+            loaded: Boolean(n?.querySelector('.tt-cam-frame img.in')),
+          };
+        });
+      const until = async (pred, what, ms = 60000) => {
+        const t0 = Date.now();
+        let last = null;
+        while (Date.now() - t0 < ms) {
+          last = await look().catch(() => null);
+          if (last && pred(last)) return last;
+          await sleep(500);
+        }
+        throw new Error(
+          `timed out waiting for ${what}: ${JSON.stringify(last)}`,
+        );
+      };
+      const lp = await client(base);
+      const lw = lp.next('welcome', 8000, 'launcher welcome');
+      lp.say({
+        t: 'hello',
+        proto: PROTO,
+        id: 'launcher-qa-camera',
+        kind: 'launcher',
+        setup,
+      });
+      const lwm = await lw;
+      must(lwm.type !== 'denied', `camera launcher refused: ${lwm.code || ''}`);
+      try {
+        // The camera goes to the first wall with the role: S6 is the only
+        // Site wall for the step.
+        await send({ type: 'screens', target: 1, patch: { role: 'trips' } });
+        await send({ type: 'screens', target: 6, patch: { role: 'site' } });
+        lp.say({
+          t: 'camera',
+          place: 'hotel:austin',
+          role: 'site',
+          id: 'fx-austin-1',
+        });
+        const on = await until(
+          (x) =>
+            x.shown &&
+            x.loaded &&
+            /^TRAFFIC CAMERA · TEST FIXTURE · STILL$/.test(x.kicker),
+          'the camera on the wall',
+        );
+        lp.say({ t: 'camera', stop: true });
+        await until((x) => !x.shown, 'the camera to go');
+        must(
+          hits.length === 0,
+          `agency requests from the page: ${hits.slice(0, 2).join(', ')}`,
+        );
+        return {
+          detail: `"${on.kicker}" · ${on.name}; stopped; 0 agency requests`,
+        };
+      } finally {
+        await lp.close();
+        page.off('request', onReq);
+        await send({
+          type: 'screens',
+          target: 6,
+          patch: { role: 'trips' },
+        }).catch(() => {});
+        await send({
+          type: 'screens',
+          target: 1,
+          patch: { role: 'site' },
+        }).catch(() => {});
+      }
+    },
+  );
+
+  await step(
     'K2-S1',
     `revert-and-restart: restart on ${REVERT_REF}; S1–S6 and the remote rejoin (below L5: they are told to re-pair, nothing crashes)`,
     async () => {

@@ -567,6 +567,15 @@ export const AUDIT_EVENTS = Object.freeze({
     peer: false,
     data: { on: bool, item: oneOf(REVIEW_ITEMS) },
   },
+  // The wall's traffic camera: shown, stopped or expired and which wall,
+  // never the camera (review/traffic-cameras T5).
+  'camera.set': {
+    peer: false,
+    data: {
+      action: oneOf(['show', 'stop', 'expired']),
+      slot: int,
+    },
+  },
   // A kept or hidden street photo: what and which kind of place, never the
   // photo or who (review/street-photos P5).
   'photo.set': {

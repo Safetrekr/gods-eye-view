@@ -31,6 +31,15 @@ const setLink = (s) => {
 export function sendReview(r) {
   liveLauncher?.send({ t: 'review', ...r });
 }
+/** Send the traffic camera to one wall, or stop it (review/traffic-cameras T5). */
+export function sendCamera(c) {
+  liveLauncher?.send({ t: 'camera', ...c });
+}
+let cameraWatch = null;
+/** The walls' camera as the relay tells it: fn({camera, refused}). */
+export function onCameraState(fn) {
+  cameraWatch = typeof fn === 'function' ? fn : null;
+}
 /** Send one kept or hidden street photo to the walls (review/street-photos P5). */
 export function sendPhoto(p) {
   liveLauncher?.send({ t: 'photo', ...p });
@@ -65,6 +74,8 @@ function openReviewLink(setup, on = {}) {
           return;
         }
         setLink('ok');
+        // What the walls show now (a camera may have ended while away).
+        if (cameraWatch) liveLauncher.send({ t: 'camera', query: true });
         for (const r of reviewSnapshot?.() || [])
           liveLauncher.send({ t: 'review', ...r });
         for (const p of photoSnapshot?.() || [])
@@ -72,6 +83,9 @@ function openReviewLink(setup, on = {}) {
       },
       status(s) {
         if (s === 'offline' && linkState !== 'expired') setLink('offline');
+      },
+      'camera-state'(m) {
+        cameraWatch?.({ camera: m.camera ?? null, refused: m.refused ?? null });
       },
     },
   });

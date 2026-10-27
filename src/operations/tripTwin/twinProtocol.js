@@ -87,6 +87,9 @@ export const MSG_TYPES = Object.freeze([
   // The All-in-one's kept street photo (review/street-photos P5; launcher,
   // this computer only): {place, provider, id, yaw, pitch, hide, clear}.
   'photo',
+  // The traffic camera sent to one wall (review/traffic-cameras T5;
+  // launcher, this computer only): {tripId, place, slot, id} or {stop}.
+  'camera',
 ]);
 
 // ---------------------------------------------------------------- K5
@@ -385,3 +388,8 @@ export const REVIEW_MAX = 300;
 export const PHOTO_PLACE_RE = /^(hotel|stop|place):[\w.-]{1,60}$/;
 export const PHOTO_PROVIDERS = Object.freeze(['panoramax', 'kartaview']);
 export const PHOTO_MAX = 100;
+
+/** A wall camera stops itself after this long (review/traffic-cameras T5). */
+export const CAMERA_MAX_MS = 30 * 60e3;
+export const CAMERA_ID_RE = /^[\w:.-]{1,96}$/;
+export const CAMERA_PLACE_RE = /^(hotel|stop|incident):[\w.-]{1,60}$/;

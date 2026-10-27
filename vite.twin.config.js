@@ -8,6 +8,7 @@ import { twinWeatherProxy } from './server/tripTwin/weatherProxy.js';
 import { twinRoutingProxy } from './server/tripTwin/routingProxy.js';
 import { twinSyncRelay } from './server/tripTwin/syncRelay.js';
 import { twinStreetPhotoProxy } from './server/tripTwin/streetPhotoProxy.js';
+import { twinCameraProxy } from './server/tripTwin/cameraProxy.js';
 import { terrainHeightsProxy } from './server/providers/terrain.js';
 import {
   machineNames,
@@ -70,6 +71,9 @@ export default async (env) => {
       // Street photos (review/street-photos P5): one search and one render
       // for the room.
       twinStreetPhotoProxy(),
+      // Traffic cameras (review/traffic-cameras T5): one fetch per camera for
+      // the room, over upstream's own routes.
+      twinCameraProxy(),
       // SOC multi-view (phase 10): screens + remote. LAN devices need
       // HOST=0.0.0.0 npx vite --config vite.twin.config.js
       twinSyncRelay(),

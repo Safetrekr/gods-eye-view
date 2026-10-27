@@ -71,6 +71,9 @@ import {
   PHOTO_PLACE_RE,
   PHOTO_PROVIDERS,
   PHOTO_MAX,
+  CAMERA_MAX_MS,
+  CAMERA_ID_RE,
+  CAMERA_PLACE_RE,
 } from './twinProtocol.js';
 import {
   CARD_CATALOG,
@@ -1019,6 +1022,16 @@ export function createSessionHost({
         const v = session.session[k];
         if (Number.isFinite(v) && at - v >= SIM_DEMO_MAX_MS) patch[k] = null;
       }
+      // The wall camera stops itself after 30 min (traffic-cameras T5).
+      const cam = session.session.camera;
+      if (cam && Number.isFinite(cam.at) && at - cam.at >= CAMERA_MAX_MS) {
+        patch.camera = null;
+        say('camera.set', {
+          actor: actor(HOST_REF),
+          rev: { before: session.rev, after: session.rev + 1 },
+          data: { action: 'expired', slot: cam.slot },
+        });
+      }
       if (!Object.keys(patch).length) return { ok: false };
       const before = session;
       const cmd = { type: 'session', patch };
@@ -1078,6 +1091,91 @@ export function createSessionHost({
         actor: actorOfId(by),
         rev: { before, after: session.rev },
         data: { on, item },
+      });
+      return { ok: true, rev: session.rev };
+    },
+    /**
+     * The one traffic camera on the walls, from the All-in-one (review/
+     * traffic-cameras T5): this computer's launcher only, the review tick's
+     * pattern. One camera for the room: sending another replaces it; stop
+     * clears it. The remote stops it with a session command (null only).
+     */
+    camera({
+      by,
+      tripId = null,
+      place = null,
+      role = null,
+      id = null,
+      stop = false,
+      initials = null,
+      // The relay's clock, which also ends it (expireDemos).
+      at: when = now(),
+    } = {}) {
+      const bad = (error) => ({
+        ok: false,
+        code: CODE.VALIDATION_COMMAND,
+        error,
+      });
+      let next = null;
+      if (!stop) {
+        if (typeof place !== 'string' || !CAMERA_PLACE_RE.test(place))
+          return bad('Not applied: place is not valid');
+        // The All-in-one names the wall by its role; the first screen that
+        // shows it (or carries it merged) takes the camera.
+        if (!['site', 'day', 'incident'].includes(role))
+          return bad('Not applied: wall is not valid');
+        const slot = Object.keys(session.screens)
+          .map(Number)
+          .sort((a, b) => a - b)
+          .find(
+            (k) =>
+              session.screens[k]?.role === role ||
+              (session.screens[k]?.merged || []).includes(role),
+          );
+        if (!slot) return bad('Not applied: no wall shows that role');
+        if (typeof id !== 'string' || !CAMERA_ID_RE.test(id))
+          return bad('Not applied: camera is not valid');
+        if (tripId !== null && !/^[\w-]{1,60}$/.test(String(tripId)))
+          return bad('Not applied: trip is not valid');
+        next = {
+          tripId: tripId ?? session.session.tripId ?? null,
+          place,
+          slot: Object.keys(session.screens)
+            .map(Number)
+            .sort((a, b) => a - b)
+            .find(
+              (k) =>
+                session.screens[k]?.role === role ||
+                (session.screens[k]?.merged || []).includes(role),
+            ),
+          id,
+          at: when,
+          by:
+            typeof initials === 'string' && /^[A-Z]{1,3}$/.test(initials)
+              ? initials
+              : null,
+        };
+      }
+      const was = session.session.camera || null;
+      if (!next && !was) return { ok: true, rev: session.rev, unchanged: true };
+      if (
+        next &&
+        was &&
+        was.id === next.id &&
+        was.slot === next.slot &&
+        was.place === next.place
+      )
+        return { ok: true, rev: session.rev, unchanged: true };
+      const before = session.rev;
+      session = {
+        ...session,
+        rev: session.rev + 1,
+        session: { ...session.session, camera: next },
+      };
+      say('camera.set', {
+        actor: actorOfId(by),
+        rev: { before, after: session.rev },
+        data: { action: next ? 'show' : 'stop', slot: next?.slot ?? was?.slot },
       });
       return { ok: true, rev: session.rev };
     },
@@ -1225,6 +1323,19 @@ export function createSessionHost({
           CODE.VISITOR,
         );
       let safe = null;
+      // A wall stops its own traffic camera when it cannot show it (S5 moved
+      // to another stop, a report opened): the room then hears (IA, UI
+      // round 2).
+      if (
+        cmd?.type === 'session' &&
+        cmd.patch &&
+        Object.keys(cmd.patch).length === 1 &&
+        cmd.patch.camera === null
+      ) {
+        if (session.session.camera?.slot !== d.slot)
+          return refused('Not this wall’s traffic camera');
+        safe = { type: 'session', patch: { camera: null } };
+      }
       // A wall's Reset keeps Live/Advance and the day: those are set on the
       // remote (screens/20-S1-FIX-LIST F19).
       if (cmd?.type === 'reset' && own)

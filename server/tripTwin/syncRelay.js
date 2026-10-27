@@ -318,6 +318,21 @@ export function createRelay({
   const persistIfIssued = () => {
     if ((host.tokensIssued ?? 0) !== issuedSeen) persist();
   };
+  // The All-in-one sees no session (launchers get presence only), so the
+  // wall camera is told to it whenever it changes — sent, stopped from the
+  // remote, expired, Return all (review/traffic-cameras round 1).
+  let cameraSaid = 'null';
+  const cameraState = () => host.state.session.camera ?? null;
+  const tellCamera = (force = false) => {
+    const now = JSON.stringify(cameraState());
+    if (!force && now === cameraSaid) return;
+    cameraSaid = now;
+    // This computer's launcher only (SEC-7: others get presence only).
+    each((ws, meta) => {
+      if (meta.kind === 'launcher' && conns.get(ws)?.isLocal)
+        send(ws, { t: 'camera-state', camera: cameraState() });
+    });
+  };
   /** State to the wall; launchers get presence only (SEC-7). */
   const broadcastState = (extra = {}) => {
     persist();
@@ -335,6 +350,7 @@ export function createRelay({
             },
       ),
     );
+    tellCamera();
   };
   const presence = () => {
     const hf = flags();
@@ -667,6 +683,9 @@ export function createRelay({
         else {
           persistIfIssued();
           presence();
+          // A launcher joining while a camera is up hears which.
+          if (r.type === 'launcher' && cameraState() && conn?.isLocal)
+            send(ws, { t: 'camera-state', camera: cameraState() });
         }
         break;
       }
@@ -835,6 +854,43 @@ export function createRelay({
           initials: m.initials,
         });
         if (r.ok) broadcastState({ cause: CAUSE.CMD, changed: ['session'] });
+        break;
+      }
+      case 'camera': {
+        // The traffic camera sent to a wall (review/traffic-cameras T5):
+        // this computer's launcher only; the host checks every field.
+        // The All-in-one on this computer, or the remote that holds control
+        // (Jesse, 27 Oct: the remote sends cameras too).
+        const fromRemote = me.kind === 'remote' && host.isController(me.id);
+        if (!fromRemote && (me.kind !== 'launcher' || !conn?.isLocal)) break;
+        // Asked on (re)joining: what the walls show now, none included
+        // (every-time round 2).
+        if (m.query === true) {
+          send(ws, { t: 'camera-state', camera: cameraState() });
+          break;
+        }
+        const r = host.camera({
+          by: me.id,
+          tripId: typeof m.tripId === 'string' ? m.tripId : null,
+          place: m.place ?? null,
+          role: typeof m.role === 'string' ? m.role : null,
+          id: typeof m.id === 'string' ? m.id : null,
+          stop: m.stop === true,
+          initials: m.initials,
+          at: now(),
+        });
+        if (r.ok && !r.unchanged)
+          broadcastState({ cause: CAUSE.CMD, changed: ['session'] });
+        // An unchanged send is answered too (every-time round 3).
+        if (r.ok && r.unchanged && me.kind === 'launcher')
+          send(ws, { t: 'camera-state', camera: cameraState() });
+        // A refusal is told back, never silent (every-time P1-2).
+        if (!r.ok)
+          send(ws, {
+            t: 'camera-state',
+            camera: cameraState(),
+            refused: r.error,
+          });
         break;
       }
       case 'photo': {

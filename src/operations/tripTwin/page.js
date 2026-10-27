@@ -122,6 +122,15 @@ import {
 import { createPhotoLoader } from './twinStreetPhotoLoad.js';
 import { lookOf, openPhotoViewer, photoBlock } from './twinStreetPhoto.js';
 import { drawPhotoMarker } from './twinStreetPhotoMarker.js';
+import {
+  INCIDENT_M as CAMERA_INCIDENT_M,
+  NEAR_M as CAMERA_NEAR_M,
+  cameraLines,
+  cameraName,
+  noCameraLine,
+  rankCameras,
+} from './twinCameras.js';
+import { cameraBlock, openCameraViewer } from './twinCameraView.js';
 import { createCompass, rotated } from './twinCompass.js';
 import {
   applyOperatorNumbering,
@@ -201,6 +210,8 @@ import {
   onReviewLink,
   resumeReviewLink,
   reviewLinkState,
+  onCameraState,
+  sendCamera,
   sendPhoto,
   sendReview,
   setPhotoSnapshot,
@@ -1475,6 +1486,11 @@ async function main() {
                       site: SITES.find((x) => x.key === siteKey) || SITES[0],
                     }),
                     city.short || city.label,
+                  ),
+                  // Traffic cameras near the site; during a report here
+                  // they go to the Incident wall (traffic-cameras T5).
+                  cameraNode(
+                    `${inIncident() ? 'incident' : siteKey === SITES[0].key ? 'hotel' : 'stop'}:${siteKey}`,
                   ),
                 ]),
           ]
@@ -3348,6 +3364,212 @@ async function main() {
     draw();
     return box;
   }
+  // ---- traffic cameras (review/traffic-cameras T5) ----
+  // The proxy lists public cameras near a place and shares their stills.
+  // The All-in-one sends one camera to one wall (by its role); the walls
+  // show the session's camera; nothing starts by itself.
+  const camWatchers = new Set();
+  const notifyCameras = () => {
+    for (const fn of camWatchers) fn();
+  };
+  const camLoader = createPhotoLoader({
+    onChange: notifyCameras,
+    url: (t) =>
+      `/api/twin-cameras/near?lat=${t.lat.toFixed(5)}&lon=${t.lon.toFixed(5)}&r=${t.r || CAMERA_NEAR_M}`,
+  });
+  const CAMERA_ROLE = { hotel: 'site', stop: 'day', incident: 'incident' };
+  const CAMERA_WALL = {
+    site: 'the Site wall',
+    day: 'the Day plan wall',
+    incident: 'the Incident wall',
+  };
+  // What the walls show, as the relay tells it (the All-in-one sees no
+  // session): {camera, refused}; pending while a send is on its way.
+  let camOnWalls = { camera: null, refused: null };
+  let camPending = null;
+  onCameraState((m) => {
+    camOnWalls = m;
+    camPending = null;
+    notifyCameras();
+  });
+  // A send with no answer is said, never "Sending…" for ever (round 2).
+  let camPendingTimer = null;
+  const camAwait = () => {
+    clearTimeout(camPendingTimer);
+    camPendingTimer = setTimeout(() => {
+      if (!camPending) return;
+      camPending = null;
+      camOnWalls = { ...camOnWalls, refused: 'no answer from the walls' };
+      notifyCameras();
+    }, 8000);
+  };
+  onReviewLink(() => notifyCameras());
+  /** A camera place key → {lat, lon, words, key, r}. */
+  function cameraTarget(placeKey) {
+    const [kind, k] = String(placeKey || '').split(':');
+    const site = SITES.find((x) => x.key === k) || SITES[0];
+    const words = photoTarget({
+      kind: site.key === SITES[0].key ? 'hotel' : 'stop',
+      site,
+    }).words;
+    return {
+      lat: site.center.lat,
+      lon: site.center.lon ?? site.center.lng,
+      words,
+      key: `${kind}:${site.key}`,
+      r: kind === 'incident' ? CAMERA_INCIDENT_M : CAMERA_NEAR_M,
+    };
+  }
+  function camerasNear(target) {
+    camLoader.want(target);
+    const search = camLoader.get(target);
+    return { search, cameras: rankCameras(search?.cameras || [], target) };
+  }
+  /** What a wall shows for the session's camera, or null while it loads. */
+  function cameraForWall(sc, frame) {
+    if (!sc?.id || !sc.place) return null;
+    const target = cameraTarget(sc.place);
+    const { search } = camerasNear(target);
+    const camera = (search?.cameras || []).find((c) => c.id === sc.id);
+    if (!camera) return null;
+    return {
+      camera,
+      lines: cameraLines({
+        camera,
+        target,
+        frame,
+        state: frame?.state || 'loading',
+        unit: getDistanceUnit(),
+      }),
+    };
+  }
+  let cameraPlayer = null;
+  async function openCamera(c, target) {
+    // A still opens in Trip Twin's own viewer, through the proxy: Justin's
+    // player fetches upstream frames directly, which can fall back to Street
+    // View (UI round 1, P0).
+    if (c.kind === 'still') {
+      openCameraViewer({
+        camera: c,
+        lines: (frame) =>
+          cameraLines({
+            camera: c,
+            target,
+            frame,
+            state: frame?.state || 'loading',
+            unit: getDistanceUnit(),
+          }),
+      });
+      return;
+    }
+    // Clips and live video: Justin's player, loaded on demand (hls.js).
+    if (!cameraPlayer) {
+      const { createCameraPlayer } = await import('../cameraPlayer.js');
+      cameraPlayer = createCameraPlayer();
+      cleanups.push(() => cameraPlayer?.dispose?.());
+    }
+    cameraPlayer.open({ id: c.id, name: cameraName(c.name) });
+    hideReferenceImages();
+  }
+  /** In Justin's player, a Street View or drawn fallback is not shown. */
+  function hideReferenceImages() {
+    const dlg = document.querySelector('dialog.ops-camera-player');
+    if (!dlg || dlg.dataset.ttWatched) return;
+    dlg.dataset.ttWatched = '1';
+    const check = () => {
+      const st = dlg.querySelector('.ops-camera-status')?.textContent || '';
+      dlg.classList.toggle('tt-ref-only', /reference image/i.test(st));
+    };
+    new MutationObserver(check).observe(dlg, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+    });
+  }
+  const cameraNodes = new Map(); // place key → {box, redraw}
+  /** The All-in-one's camera list for a place (hotel, stop or incident). */
+  function cameraNode(placeKey) {
+    const old = cameraNodes.get(placeKey);
+    if (old) {
+      old.redraw();
+      return old.box;
+    }
+    const box = document.createElement('div');
+    box.className = 'tt-cam-slot';
+    let sig = '';
+    let open = false;
+    const role = CAMERA_ROLE[placeKey.split(':')[0]] || 'site';
+    function draw() {
+      const target = cameraTarget(placeKey);
+      const { search, cameras } = camerasNear(target);
+      const up = camOnWalls.camera;
+      const shownId = up?.place === target.key ? up.id : null;
+      const linked = reviewLinkState() === 'ok';
+      const rows = cameras.map((c) => ({
+        ...c,
+        distText: `${formatDistance(c.d)} ${bearingLabel(target, c)}`,
+      }));
+      // What the walls show, whichever list this is (IA, every-time P1).
+      const upName =
+        up && (rows.find((c) => c.id === up.id)?.name || 'a traffic camera');
+      const status = !linked
+        ? up
+          ? 'Not linked to the walls · what they show is not known here'
+          : null
+        : camPending
+          ? 'Sending to the walls…'
+          : camOnWalls.refused
+            ? `Not sent: ${String(camOnWalls.refused).replace(/^Not applied: /, '')}`
+            : up
+              ? `On S${up.slot} now: ${cameraName(upName)} · stops by itself after 30 min`
+              : null;
+      const next = JSON.stringify([rows, search?.status, up, status, linked]);
+      if (next === sig) return;
+      sig = next;
+      const block = cameraBlock({
+        cameras: rows,
+        line: noCameraLine(search, { radius: target.r }),
+        wallLabel: CAMERA_WALL[role],
+        shownId,
+        status,
+        stopAny: Boolean(up),
+        canSend: linked,
+        linkNote: linked
+          ? role === 'day'
+            ? 'The Day plan wall shows it only while it shows this stop; otherwise it stops at once'
+            : null
+          : 'Not linked to the walls · a traffic camera can only be opened here',
+        open,
+        onOpen: (c) => openCamera(c, target),
+        onShow: (c) => {
+          camPending = { place: target.key, id: c.id };
+          camAwait();
+          sendCamera({
+            tripId: photoTripId(),
+            place: target.key,
+            role,
+            id: c.id,
+            initials: reviewer(),
+          });
+          notifyCameras();
+        },
+        onStop: () => {
+          camPending = { stop: true };
+          camAwait();
+          sendCamera({ stop: true });
+          notifyCameras();
+        },
+      });
+      block.addEventListener('toggle', () => {
+        open = block.open;
+      });
+      box.replaceChildren(block);
+    }
+    camWatchers.add(draw);
+    cameraNodes.set(placeKey, { box, redraw: draw });
+    draw();
+    return box;
+  }
   const advEvents = () =>
     lastCtx?.snapshot ? tripEvents(lastCtx.snapshot, SITES, city.timezone) : [];
   function briefFor(ev) {
@@ -3681,6 +3903,9 @@ async function main() {
     if (!photoOnWall)
       box.append(
         photoNode(photoTargetFor('stop', { site }), site.short || site.label),
+        cameraNode(
+          `${site.key === SITES[0].key ? 'hotel' : 'stop'}:${site.key}`,
+        ),
       );
     // Saved paths for this day touching this stop (phase 4 Part D).
     const savedLines = brief.savedLines;
@@ -9363,6 +9588,12 @@ async function main() {
       }
       return false;
     },
+    /** The wall's traffic camera: {camera, lines} or null (T5). */
+    cameraForWall: (sc, frame) => cameraForWall(sc, frame),
+    /** S5: is the camera's place the stop it shows? */
+    cameraPlaceShown: (place) =>
+      String(place || '').split(':')[1] === shownStopSite().key,
+    onCamera: (fn) => camWatchers.add(fn),
     /** The plate stepped aside: its map marker goes too. */
     streetPhotoOff: () => markPhoto(null),
     /** The shown day's stops: {day, keys, shown, next}. */
