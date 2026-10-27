@@ -584,7 +584,7 @@ export function createTripTwin({
           right: scene.canvas.clientWidth - a.right - 4,
         };
       };
-      mapLabels?.setBounds(freeX);
+      mapLabels?.setSafeArea(() => safeArea?.());
       // The Cesium labels left (the storm) step aside from overlay plates.
       declutterer = createDeclutter(viewer, {
         bounds: freeX,
@@ -1146,10 +1146,10 @@ export function createTripTwin({
       ],
       [g[g.length - 1], `End · ${toLabel}`],
     ]) {
-      // An End at a safety place is said on that place's label (L5 D12).
-      const atPlace =
-        pt === g[g.length - 1] &&
-        safety?.placeNear({ lat: pt.lat, lon: pt.lon });
+      // An End at the safety place it names is said on that place's label
+      // (L5 D12), decided live: shown again when Safety is hidden.
+      const isEnd = pt === g[g.length - 1];
+      const ll = { lat: pt.lat, lon: pt.lon };
       ends.entities.add({
         position: Cesium.Cartesian3.fromDegrees(pt.lon, pt.lat, base + 6),
         point: {
@@ -1161,12 +1161,17 @@ export function createTripTwin({
         },
         // On the world overlay (review/map-labels L5); the start follows
         // the live point.
-        mapLabel: atPlace ? undefined : mapLabel('route', { title: text }),
+        mapLabel: mapLabel('route', {
+          title: isEnd
+            ? () => (safety?.placeNear(ll, 30, toLabel) ? '' : text)
+            : text,
+        }),
       });
     }
     safety?.setRouteEnd({
       lat: g[g.length - 1].lat,
       lon: g[g.length - 1].lon,
+      label: toLabel,
     });
     disposeRoute = () => {
       disposeLines();

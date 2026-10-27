@@ -4,7 +4,11 @@
 // Precipitation and cloud are neutral grey, never blue (blue = paths).
 // Lightning glyphs are static (no flashing; WCAG 2.3.1).
 import * as Cesium from 'cesium';
-import { TT_OVERLAY_ACCENTS, mapLabel } from './twinMapLabelEntries.js';
+import {
+  TT_OVERLAY_ACCENTS,
+  mapLabel,
+  simulatedFirst,
+} from './twinMapLabelEntries.js';
 import {
   bearingLabel,
   formatDistance,
@@ -523,8 +527,9 @@ export function createWeatherLayer(viewer, site) {
   const plate = (pos, text, color) =>
     ds.entities.add({
       position: pos,
+      // SIMULATED first, so it is protected and read first (round 1).
       mapLabel: mapLabel('ambient', {
-        title: text,
+        title: simulatedFirst(text),
         accent: color === pink ? TT_OVERLAY_ACCENTS.hazard : null,
       }),
     });
@@ -642,6 +647,16 @@ export function createWeatherLayer(viewer, site) {
             pink,
           );
         }
+        // One label per 2 km cluster of strikes, on the newest (round 1).
+        const leads = [];
+        for (const s of [...(data.strikes || [])].sort(
+          (a, b) => a.ageMin - b.ageMin,
+        )) {
+          const lead = leads.find((l) => haversineM(l, s) <= 2000);
+          if (lead) lead.n += 1;
+          else leads.push({ ...s, s, n: 1 });
+        }
+        const leadOf = new Map(leads.map((l) => [l.s, l]));
         for (const s of data.strikes || [])
           ds.entities.add({
             position: Cesium.Cartesian3.fromDegrees(s.lon, s.lat, base + 40),
@@ -651,11 +666,17 @@ export function createWeatherLayer(viewer, site) {
               disableDepthTestDistance: Number.POSITIVE_INFINITY,
             },
             // The strike says what happened (L1): "SIMULATED lightning".
-            mapLabel: mapLabel('hazard', {
-              title: `${data.simulated?.lightning ? 'SIMULATED l' : 'L'}ightning`,
-              details: [`${s.ageMin} min ago`],
-              gap: 44, // above the bolt
-            }),
+            mapLabel: leadOf.has(s)
+              ? mapLabel('hazard', {
+                  title: `${data.simulated?.lightning ? 'SIMULATED l' : 'L'}ightning`,
+                  details: [
+                    leadOf.get(s).n > 1
+                      ? `${leadOf.get(s).n} strikes here · newest ${s.ageMin} min ago`
+                      : `${s.ageMin} min ago`,
+                  ],
+                  gap: 44, // above the bolt
+                })
+              : undefined,
           });
       }
       const cl = data.summary?.cloud;

@@ -9056,11 +9056,13 @@ async function main() {
           off();
           try {
             // The map's words are on the overlay canvas (L5 D11).
+            // At most 1280 px wide: it becomes a small thumbnail anyway.
+            const k = Math.min(1, 1280 / (viewer.canvas.width || 1));
             const c = document.createElement('canvas');
-            c.width = viewer.canvas.width;
-            c.height = viewer.canvas.height;
+            c.width = Math.round(viewer.canvas.width * k);
+            c.height = Math.round(viewer.canvas.height * k);
             const g = c.getContext('2d');
-            g.drawImage(viewer.canvas, 0, 0);
+            g.drawImage(viewer.canvas, 0, 0, c.width, c.height);
             mapLabels.composite(g, c.width, c.height);
             resolve(c.toDataURL('image/jpeg', 0.7));
           } catch {

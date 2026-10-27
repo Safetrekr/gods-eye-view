@@ -2,7 +2,12 @@
 // filled green glyphs; drafts are hollow grey and dashed. Green means
 // "approved place of safety" and nothing else in Trip Twin.
 import * as Cesium from 'cesium';
-import { safetyLabel } from './twinMapLabelEntries.js';
+import {
+  PROTECTED_SAFETY,
+  safetyLabel,
+  safetyState,
+  sharePlates,
+} from './twinMapLabelEntries.js';
 import { bearingLabel, formatDistance, haversineM } from './twinData.js';
 
 const css = (hex, a = 1) => Cesium.Color.fromCssColorString(hex).withAlpha(a);
@@ -117,16 +122,30 @@ export function createSafetyLayer(viewer, site) {
       selectedId = id;
       if (lastArgs) this.update(...lastArgs);
     },
-    /** The route ends here ({lat, lon} or null): that place says so. */
+    /**
+     * The route ends here ({lat, lon, label} or null): the protected place
+     * it names says so ("End of shown route").
+     */
     setRouteEnd(ll) {
-      const key = ll ? `${ll.lat.toFixed(6)},${ll.lon.toFixed(6)}` : null;
+      const key = ll
+        ? `${ll.lat.toFixed(6)},${ll.lon.toFixed(6)}|${ll.label || ''}`
+        : null;
       if (key === (routeEnd?.key ?? null)) return;
       routeEnd = ll ? { ...ll, key } : null;
       if (lastArgs) this.update(...lastArgs);
     },
-    /** Is a place drawn within m metres of ll? (the route's End merges). */
-    placeNear(ll, m = 30) {
-      return drawnAt.some((q) => haversineM(q, ll) <= m);
+    /**
+     * Is a shown, protected place named `label` within m metres of ll? The
+     * route's End then says nothing of its own (L5 D12, round 1).
+     */
+    placeNear(ll, m = 30, label = '') {
+      if (ds.show === false) return false;
+      return drawnAt.some(
+        (q) =>
+          q.protect &&
+          haversineM(q.ll, ll) <= m &&
+          (!label || label.startsWith(q.label)),
+      );
     },
     /** Returns edge chips for points beyond the hologram. */
     update(points = [], { show = true, covers = null } = {}) {
@@ -141,6 +160,7 @@ export function createSafetyLayer(viewer, site) {
           p.id,
           p.category,
           p.approval_status,
+          p.chaperone_only,
           p.name,
           p.coordinates?.lat,
           p.coordinates?.lng,
@@ -161,6 +181,31 @@ export function createSafetyLayer(viewer, site) {
       // The selected place is drawn last so its glyph sits on top.
       const ordered = [...points].sort(
         (a, b) => Number(a.id === selectedId) - Number(b.id === selectedId),
+      );
+      // Places at the same spot share one plate (brand, UI round 1).
+      const shared = sharePlates(
+        points
+          // Only places drawn on the map (an edge chip shares no plate).
+          .filter((p) => {
+            if (!p.coordinates) return false;
+            const q = { lat: p.coordinates.lat, lon: p.coordinates.lng };
+            return haversineM(center, q) <= inView || covers?.(q);
+          })
+          .map((p) => {
+            const label = SAFETY_LABEL[p.category] || p.category;
+            const named = p.name && !p.name.startsWith(label) ? p.name : '';
+            const state = safetyState(p, p.approval_status !== 'active');
+            return {
+              id: p.id,
+              category: p.category,
+              ll: { lat: p.coordinates.lat, lon: p.coordinates.lng },
+              // The words keep the place's state (IA round 2).
+              words: [label, state, named].filter(Boolean).join(' · '),
+              title: label,
+              protect: PROTECTED_SAFETY.has(p.category),
+            };
+          }),
+        haversineM,
       );
       for (const p of ordered) {
         if (!p.coordinates) {
@@ -189,10 +234,17 @@ export function createSafetyLayer(viewer, site) {
         const draft = p.approval_status !== 'active';
         const sel = p.id === selectedId;
         const pos = Cesium.Cartesian3.fromDegrees(ll.lon, ll.lat, h + 25);
-        drawnAt.push(ll);
+        drawnAt.push({
+          ll,
+          label,
+          protect:
+            PROTECTED_SAFETY.has(p.category) && !shared.absorbed.has(p.id),
+        });
         ds.entities.add({
           id: `twin-safety:${p.id}`,
           declutterGlyph: sel ? 36 : 24,
+          // Drawn over any map word that lands on it (UI round 1).
+          onTop: true,
           position: pos,
           billboard: {
             image: glyph(p.category, draft),
@@ -203,12 +255,28 @@ export function createSafetyLayer(viewer, site) {
           },
           // On the world overlay (review/map-labels L5): protected, shown
           // wherever the glyph is drawn, the state in words.
-          mapLabel: safetyLabel(p, {
-            label,
-            draft,
-            selected: sel,
-            endOfRoute: Boolean(routeEnd && haversineM(routeEnd, ll) <= 30),
-          }),
+          mapLabel: shared.absorbed.has(p.id)
+            ? undefined
+            : safetyLabel(p, {
+                label,
+                draft,
+                selected: sel,
+                also: shared.also.get(p.id) || [],
+                // An edge tag names the other protected places on it.
+                alsoTitles: points
+                  .filter(
+                    (q) =>
+                      shared.hostOf.get(q.id) === p.id &&
+                      PROTECTED_SAFETY.has(q.category),
+                  )
+                  .map((q) => SAFETY_LABEL[q.category] || q.category),
+                endOfRoute: Boolean(
+                  routeEnd &&
+                  PROTECTED_SAFETY.has(p.category) &&
+                  haversineM(routeEnd, ll) <= 30 &&
+                  (!routeEnd.label || routeEnd.label.startsWith(label)),
+                ),
+              }),
         });
         // Beacon to the ground and a ground ring (primary rally: double ring).
         ds.entities.add({

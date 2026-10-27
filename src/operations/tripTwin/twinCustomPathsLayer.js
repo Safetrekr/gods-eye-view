@@ -59,6 +59,8 @@ export function createCustomPathsLayer(viewer, site) {
             mapLabel: mapLabel('avoid', {
               title: `Avoid · ${reasonLabel(a.reason)}`,
               details: a.note ? [a.note] : [],
+              // The operator's note stays off the walls (L1).
+              wallDetails: false,
               far: LABEL_FAR,
               pick: true,
             }),

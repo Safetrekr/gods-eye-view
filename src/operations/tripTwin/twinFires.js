@@ -109,6 +109,22 @@ export function drawFires(
   const ds = new Cesium.CustomDataSource('trip-twin-fires');
   const added = viewer.dataSources.add(ds); // resolves in a microtask
   const { projector, field } = site;
+  // One label per cluster of detections within 500 m, on the newest, so the
+  // words (and SIMULATED) never drop out between neighbouring squares
+  // (every-time P0-2).
+  const leads = new Map();
+  for (const r of records
+    .filter((q) => (now - q.acqMs) / 3600000 <= 24)
+    .sort((a, b) => b.acqMs - a.acqMs)) {
+    // Real and SIMULATED detections never share a label (every-time R2).
+    const lead = [...leads.keys()].find(
+      (l) =>
+        Boolean(l.simulated) === Boolean(r.simulated) &&
+        haversineM(l, r) <= 500,
+    );
+    if (lead) leads.get(lead).push(r);
+    else leads.set(r, [r]);
+  }
   for (const r of records) {
     const ageH = (now - r.acqMs) / 3600000;
     if (ageH > 24) continue;
@@ -154,6 +170,8 @@ export function drawFires(
               }),
       },
     });
+    const group = leads.get(r);
+    if (!group) continue;
     ds.entities.add({
       position: Cesium.Cartesian3.fromDegrees(
         r.lon,
@@ -163,8 +181,12 @@ export function drawFires(
       // On the world overlay (review/map-labels L5): SIMULATED first, the
       // detections' amber (559da4f) on the bar.
       mapLabel: mapLabel('hazard', {
-        title: `${r.simulated ? 'SIMULATED heat' : 'Heat'} detection`,
-        details: [`${formatAge(ageH * 3600)} ago`],
+        title: `${r.simulated ? 'SIMULATED heat' : 'Heat'} detection${group.length > 1 ? 's' : ''}`,
+        details: [
+          group.length > 1
+            ? `${group.length} detections here · newest ${formatAge(ageH * 3600)} ago`
+            : `${formatAge(ageH * 3600)} ago`,
+        ],
         far: 6000,
         accent: TT_OVERLAY_ACCENTS.check,
       }),

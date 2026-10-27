@@ -1987,10 +1987,28 @@ async function smoke(server, browser) {
           d.floorPainted > 0,
           `no floor words painted: ${JSON.stringify(d)}`,
         );
-        must(d.uiRects >= 1, `no keep-out areas: ${JSON.stringify(d)}`);
+        // The panel bands (left and top at least) are in place.
+        must(d.bands >= 2, `keep-out bands: ${JSON.stringify(d)}`);
         must(d.cesiumLabels === 0, `${d.cesiumLabels} Cesium labels left`);
+        must(d.protectedShown > 0, `no protected label: ${JSON.stringify(d)}`);
+        // Sources are let go: people swap with the 15 s feed (AIA P1-1).
+        await sleep(20000);
+        const later = await page.evaluate(() => ({
+          ...window.testTwinLabels?.(),
+          render: window.testTwinRender?.(),
+        }));
+        must(
+          later.sources <= d.sources + 2,
+          `data sources kept: ${d.sources} → ${later.sources}`,
+        );
+        // No continuous render added by the labels (governor idle).
+        must(
+          later.render?.mode === 'idle' ||
+            !later.render?.holds?.some((h) => /label|overlay/i.test(h)),
+          `render held: ${JSON.stringify(later.render?.holds)}`,
+        );
         return {
-          detail: `${d.labels} labels (${d.painted} painted), ${d.floorPainted} floor words on top, ${d.uiRects} keep-out areas, scale ${d.scale.toFixed(2)}, 0 Cesium labels`,
+          detail: `${d.labels} labels (${d.painted} painted, ${d.tags} edge tags, ${d.protectedShown} protected), ${d.floorPainted} floor words on top, ${d.bands} keep-out bands, scale ${d.scale.toFixed(2)}, sources ${d.sources}→${later.sources}, 0 Cesium labels`,
         };
       } finally {
         await send({

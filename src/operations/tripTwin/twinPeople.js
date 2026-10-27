@@ -8,7 +8,9 @@ import { UNKNOWN_TEXT, floorText } from './twinData.js';
 // Ruler text only where it can be read (Building / Neighborhood scale).
 // The floor instrument's words are painted by Trip Twin's lane on the world
 // overlay, over every plate (review/map-labels L5 D10): `mapText` records.
-const RULER_FAR = 1000;
+// 1.5 km: a wall frames the hotel from about 1.3 km; where numbers crowd,
+// the reported floor, top and ground win (rulerOrder, round 2).
+const RULER_FAR = 1500;
 const css = (hex, a = 1) => Cesium.Color.fromCssColorString(hex).withAlpha(a);
 const toCart = (ll, h) =>
   Cesium.Cartesian3.fromDegrees(ll.lon ?? ll.lng, ll.lat, h);
@@ -151,6 +153,8 @@ export function createPeopleLayer(viewer, site, twin) {
     ds.entities.add({
       id,
       position: toCart(c, pinZ),
+      // A person's pin is drawn over any map word that lands on it.
+      onTop: true,
       billboard: {
         image: pinCanvas(person, kind, { attention, selected }),
         scale: dim ? 0.4 : 0.5,
@@ -259,6 +263,9 @@ export function createPeopleLayer(viewer, site, twin) {
             align: 'right',
             // The ruler never moves; other labels slide around it.
             fixed: true,
+            // Where numbers overlap (seen from above) the reported floor
+            // wins, then the top, then the ground (UX round 1).
+            rank: isReported ? 3 : l === top - 1 ? 2 : l === 0 ? 1 : 0,
             far: RULER_FAR,
           },
         });
@@ -483,6 +490,7 @@ export function createPeopleLayer(viewer, site, twin) {
               background: 'rgba(11,20,22,0.8)',
               align: 'right',
               fixed: true,
+              rank: 2,
               far: RULER_FAR,
             },
           });

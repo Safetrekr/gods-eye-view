@@ -4029,3 +4029,10 @@ body[data-view='screen'] .tt-wall-card .box .tt-btn {
   background: transparent;
   pointer-events: none;
 }
+/* Soft keep-out stand-ins over map markers: plates are placed off them. */
+.tt-mark-keepout {
+  position: fixed;
+  z-index: 7;
+  background: transparent;
+  pointer-events: none;
+}
