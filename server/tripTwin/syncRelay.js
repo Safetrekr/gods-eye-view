@@ -382,6 +382,10 @@ export function createRelay({
         timers,
         limits,
         now,
+        // B4: the room preset and a wall's executive role apply school
+        // session commands through the remote in control; the state goes
+        // out the usual way.
+        broadcastState,
       })
     : null;
   /** A socket's hello deadline (sec S6): no accepted hello, closed. */
@@ -755,6 +759,8 @@ export function createRelay({
         });
         send(ws, { t: 'setup', ok: true, ...r });
         broadcastState({ cause: CAUSE.SETUP });
+        // SafeTrekr Executive (B4): the room preset (null for the school).
+        ex?.setup?.(r);
         break;
       }
       case 'pair': {

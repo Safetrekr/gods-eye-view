@@ -99,6 +99,10 @@ export default async (env) => {
                 twinPhone: fileURLToPath(
                   new URL('./twin-phone.html', import.meta.url),
                 ),
+                // B4: the presenter's iPad page.
+                twinExecutiveRemote: fileURLToPath(
+                  new URL('./twin-executive-remote.html', import.meta.url),
+                ),
               }
             : {}),
         },

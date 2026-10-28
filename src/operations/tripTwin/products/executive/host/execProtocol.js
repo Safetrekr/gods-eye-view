@@ -10,19 +10,28 @@
 //   {t:'hello', kind:'monitor', id, proto}         this computer only
 //   {t:'phone-cmd', reqId, cmd:{type, …}}           kind phone only
 //   {t:'loop-cmd',  reqId, cmd:{type, …}}           the remote in control
+//   {t:'hello', kind:'desk', id, proto}             this computer only (B4)
+//   {t:'desk-cmd', reqId, as, cmd:{type, …}}        the desk: `as` VALE or
+//                                                   ORTEGA (the visible
+//                                                   supervisor switch)
 // Outbound (relay → page):
 //   {t:'welcome', type:'phone'|'monitor', …}        accepted hello
 //   {t:'loop', view:'loop'|'main'|'phone', rev, clock, loop|main|phone}
 //   {t:'loop-clock', clock}                         the clock, every second
 //   {t:'loop-role', slot, role}                     a wall's executive role,
 //                                                   when it joins or changes (B3)
-//   {t:'loop-ack', reqId, ok, code?, error?, ask?, ticket?}
+//   {t:'loop', view:'desk', …, loop, desk, undo}     the desk's view (B4)
+//   {t:'loop-ack', reqId, ok, code?, error?, ask?, ticket?, events?}
 import { CODE, DENY } from '../../../twinProtocol.js';
 import {
+  CLOSE_REASONS,
+  DECISIONS,
   DL_ANSWERS,
   LOOP_ACTIONS,
   PHONE_EVENTS,
   PRESENTER_EVENTS,
+  PROTECTIONS,
+  REOPEN_REASONS,
   RUNGS,
   lowersSupervision,
 } from '../loop/loopPolicy.js';
@@ -31,7 +40,7 @@ import {
 export const EXEC_PROTO = 1;
 
 /** Device kinds the executive relay adds (the session host never sees them). */
-export const EXEC_KINDS = Object.freeze(['phone', 'monitor']);
+export const EXEC_KINDS = Object.freeze(['phone', 'monitor', 'desk']);
 
 /** Messages the executive relay adds. */
 export const EXEC_MSG = Object.freeze({
@@ -41,6 +50,7 @@ export const EXEC_MSG = Object.freeze({
   CLOCK: 'loop-clock',
   ACK: 'loop-ack',
   ROLE: 'loop-role',
+  DESK_CMD: 'desk-cmd',
 });
 
 /**
@@ -71,6 +81,14 @@ export const EXEC_CODE = Object.freeze({
   UNKNOWN_PERSON: 'UNKNOWN_PERSON',
   BAD_ROLE: 'BAD_ROLE',
   LOCAL_ONLY: 'LOCAL_ONLY',
+  // B4: the desk and the presenter's shortcuts.
+  NOT_DESK: 'NOT_DESK',
+  BAD_AS: 'BAD_AS',
+  WRONG_BEAT: 'WRONG_BEAT',
+  NOT_PENDING: 'NOT_PENDING',
+  UNDO_EXPIRED: 'UNDO_EXPIRED',
+  NOT_UNDOABLE: 'NOT_UNDOABLE',
+  BAD_MODE: 'BAD_MODE',
   // Shared with the school protocol (same words, same meaning).
   VALIDATION_COMMAND: CODE.VALIDATION_COMMAND,
   RATE_LIMITED: CODE.RATE_LIMITED,
@@ -116,7 +134,74 @@ export const PRESENTER_CMDS = Object.freeze({
   // a pairing ticket for one participant's phone.
   'wall.role': { tier: 'act', event: null },
   'phone.ticket': { tier: 'act', event: null },
+  // EP-38 #8: the only two loop decisions the iPad may cause, each at its
+  // own beat, ask first, and only while ORTEGA's scripted event is still
+  // to come. The host sends ORTEGA's scripted event at the current sim
+  // time (via 'presenter', audited); at any other beat it is refused.
+  'ortega.countersign': {
+    tier: 'ask',
+    event: 'verification.countersign',
+    as: 'ORTEGA',
+    beat: 2,
+  },
+  'ortega.retier': {
+    tier: 'ask',
+    event: 'posture.retier',
+    as: 'ORTEGA',
+    beat: 3,
+  },
+  // EP-38 #12: scripted phone replies fire on time, or wait for a tap.
+  'phones.mode': { tier: 'act', event: null },
 });
+
+/** The presenter's ORTEGA shortcuts (EP-38 #8), from PRESENTER_CMDS. */
+export const SHORTCUTS = Object.freeze(
+  Object.fromEntries(
+    Object.entries(PRESENTER_CMDS).filter(([, row]) => row.as === 'ORTEGA'),
+  ),
+);
+/** Phone modes (EP-38 #12). */
+export const PHONE_MODES = Object.freeze(['scripted', 'live']);
+
+/**
+ * The room preset (B4): when a room is set up, the host gives each slot
+ * its executive role, the school session role its wall is built on
+ * (EP-51: site for MAIN and Principal, trips for the flat walls), the
+ * school layers the 3D walls draw and MAIN's room text scale.
+ */
+export const SITE_LAYERS = Object.freeze({
+  paths: false,
+  savedPaths: false,
+  avoidAreas: false,
+  corridors: false,
+  safety: false,
+  floors: false,
+  streetPhoto: false,
+  streets: true,
+  walkways: true,
+});
+export const MAIN_TEXT_SCALE = 2;
+/** The school session patch a wall of this executive role needs. */
+export function sessionPatchFor(exRole) {
+  if (exRole === 'main')
+    return {
+      role: 'site',
+      layers: { ...SITE_LAYERS },
+      textScale: MAIN_TEXT_SCALE,
+    };
+  if (exRole === 'principal')
+    return { role: 'site', layers: { ...SITE_LAYERS } };
+  return { role: 'trips' };
+}
+/** [{slot, role, patch}] for a room of `count` walls, in slot order. */
+export function roomPreset(count = 6) {
+  const n = Math.max(1, Math.min(6, Math.round(Number(count) || 1)));
+  return EXEC_ROLE_ORDER.slice(0, n).map((role, i) => ({
+    slot: i + 1,
+    role,
+    patch: sessionPatchFor(role),
+  }));
+}
 
 /** An ask-first question lives this long (Fitzroy's 10 s). */
 export const ASK_MS = 10_000;
@@ -130,6 +215,7 @@ export const PHONE_TICKET_MS = 10 * 60e3;
  */
 export function viewFor({ kind, role = null }) {
   if (kind === 'phone') return 'phone';
+  if (kind === 'desk') return 'desk';
   if (kind === 'screen') return role === 'main' ? 'main' : 'loop';
   if (kind === 'remote' || kind === 'monitor') return 'loop';
   return null;
@@ -332,6 +418,100 @@ export function presenterCmd(cmd) {
     if (!kinds.id(cmd.participant_id))
       return { code: EXEC_CODE.VALIDATION_COMMAND };
     out.participant_id = cmd.participant_id;
+  }
+  if (type === 'phones.mode') {
+    if (!PHONE_MODES.includes(cmd.mode)) return { code: EXEC_CODE.BAD_MODE };
+    out.mode = cmd.mode;
+  }
+  return { cmd: out };
+}
+
+// ------------------------------------------------------------ the desk
+
+/** Who the desk acts as: the analyst, or the supervisor by the visible switch. */
+export const DESK_AS = Object.freeze(['VALE', 'ORTEGA']);
+const grade = (v) => {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const source = String(v.source || '');
+  const info = Number(v.info);
+  return /^[A-F]$/.test(source) &&
+    Number.isInteger(info) &&
+    info >= 1 &&
+    info <= 6
+    ? { source, info }
+    : undefined;
+};
+const step = (v) => (Number.isInteger(v) && v >= 1 && v <= 6 ? v : undefined);
+
+/**
+ * What the desk may send (EP-31 §3, EP-33 §§1–3, EP-34 §4): the intent
+ * only. The host stamps id, at, by and via, picks the scripted event it
+ * pre-empts (its ids, drafts and payload), and names what a reversal
+ * reverses; the page never does.
+ */
+export const DESK_FIELDS = Object.freeze({
+  'intel.dismiss': { bundle_id: kinds.id, reason: kinds.text },
+  'intel.watch': { bundle_id: kinds.id, reason: kinds.text },
+  'intel.restore': { bundle_id: kinds.id },
+  'verification.decide': {
+    sit_id: kinds.id,
+    decision: kinds.oneOf(Object.keys(DECISIONS)),
+    grade,
+    note: kinds.text,
+  },
+  'verification.countersign': { sit_id: kinds.id },
+  'verification.reopen': { sit_id: kinds.id },
+  'notify.send': { sit_id: kinds.id },
+  'recommendation.edit': { recommendation_id: kinds.id, bluf: kinds.text },
+  'recommendation.approve': { recommendation_id: kinds.id },
+  'push.send': { recommendation_id: kinds.id, supersede: kinds.bool },
+  'push.recall': { push_id: kinds.id, reason: kinds.text },
+  'message.send': { sit_id: kinds.id, to: kinds.id, text: kinds.text },
+  'callback.step': { push_id: kinds.id, step, outcome: kinds.word },
+  'posture.retier': {
+    person_id: kinds.id,
+    to: kinds.oneOf(PROTECTIONS),
+    reason: kinds.text,
+    back: kinds.bool,
+  },
+  'sitrep.sign': { sit_id: kinds.id, sitrep_id: kinds.id, close: kinds.bool },
+  'situation.close': { sit_id: kinds.id, reason: kinds.oneOf(CLOSE_REASONS) },
+  'situation.reopen': {
+    sit_id: kinds.id,
+    reason: kinds.oneOf(REOPEN_REASONS),
+  },
+  undo: {},
+});
+/** Never from the desk page either: the host decides these. */
+export const HOST_FIELDS = Object.freeze([
+  ...STAMPED_FIELDS,
+  'reverses',
+  'preempts',
+  'supersedes',
+  'push_id_new',
+  'version',
+]);
+
+/** A desk command → {cmd} (normalised, fields only) or {code}. Pure. */
+export function deskCmd(cmd, as) {
+  if (!DESK_AS.includes(as)) return { code: EXEC_CODE.BAD_AS };
+  if (!cmd || typeof cmd !== 'object' || Array.isArray(cmd))
+    return { code: EXEC_CODE.VALIDATION_COMMAND };
+  if (!Object.hasOwn(DESK_FIELDS, cmd.type))
+    return {
+      code:
+        PHONE_EVENTS.includes(cmd.type) || PRESENTER_EVENTS.includes(cmd.type)
+          ? EXEC_CODE.NOT_DESK
+          : EXEC_CODE.VALIDATION_COMMAND,
+    };
+  for (const k of HOST_FIELDS)
+    if (Object.hasOwn(cmd, k)) return { code: EXEC_CODE.VALIDATION_COMMAND };
+  const out = { type: cmd.type };
+  for (const [k, f] of Object.entries(DESK_FIELDS[cmd.type])) {
+    if (!Object.hasOwn(cmd, k)) continue;
+    const v = f(cmd[k]);
+    if (v === undefined) return { code: EXEC_CODE.VALIDATION_COMMAND };
+    out[k] = v;
   }
   return { cmd: out };
 }

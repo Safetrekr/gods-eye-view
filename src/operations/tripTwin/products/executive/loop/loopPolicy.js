@@ -55,6 +55,13 @@ export const LOOP_ACTIONS = Object.freeze({
     tier: 'ask',
     undo: 'reopen',
   },
+  // EP-33 §3: reversals are new events carrying `reverses: e-…`; the
+  // reversed event stays in the record beside them. A supersede is a
+  // push.send with `supersedes`; a re-tier back is a posture.retier.
+  'intel.restore': { who: ['analyst', 'supervisor'], tier: 'act' },
+  'verification.reopen': { who: ['analyst', 'supervisor'], tier: 'act' },
+  'push.recall': { who: ['analyst'], tier: 'act' },
+  'situation.reopen': { who: ['analyst', 'supervisor'], tier: 'ask' },
   ack: { who: ['person', 'generator'], tier: 'act' },
   'dl.respond': { who: ['person'], tier: 'act' },
   'salute.file': { who: ['person'], tier: 'act' },
@@ -182,6 +189,36 @@ export const CLOSE_REASONS = Object.freeze([
   'superseded',
 ]);
 export const RUNGS = Object.freeze(['delivered', 'read', 'accepted', 'done']);
+/** EP-33 §3: a reopen names why (closed list, never free text). */
+export const REOPEN_REASONS = Object.freeze([
+  'new_report',
+  'signed_in_error',
+  'instruction_changed',
+]);
+/**
+ * EP-33 §3: which events a reversal may name in `reverses`, per reversal
+ * type. A reversal without `reverses` is refused (BAD_EVENT): nothing is
+ * undone without saying what.
+ */
+export const REVERSALS = Object.freeze({
+  'intel.restore': Object.freeze(['intel.dismiss', 'intel.watch']),
+  'verification.reopen': Object.freeze(['verification.decide']),
+  'push.recall': Object.freeze(['push.send']),
+  'situation.reopen': Object.freeze(['situation.close']),
+});
+/** Optional `reverses` on these (a supersede, a re-tier back). */
+export const MAY_REVERSE = Object.freeze({
+  'push.send': Object.freeze(['push.send']),
+  'posture.retier': Object.freeze(['posture.retier']),
+});
+/** The desk's 10 s undo (EP-33 §3, Fitzroy's UNDO_MS): act-tier only. */
+export const UNDO_MS = 10_000;
+/** Desk events the undo can reverse, and the reversal it sends. */
+export const UNDOABLE = Object.freeze({
+  'intel.dismiss': 'intel.restore',
+  'intel.watch': 'intel.restore',
+  'verification.decide': 'verification.reopen',
+});
 
 /**
  * The raise rule after a hit (EP-35 §3): DETAIL raises P1–P3 and every

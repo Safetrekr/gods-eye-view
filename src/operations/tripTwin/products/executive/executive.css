@@ -460,119 +460,368 @@ body[data-ex-role='main'] .ex-bar-in {
   }
 }
 
-/* ---------- MAIN (EP-32 §3.1) ---------- */
-body[data-ex-role='main'] .ex-stage-in {
-  padding-top: 10px;
+/* ---------- MAIN: its own page (EP-52) ----------
+   Units are MAIN units: CSS px before the room zoom (×2 text scale, so
+   1280 × 720 on any panel; ×1.5 rendered at 1080p, ×3 at 2160p).
+   Tiers (EP-31 §2, 75-inch panel): 10 m ≥ 26 units (SAMPLE, callsign,
+   ladder word, the count); 5 m ≥ 18 (decision line, leg, next update);
+   2 m ≥ 11 (watch line, last verified, queue, counter labels). */
+body[data-ex-role='main'] {
+  --ex-bar-h: 56px;
+  --exm-top: 10px;
+  --exm-foot: 128px;
+  --exm-map-w: 470px;
+  background: var(--tt-field);
 }
-.ex-main-left {
-  position: absolute;
-  left: var(--ex-gut);
-  top: 10px;
-  width: 350px;
+body[data-ex-role='main'] .ex-stage {
+  pointer-events: none;
 }
-.tt-watch {
-  font: 500 11px/1.4 var(--tt-mono);
-  color: var(--tt-text-2);
+/* The school wall's own regions are not MAIN's: only the 3D canvas (in
+   MAIN's map region), the attribution line and the relay-lost band stay. */
+body[data-ex-role='main'] .tt-wall-banner,
+body[data-ex-role='main'] .tt-wall-right,
+body[data-ex-role='main'] .tt-wxtl,
+body[data-ex-role='main'] .tt-compass,
+body[data-ex-role='main'] #tt-bar {
+  display: none !important;
 }
-.tt-lastv {
-  font: 300 19px/1.25 var(--tt-display);
-  margin: 6px 0 4px;
+body[data-ex-role='main'] #cesiumContainer {
+  position: fixed !important;
+  top: calc((var(--ex-bar-h) + var(--exm-top)) * var(--ex-z)) !important;
+  right: calc(var(--ex-gut) * var(--ex-z)) !important;
+  left: auto !important;
+  width: calc(var(--exm-map-w) * var(--ex-z)) !important;
+  bottom: calc(22px + var(--exm-foot) * var(--ex-z)) !important;
+  height: auto !important;
+  border-radius: calc(12px * var(--ex-z));
+  overflow: hidden;
 }
-.tt-queue-line {
-  font: 500 12px var(--tt-mono);
-  color: var(--tt-text-2);
-  margin-bottom: 6px;
+body[data-ex-role='main'] .ex-bar-in {
+  grid-template-columns: auto auto minmax(0, 1fr);
 }
-.tt-queue-line.amber {
-  color: var(--tt-attention);
+body[data-ex-role='main'] .ex-brand .tt-brand-mark {
+  height: 22px;
 }
-.ex-main-left .tt-counter .n {
-  font-size: 28px;
+body[data-ex-role='main'] .ex-role {
+  font-size: 26px;
 }
-.ex-main-cline {
-  font: 400 10px/1.35 var(--tt-mono);
-  color: var(--tt-text-dim);
-}
-.ex-main-board {
-  position: absolute;
-  right: var(--ex-gut);
-  top: 10px;
-  width: 470px;
-  max-height: calc(100% - 64px);
-}
-.tt-main-row {
-  border: 1px solid var(--tt-edge-ctl);
-  border-radius: 8px;
-  padding: 8px 10px;
-  margin-bottom: 8px;
-}
-.tt-main-row.amber {
-  border-color: var(--tt-attention);
-}
-.tt-main-row .l1 .cs {
-  font: 600 20px var(--tt-mono);
-  margin-right: 10px;
-}
-.tt-main-row .l1 .leg {
-  font: 300 20px var(--tt-display);
-  color: var(--tt-text-2);
-}
-.tt-main-row .l2 {
-  font: 300 24px/1.2 var(--tt-display);
-  margin: 4px 0;
-}
-.tt-main-row .l3 {
-  display: flex;
-  gap: 12px;
+body[data-ex-role='main'] .ex-sample {
+  padding: 4px 10px;
+  display: inline-flex;
   align-items: baseline;
-  font: 500 14px var(--tt-mono);
 }
-.tt-ladder-word {
-  border: 1px solid var(--tt-text);
-  border-radius: 4px;
-  padding: 1px 6px;
-  font: 600 16px var(--tt-mono);
+body[data-ex-role='main'] .ex-sample .big {
+  font: 700 26px/1 var(--tt-mono);
+  letter-spacing: 0.1em;
 }
-.tt-ladder-word.amber {
+body[data-ex-role='main'] .ex-sample .rest {
+  font: 700 13px/1 var(--tt-mono);
+  letter-spacing: 0.1em;
+  margin-left: 0.7em;
+}
+body[data-ex-role='main'] .ex-clock {
+  font: 500 15px var(--tt-mono);
+  letter-spacing: 0.02em;
+}
+.exm {
+  position: absolute;
+  inset: 0;
+}
+.exm-dots .seg {
+  white-space: nowrap;
+}
+.exm-board {
+  position: absolute;
+  left: var(--ex-gut);
+  top: var(--exm-top);
+  right: calc(var(--ex-gut) + var(--exm-map-w) + 16px);
+  bottom: var(--exm-foot);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow: hidden;
+}
+.exm-k {
+  font: 600 13px var(--tt-mono);
+  letter-spacing: 0.16em;
+  color: var(--tt-text-2);
+}
+.exm-band {
+  font: 600 18px var(--tt-mono);
+  letter-spacing: 0.04em;
+  color: var(--tt-attention);
+  border: 1px solid var(--tt-attention);
+  border-radius: 8px;
+  padding: 6px 12px;
+}
+.exm-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+.exm-row {
+  border: 1px solid var(--tt-edge-ctl);
+  border-radius: 12px;
+  background: var(--tt-glass);
+  padding: 14px 18px 16px;
+}
+.exm-row.amber {
+  border-color: var(--tt-attention);
+}
+.exm-row .l1 {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  white-space: nowrap;
+}
+.exm-row .l1 .cs {
+  font: 600 30px/1.1 var(--tt-mono);
+  letter-spacing: 0.02em;
+}
+.exm-row .l1 .leg {
+  font: 300 26px/1.1 var(--tt-display);
+  color: var(--tt-text);
+}
+.exm-row .l1 .z {
+  font: 500 18px var(--tt-mono);
+  color: var(--tt-text-2);
+}
+.exm-row .l2 {
+  font: 300 27px/1.22 var(--tt-display);
+  margin: 10px 0 12px;
+}
+.exm-row.detail .l2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.exm-row .l3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+}
+.exm-row .l3 .next {
+  font: 500 19px var(--tt-mono);
+  color: var(--tt-text-2);
+  white-space: nowrap;
+}
+/* The ladder word: mono, a border, no fill (EP-31 §2: 10 m tier). */
+.exm-chip {
+  font: 600 26px/1 var(--tt-mono);
+  letter-spacing: 0.03em;
+  border: 1.5px solid var(--tt-text);
+  border-radius: 6px;
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+.exm-chip.amber {
   color: var(--tt-attention);
   border-color: var(--tt-attention);
 }
-.tt-main-row .l3 .next {
+.exm-rows.n3 .exm-row .l2,
+.exm-rows.n4 .exm-row .l2 {
+  font-size: 21px;
+  margin: 6px 0 8px;
+}
+.exm-rows.n3 .exm-row,
+.exm-rows.n4 .exm-row {
+  padding: 9px 14px 10px;
+}
+.exm-more {
+  font: 500 15px var(--tt-mono);
   color: var(--tt-text-2);
 }
-.ex-brief-counts {
-  font: 500 14px var(--tt-mono);
-  margin-bottom: 6px;
+.exm-brief-counts {
+  font: 600 18px var(--tt-mono);
+  letter-spacing: 0.04em;
 }
-.ex-brief-row,
-.ex-closed-row {
-  font: 400 13.5px/1.6 var(--tt-mono);
-  color: var(--tt-text-2);
-  border-top: 1px solid var(--tt-hair);
-}
-.ex-more {
-  font: 500 13px var(--tt-mono);
-  color: var(--tt-text-2);
-}
-.ex-main-strip {
-  position: absolute;
-  left: var(--ex-gut);
-  right: var(--ex-gut);
-  bottom: 6px;
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  font: 500 12px var(--tt-mono);
+.exm-brief-row,
+.exm-closed-row {
+  font: 500 19px/1.5 var(--tt-mono);
   color: var(--tt-text);
-  background: var(--tt-glass);
+  border-top: 1px solid var(--tt-hair);
+  padding: 5px 0;
+}
+.exm-empty {
+  font: 300 40px/1.15 var(--tt-display);
+  color: var(--tt-text);
+  margin-top: 8px;
+}
+.exm-empty.small {
+  font-size: 26px;
+  color: var(--tt-text-2);
+}
+.exm-map {
+  position: absolute;
+  top: var(--exm-top);
+  right: var(--ex-gut);
+  width: var(--exm-map-w);
+  bottom: var(--exm-foot);
+  box-sizing: border-box;
+  border: 1px solid var(--tt-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.exm-map.mode-flat,
+.exm-map.mode-field {
+  background: rgba(4, 12, 18, 0.92);
+}
+.exm-venue {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.exm-venue .g {
+  stroke: rgba(184, 195, 199, 0.08);
+}
+.exm-venue .place {
+  fill: none;
+  stroke: var(--tt-text);
+  stroke-width: 3;
+}
+.exm-venue .mark {
+  fill: var(--tt-text);
+  stroke: var(--tt-field);
+  stroke-width: 4;
+}
+.exm-venue .label {
+  fill: var(--tt-text);
+  font: 600 30px var(--tt-mono);
+}
+.exm-venue .label.place-l {
+  font: 300 34px var(--tt-display);
+}
+.exm-world {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.exm-world .land {
+  fill: rgba(184, 195, 199, 0.08);
+  stroke: rgba(184, 195, 199, 0.3);
+  stroke-width: 1.2;
+  stroke-linejoin: round;
+}
+.exm-world .city {
+  fill: var(--tt-text);
+  stroke: var(--tt-field);
+  stroke-width: 3;
+}
+.exm-world .label {
+  fill: var(--tt-text);
+  font: 600 30px var(--tt-mono);
+  paint-order: stroke;
+  stroke: var(--tt-field);
+  stroke-width: 6px;
+}
+.exm-map-cap {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  background: rgba(8, 22, 30, 0.88);
   border: 1px solid var(--tt-border);
   border-radius: 8px;
-  padding: 5px 10px;
+  padding: 7px 10px;
 }
-.ex-main-strip .room {
+.exm-map-cap .who {
+  font: 600 16px var(--tt-mono);
+}
+.exm-map-cap .where {
+  font: 300 18px/1.25 var(--tt-display);
+}
+.exm-map-cap .note {
+  font: 500 12px var(--tt-mono);
+  color: var(--tt-text-2);
+  margin-top: 2px;
+}
+.exm-map-cap.field {
+  font: 600 12px var(--tt-mono);
+  letter-spacing: 0.14em;
+  color: var(--tt-text-2);
+  right: auto;
+  top: 10px;
+  bottom: auto;
+}
+.exm-map-credit {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  font: 400 10px var(--tt-mono);
   color: var(--tt-text-dim);
-  font-size: 10px;
-  align-self: center;
+}
+.exm-foot {
+  position: absolute;
+  left: var(--ex-gut);
+  right: var(--ex-gut);
+  bottom: 8px;
+  height: calc(var(--exm-foot) - 22px);
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  border: 1px solid var(--tt-border);
+  border-radius: 12px;
+  background: var(--tt-glass);
+  padding: 8px 18px;
+}
+.exm-status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.exm-watch {
+  font: 500 15px/1.3 var(--tt-mono);
+  color: var(--tt-text);
+}
+.exm-lastv {
+  font: 300 21px/1.25 var(--tt-display);
+}
+.exm-queue {
+  font: 500 15px/1.3 var(--tt-mono);
+  color: var(--tt-text-2);
+}
+.exm-queue.amber {
+  color: var(--tt-attention);
+}
+.exm-counter {
+  display: flex;
+  gap: 26px;
+  align-items: flex-start;
+}
+.exm-counter .n {
+  display: block;
+  font: 200 50px/1 var(--tt-display);
+  font-variant-numeric: tabular-nums;
+}
+.exm-counter .k {
+  font: 600 11px/1.2 var(--tt-mono);
+  letter-spacing: 0.12em;
+  color: var(--tt-text-2);
+  margin-top: 6px;
+  white-space: nowrap;
+}
+.exm-counter .k .sub {
+  display: block;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--tt-text-dim);
+}
+.exm-counter .fig.tt-changed .n {
+  animation: ex-flash 0.32s ease-out 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .exm-counter .fig.tt-changed .n {
+    animation: none;
+  }
 }
 
 /* ---------- Verify (EP-32 §3.3) ---------- */
@@ -839,35 +1088,64 @@ body[data-ex-role='roster'] .ex-stage-in {
   grid-template-rows: minmax(0, 1fr) auto;
   gap: 6px;
 }
+/* The map keeps its 16 : 10 frame whatever the wall (EP-52 roster map):
+   the dots are true projected places, so the box may not stretch. */
+.ex-rmap-box {
+  container-type: size;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+}
 .ex-rmap {
   position: relative;
+  width: min(100cqw, 160cqh);
+  height: min(100cqh, 62.5cqw);
   border: 1px solid var(--tt-hair);
   border-radius: 12px;
   background: rgba(4, 12, 18, 0.6);
   overflow: hidden;
 }
-.ex-rmap-grid {
+.ex-rmap-geo {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
 }
-.ex-rmap-grid .g {
-  stroke: rgba(184, 195, 199, 0.07);
+.ex-rmap-geo .g {
+  stroke: rgba(184, 195, 199, 0.06);
   stroke-width: 1;
+  vector-effect: non-scaling-stroke;
 }
-.ex-rmap-grid .g.major {
-  stroke: rgba(184, 195, 199, 0.14);
+.ex-rmap-geo .land {
+  fill: rgba(184, 195, 199, 0.07);
+  stroke: rgba(184, 195, 199, 0.26);
+  stroke-width: 0.8;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
 }
-.ex-rmap-grid .lead {
-  stroke: rgba(184, 195, 199, 0.3);
+.ex-rmap-geo .lead {
+  stroke: rgba(238, 245, 243, 0.55);
   stroke-width: 1;
+  vector-effect: non-scaling-stroke;
 }
-.ex-rmap-grid .city {
+.ex-rmap-geo .lead.raised {
+  stroke: var(--tt-attention);
+}
+.ex-rmap-geo .city {
   fill: var(--tt-text);
+  stroke: var(--tt-field);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
 }
-.ex-rmap-grid .city.raised {
+.ex-rmap-geo .city.raised {
   fill: var(--tt-attention);
+}
+.ex-rmap-credit {
+  position: absolute;
+  right: 8px;
+  bottom: 5px;
+  font: 400 9px var(--tt-mono);
+  color: var(--tt-text-dim);
 }
 .ex-city {
   position: absolute;

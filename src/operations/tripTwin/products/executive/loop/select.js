@@ -97,6 +97,44 @@ export function queueLine(items) {
   return `Queue: ${items.length} awaiting · oldest ${oldest} min${over ? ` · ${over} overdue` : ''}${cs ? ` · ${cs} awaiting countersign` : ''}`;
 }
 
+/** Posture order for ties on MAIN (EP-34 §5): CRITICAL first. */
+const POSTURE_RANK = Object.freeze({
+  CRITICAL: 0,
+  HIGH: 1,
+  ELEVATED: 2,
+  ROUTINE: 3,
+});
+
+/**
+ * MAIN's order (EP-34 §5): time until exposure, ascending (leg start − now;
+ * a leg under way sorts first); ties by posture CRITICAL → ROUTINE, then
+ * raised_at. A comparator over situations; mainScene uses the same one.
+ */
+export function byExposure(loop) {
+  const t = now(loop);
+  const tte = (s) => (s.exposure_at ? ms(s.exposure_at) - t : Infinity);
+  const rank = (s) => POSTURE_RANK[loop.people?.[s.person_id]?.posture] ?? 4;
+  return (a, b) =>
+    tte(a) - tte(b) ||
+    rank(a) - rank(b) ||
+    ms(a.raised_at) - ms(b.raised_at) ||
+    (a.sit_id < b.sit_id ? -1 : a.sit_id > b.sit_id ? 1 : 0);
+}
+
+/** Who a call-back step reached for, in MAIN's words (a callsign or a role). */
+const CALLEE = Object.freeze({
+  'family office security lead': 'SECURITY LEAD',
+  'designated local contact': 'LOCAL CONTACT',
+  'police welfare check': 'POLICE WELFARE CHECK',
+});
+function calleeOf(loop, cb) {
+  const last = cb?.steps?.[cb.steps.length - 1];
+  if (!last) return null;
+  if (last.role === 'person')
+    return loop.people[last.contact_ref]?.callsign ?? null;
+  return CALLEE[last.role] ?? null;
+}
+
 /**
  * The rung a MAIN row shows: the furthest rung the people the push is for
  * have reached (a support recipient, such as the car-service contact, does
@@ -105,7 +143,9 @@ export function queueLine(items) {
 function ladderWord(loop, s, push) {
   const cb = loop.callbacks[push.push_id];
   if (cb && !cb.resolved_at)
-    return { callback: { minutes: push.read_timeout_min } };
+    return {
+      callback: { minutes: push.read_timeout_min, callee: calleeOf(loop, cb) },
+    };
   if (s.state === 'EXPIRED') return { state: 'EXPIRED' };
   const all = push.order.map((pid) => push.recipients[pid]);
   const people = all.filter((r) => r.role === 'person');
@@ -121,9 +161,43 @@ function ladderWord(loop, s, push) {
   return { state: RUNG_WORD[rung], stateAt: at };
 }
 
+const DL_WORD = Object.freeze({
+  concur: 'CONCUR',
+  nonconcur: 'NON-CONCUR',
+  executing: 'EXECUTING',
+  request_support: 'SUPPORT REQUESTED',
+});
+
+/**
+ * The ladder word a MAIN row shows, in capitals (EP-36 §2.3–2.6):
+ * `DL: NON-CONCUR`, `ACCEPTED`, `DONE 1218L`, `NO READ 10 MIN · CALLING
+ * WREN`; amber while a person is awaited or the leader has non-concurred.
+ */
+function ladderChip(parts) {
+  if (parts.dl) {
+    const word = DL_WORD[parts.dl.answer] || String(parts.dl.answer || '');
+    return {
+      word: `DL: ${word.toUpperCase()}`,
+      tone: parts.dl.answer === 'nonconcur' ? 'amber' : null,
+    };
+  }
+  if (parts.callback)
+    return {
+      word: `NO READ ${parts.callback.minutes} MIN · CALLING${parts.callback.callee ? ` ${parts.callback.callee}` : ''}`,
+      tone: 'amber',
+    };
+  if (parts.state === 'DONE' && parts.stateAt)
+    return { word: `DONE ${localTime(parts.stateAt, parts.tz)}`, tone: null };
+  return { word: parts.state ?? null, tone: null };
+}
+
 /**
  * One MAIN row for a situation, or a refusal (I3): only a verified
  * situation in a MAIN state, and a DETAIL item once its leader answers.
+ * The row reads as the storyboard (EP-20): line 1 callsign · leg (Z);
+ * line 2 the decision (a DETAIL row: the leader's own short line, not the
+ * watch's BLUF; otherwise the BLUF); line 3 the ladder word and the next
+ * update. Nothing else: no name, grade, intel, note or DL reason.
  */
 export function mainRowFor(loop, sitId) {
   const s = loop.situations[sitId];
@@ -154,17 +228,28 @@ export function mainRowFor(loop, sitId) {
   } catch {
     row = null;
   }
+  const chip = ladderChip(parts);
   return {
     row: {
       callsign: s.callsign,
+      tier: push.tier,
       leg: parts.leg,
+      leg_z: leg?.start ? watchTime(leg.start) : null,
       bluf: rec?.bluf ?? null,
+      line: dlRec ? (dlRec.plan ?? null) : (rec?.bluf ?? null),
+      // `ladder` keeps its B1 value (the rung, `calling`, `DL: <answer>`);
+      // `word` is what MAIN shows, in capitals.
       ladder: dlRec
         ? `DL: ${dlRec.answer}`
         : parts.callback
           ? 'calling'
           : (parts.state ?? null),
+      word: chip.word,
+      tone: chip.tone,
       next_update_at: s.next_update_at ?? null,
+      next: s.next_update_at
+        ? `next update ${localTime(s.next_update_at, leg?.tz)}`
+        : null,
       text: row,
     },
   };
@@ -178,13 +263,11 @@ function mmss(msDiff) {
 /** Everything a `main` wall receives. Never the loop. */
 export function selectMain(loop) {
   const t = now(loop);
-  const rows = [];
-  for (const s of Object.values(loop.situations)) {
-    const r = mainRowFor(loop, s.sit_id);
-    if (r.row) rows.push({ ...r.row, raised_at: s.raised_at });
-  }
-  rows.sort((a, b) => ms(a.raised_at) - ms(b.raised_at));
-  for (const r of rows) delete r.raised_at;
+  const order = byExposure(loop);
+  const rows = Object.values(loop.situations)
+    .filter((s) => mainRowFor(loop, s.sit_id).row)
+    .sort(order)
+    .map((s) => mainRowFor(loop, s.sit_id).row);
   const closed = Object.values(loop.situations)
     .filter((s) => s.state === 'CLOSED' && s.verification_id)
     .map((s) => {
@@ -206,6 +289,11 @@ export function selectMain(loop) {
       bands.push({
         kind: 'comms_overdue',
         callsign: cs,
+        missing: (c.missing || [])
+          .map((id) => loop.people[id]?.callsign)
+          .filter(Boolean),
+        minutes: Math.max(0, Math.floor((t - ms(c.due_at)) / 60e3)),
+        due: watchTime(c.due_at),
         text: `${cs} · comms check overdue ${mmss(t - ms(c.due_at))}`,
       });
     }

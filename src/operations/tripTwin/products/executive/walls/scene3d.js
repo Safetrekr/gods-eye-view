@@ -76,9 +76,25 @@ export function createScene({ cityKey = 'austin' } = {}) {
     }
     return true;
   }
+  /**
+   * The school trip's other sites ("Day 3 · 10:00" beacons) are not the
+   * executive day's: keep their layer off on the executive 3D walls.
+   */
+  function quietSchool() {
+    const v = viewer();
+    if (!v) return;
+    for (let i = 0; i < v.dataSources.length; i++) {
+      const d = v.dataSources.get(i);
+      if (d.name === 'trip-twin-site-beacons' && d.show) {
+        d.show = false;
+        v.scene.requestRender?.();
+      }
+    }
+  }
   // A site switch or a late feed refills the twin: keep it hollow.
   setInterval(() => {
     hollow();
+    quietSchool();
     tick();
     // QA hook: the site the wall wants is up and the overlay drawn.
     const ok =
@@ -133,7 +149,15 @@ export function createScene({ cityKey = 'austin' } = {}) {
    */
   function draw(o, force = false) {
     lastDraw = o;
-    if (!ready() || switching) return false;
+    if (!ready() || switching) {
+      // Nothing of the last site may stay up while the next one loads.
+      if (ds?.entities.values.length) {
+        ds.entities.removeAll();
+        lastSig = '';
+        viewer()?.scene?.requestRender?.();
+      }
+      return false;
+    }
     const sig = JSON.stringify([twin().siteKey, o]);
     if (!force && sig === lastSig) return true;
     lastSig = sig;
@@ -252,7 +276,11 @@ export function createScene({ cityKey = 'austin' } = {}) {
             : undefined,
       });
     }
-    viewer().scene.requestRender?.();
+    // Labels rasterise their glyphs on one frame and show on a later one:
+    // ask for a few more frames so they appear without a camera move.
+    const again = () => viewer()?.scene?.requestRender?.();
+    again();
+    for (const ms of [120, 400, 1200, 3000]) setTimeout(again, ms);
     return true;
   }
 
@@ -260,6 +288,10 @@ export function createScene({ cityKey = 'austin' } = {}) {
     /** Go to a site twin (null: stay). */
     site(key) {
       wantSite = key || null;
+      if (wantSite && twin()?.siteKey !== wantSite && ds) {
+        ds.entities.removeAll();
+        lastSig = '';
+      }
       tick();
     },
     draw,

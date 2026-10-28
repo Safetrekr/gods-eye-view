@@ -8,7 +8,7 @@
 //   focusOf(loop)    the person the Principal view follows
 //   SITE_OF_PLACE    executive place → Trip Twin site twin (twinSites.js)
 import { legShort, localTime, lz, watchTime } from '../format.js';
-import { mainRowFor } from './select.js';
+import { byExposure, mainRowFor } from './select.js';
 
 const ms = (t) => (typeof t === 'number' ? t : Date.parse(t));
 
@@ -167,17 +167,15 @@ export function geoOf(day) {
   };
 }
 
-/** Active situations on MAIN, by time until exposure (EP-34 §5). */
+/**
+ * Active situations on MAIN, in MAIN's own order (EP-34 §5: time until
+ * exposure, then posture, then raised): the same comparator selectMain
+ * sorts its rows with, so the map always follows the top row.
+ */
 function activeOnMain(loop) {
-  const t = ms(loop.clock.simNow);
   return Object.values(loop.situations)
     .filter((s) => s.state !== 'CLOSED' && mainRowFor(loop, s.sit_id).row)
-    .sort(
-      (a, b) =>
-        (a.exposure_at ? ms(a.exposure_at) - t : Infinity) -
-          (b.exposure_at ? ms(b.exposure_at) - t : Infinity) ||
-        ms(a.raised_at) - ms(b.raised_at),
-    );
+    .sort(byExposure(loop));
 }
 
 /**

@@ -515,7 +515,8 @@ export function rosterView(loop, cities) {
     protection: `DETAIL ${prot.DETAIL} · REMOTE ${prot.REMOTE} · MONITORED ${prot.MONITORED}`,
     raised: [...raised.values()].map((s) => ({
       callsign: s.callsign,
-      why: scrub(loop, s.why_raised),
+      // The callsign heads the row already: the why without it.
+      why: scrub(loop, s.why_raised).replace(`${s.callsign} · `, ''),
       age: `${Math.max(0, Math.floor((now(loop) - ms(s.raised_at)) / 60e3))} min`,
     })),
     retiers: loop.retiers.map(
@@ -796,25 +797,47 @@ export function principalOverlay(loop, geo, view) {
   };
 }
 
-/** MAIN (EP-31 §2): only what selectMain sent, plus the clock. */
+/**
+ * MAIN (EP-52): only what selectMain sent, plus the clock. Rows read as
+ * the storyboard (EP-20): line 1 callsign · leg (Z); line 2 the decision
+ * (a DETAIL row: the leader's own short line; otherwise the BLUF); line 3
+ * the ladder word in capitals and the next update. One counter. The map
+ * follows the top row: its site twin, a flat map when the venue has none
+ * (SWIFT at IAD), the neutral field when nothing is active.
+ */
 export function mainView(main, { at, beat }) {
-  const rows = (main.rows || []).slice(0, 4).map((r) => {
-    const amber = /NON-CONCUR|calling|NO READ/i.test(`${r.ladder} ${r.text}`);
-    return {
-      callsign: r.callsign,
-      leg: r.leg,
-      bluf: r.bluf,
-      ladder:
-        r.ladder === 'calling'
-          ? `${r.text?.match(/NO READ \d+ MIN/)?.[0] ?? 'NO READ'} · CALLING`
-          : r.ladder,
-      next: r.next_update_at
-        ? `next update ${r.text?.match(/next update (\d{4}L)/)?.[1] ?? ''}`
-        : null,
-      text: r.text,
-      tone: amber ? 'amber' : null,
-    };
-  });
+  const all = main.rows || [];
+  const rows = all.slice(0, 4).map((r) => ({
+    callsign: r.callsign,
+    tier: r.tier ?? null,
+    leg: r.leg,
+    z: r.leg_z ? `(${r.leg_z})` : '',
+    line: r.line ?? r.bluf ?? '',
+    detail: r.tier === 'DETAIL',
+    ladder: r.word ?? r.ladder ?? '',
+    tone: r.tone ?? null,
+    next: r.next ?? null,
+    text: r.text,
+  }));
+  const sc = main.scene || null;
+  const map = !rows.length
+    ? { mode: 'field' }
+    : sc?.site
+      ? { mode: '3d', site: sc.site }
+      : sc
+        ? { mode: 'flat' }
+        : { mode: 'field' };
+  if (sc && rows.length)
+    Object.assign(map, {
+      callsign: sc.callsign,
+      title: sc.venue?.name ?? null,
+      entrance: sc.entrance?.name ?? null,
+      leg:
+        sc.leg && sc.at
+          ? `${sc.callsign} · ${sc.leg.replace(/ \d{4}L$/, '')} ${sc.at}`
+          : null,
+      note: map.mode === 'flat' ? 'no 3D site twin · flat map' : null,
+    });
   return {
     watch: 'Watch: SafeTrekr Watch Floor · VALE · Your lead: viewing',
     verified: main.verifiedLine || 'Last verified by a human —',
@@ -822,15 +845,17 @@ export function mainView(main, { at, beat }) {
     counter: main.counter,
     counterLine: main.counterLine,
     rows,
-    more:
-      (main.rows || []).length > 4
-        ? `+${main.rows.length - 4} more · Verify wall`
-        : null,
+    more: all.length > 4 ? `+${all.length - 4} more · Verify wall` : null,
     empty: rows.length ? null : 'No active situations',
     brief: !rows.length && beat === 0 ? main.brief : null,
     closed: !rows.length && beat >= 5 ? main.closed : [],
     closedCount: (main.closed || []).length,
-    bands: main.bands || [],
+    bands: (main.bands || []).map((b) => ({
+      kind: b.kind,
+      text: `COMMS CHECK OVERDUE · ${b.missing?.length ? b.missing.join(' · ') : b.callsign} · ${b.minutes ?? '—'} min · due ${b.due ?? '—'}`,
+    })),
+    scene: sc,
+    map,
     at,
   };
 }

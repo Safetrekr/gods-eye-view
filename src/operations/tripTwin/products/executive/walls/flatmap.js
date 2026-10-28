@@ -1,33 +1,16 @@
-// SafeTrekr Executive B3: the flat maps (no Cesium). The roster map (seven
-// cities, every person a mark) and the Principal view's fallback when the
-// person's venue has no site twin (SWIFT at IAD). SVG built with the DOM;
-// no basemap tiles, so nothing to attribute except the paths' own notice.
+// SafeTrekr Executive B3/B4a: the flat maps (no Cesium). The roster map
+// (seven cities on a quiet land outline, every person a mark), MAIN's
+// neutral field, and the fallback when the person's venue has no site twin
+// (SWIFT at IAD). SVG built with the DOM; no basemap tiles. The land is
+// Natural Earth (public domain, credited); paths carry the OSM notice.
 import { div, el, span } from './dom.js';
+import { landPath, projection, rosterLayout, ROSTER_BOX } from './geo.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const svgEl = (tag, attrs = {}) => {
   const e = document.createElementNS(NS, tag);
   for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
   return e;
-};
-
-/** Equirectangular box over the seven cities (Americas to the Gulf). */
-const BOX = { w: 1600, h: 640, lon0: -112, lon1: 66, lat0: 14, lat1: 62 };
-const px = (lon) => ((lon - BOX.lon0) / (BOX.lon1 - BOX.lon0)) * BOX.w;
-const py = (lat) => ((BOX.lat1 - lat) / (BOX.lat1 - BOX.lat0)) * BOX.h;
-
-/**
- * Where each city's panel sits (fractions of the map box): near its dot,
- * never on another panel. The hairline joins panel and dot.
- */
-const SLOTS = {
-  Austin: { x: 0.0, y: 0.5, w: 0.3 },
-  'Washington DC': { x: 0.2, y: 0.02, w: 0.18 },
-  'New York': { x: 0.395, y: 0.02, w: 0.16 },
-  Miami: { x: 0.31, y: 0.62, w: 0.17 },
-  London: { x: 0.575, y: 0.02, w: 0.22 },
-  Zurich: { x: 0.68, y: 0.5, w: 0.15 },
-  Dubai: { x: 0.85, y: 0.36, w: 0.15 },
 };
 
 /** One person's mark: protection by shape, freshness by ring, posture by bars. */
@@ -47,61 +30,79 @@ export function mark(p, { label = true } = {}) {
   return m;
 }
 
-/** The roster map: graticule, city dots, a panel of marks per city. */
+/**
+ * The roster map: a quiet land outline (Natural Earth, from the repo),
+ * each city's dot at its true projected place, a panel of marks per city
+ * beside it, and a hairline from the dot to the panel's facing edge.
+ */
 export function rosterMap(view) {
+  const box = ROSTER_BOX;
+  const proj = projection(box);
+  const layout = new Map(rosterLayout(view.cities).map((l) => [l.name, l]));
   const wrap = div('ex-rmap');
   const svg = svgEl('svg', {
-    viewBox: `0 0 ${BOX.w} ${BOX.h}`,
+    viewBox: `0 0 ${box.w} ${box.h}`,
     preserveAspectRatio: 'none',
-    class: 'ex-rmap-grid',
+    class: 'ex-rmap-geo',
+    'aria-hidden': 'true',
   });
-  for (let lon = -110; lon <= 60; lon += 10)
+  // A faint 30° graticule, then the land.
+  for (let lon = -90; lon <= 60; lon += 30)
     svg.append(
       svgEl('line', {
-        x1: px(lon),
-        x2: px(lon),
+        x1: proj.x(lon),
+        x2: proj.x(lon),
         y1: 0,
-        y2: BOX.h,
-        class: lon % 30 ? 'g' : 'g major',
+        y2: box.h,
+        class: 'g',
       }),
     );
-  for (let lat = 20; lat <= 60; lat += 10)
+  for (let lat = 0; lat <= 60; lat += 30)
     svg.append(
       svgEl('line', {
         x1: 0,
-        x2: BOX.w,
-        y1: py(lat),
-        y2: py(lat),
-        class: lat % 30 ? 'g' : 'g major',
+        x2: box.w,
+        y1: proj.y(lat),
+        y2: proj.y(lat),
+        class: 'g',
       }),
     );
+  svg.append(svgEl('path', { d: landPath(proj), class: 'land' }));
   for (const c of view.cities) {
-    const s = SLOTS[c.name];
-    if (!s) continue;
-    const x = px(c.lon);
-    const y = py(c.lat);
-    const sx = (s.x + s.w / 2) * BOX.w;
-    const sy = s.y < 0.3 ? s.y * BOX.h + 40 : s.y * BOX.h;
-    svg.append(svgEl('line', { x1: x, y1: y, x2: sx, y2: sy, class: 'lead' }));
+    const l = layout.get(c.name);
+    if (!l) continue;
+    const raised = c.people.some((p) => p.raised);
+    svg.append(
+      svgEl('line', {
+        x1: l.lead.x1 * box.w,
+        y1: l.lead.y1 * box.h,
+        x2: l.lead.x2 * box.w,
+        y2: l.lead.y2 * box.h,
+        class: `lead${raised ? ' raised' : ''}`,
+      }),
+    );
     svg.append(
       svgEl('circle', {
-        cx: x,
-        cy: y,
-        r: 5,
-        class: `city${c.people.some((p) => p.raised) ? ' raised' : ''}`,
+        cx: l.dot.x * box.w,
+        cy: l.dot.y * box.h,
+        r: 6,
+        class: `city${raised ? ' raised' : ''}`,
       }),
     );
   }
   wrap.append(svg);
   for (const c of view.cities) {
-    const s = SLOTS[c.name];
-    if (!s) continue;
+    const l = layout.get(c.name);
+    if (!l) continue;
+    const s = l.panel;
     const panel = div(
-      `ex-city${c.people.some((p) => p.raised) ? ' raised' : ''}`,
+      `ex-city edge-${s.edge}${c.people.some((p) => p.raised) ? ' raised' : ''}`,
     );
     panel.style.left = `${s.x * 100}%`;
-    panel.style.top = `${s.y * 100}%`;
     panel.style.width = `${s.w * 100}%`;
+    if (s.edge === 'top') panel.style.top = `${s.y * 100}%`;
+    else panel.style.bottom = `${(1 - s.y) * 100}%`;
+    if (c.people.length > 6) panel.classList.add('two');
     const head = div('ex-city-head');
     head.append(
       span('name', c.short),
@@ -114,7 +115,44 @@ export function rosterMap(view) {
     panel.append(grid);
     wrap.append(panel);
   }
+  wrap.append(div('ex-rmap-credit', 'Land: Natural Earth'));
   return wrap;
+}
+
+/**
+ * MAIN's neutral field when no situation is active (or before the first):
+ * the land, and the cities with a leg today, each with its local time. No
+ * person, no path, nothing but places and clocks.
+ */
+export function worldField(cities, { w = 940, h = 1000 } = {}) {
+  const proj = projection({
+    w,
+    h,
+    lon0: -108,
+    lon1: 12,
+    top: 66,
+    parallel: 45,
+  });
+  const svg = svgEl('svg', {
+    viewBox: `0 0 ${w} ${h}`,
+    preserveAspectRatio: 'xMidYMid slice',
+    class: 'exm-world',
+    'aria-hidden': 'true',
+  });
+  svg.append(svgEl('path', { d: landPath(proj), class: 'land' }));
+  for (const c of cities) {
+    const [x, y] = proj.at(c.lat, c.lon);
+    svg.append(svgEl('circle', { cx: x, cy: y, r: 9, class: 'city' }));
+    const t = svgEl('text', {
+      x: x + (c.anchor === 'end' ? -18 : 18),
+      y: y + 8,
+      class: 'label',
+      'text-anchor': c.anchor === 'end' ? 'end' : 'start',
+    });
+    t.textContent = c.label;
+    svg.append(t);
+  }
+  return svg;
 }
 
 /** The legend under the roster map: shapes, rings, bars (no colour key). */
@@ -248,6 +286,104 @@ export function flatPrincipal(overlay, places = []) {
   }
   wrap.append(svg);
   return wrap;
+}
+
+/**
+ * MAIN's flat map when the top row's venue has no site twin (SWIFT at
+ * IAD): the venue and the person on a plain field fitted to them, labels
+ * kept inside the frame. No path, no tile, so nothing to attribute.
+ */
+export function venueField(
+  { places = [], marks = [] },
+  { w = 920, h = 1000 } = {},
+) {
+  const svg = svgEl('svg', {
+    viewBox: `0 0 ${w} ${h}`,
+    preserveAspectRatio: 'xMidYMid meet',
+    class: 'exm-venue',
+    'aria-hidden': 'true',
+  });
+  for (let i = 1; i < 8; i++) {
+    svg.append(
+      svgEl('line', {
+        x1: (w * i) / 8,
+        x2: (w * i) / 8,
+        y1: 0,
+        y2: h,
+        class: 'g',
+      }),
+    );
+    svg.append(
+      svgEl('line', {
+        x1: 0,
+        x2: w,
+        y1: (h * i) / 8,
+        y2: (h * i) / 8,
+        class: 'g',
+      }),
+    );
+  }
+  const pts = [...places, ...marks];
+  if (!pts.length) return svg;
+  let la0 = Math.min(...pts.map((p) => p.lat));
+  let la1 = Math.max(...pts.map((p) => p.lat));
+  let lo0 = Math.min(...pts.map((p) => p.lon));
+  let lo1 = Math.max(...pts.map((p) => p.lon));
+  const k = Math.cos(((la0 + la1) / 2) * (Math.PI / 180));
+  const pad = 0.24;
+  const spanX = Math.max((lo1 - lo0) * k, 0.004);
+  const spanY = Math.max(la1 - la0, 0.004);
+  if (spanX / spanY > w / h) {
+    const need = (spanX * h) / w - spanY;
+    la0 -= need / 2;
+    la1 += need / 2;
+  } else {
+    const need = ((spanY * w) / h - spanX) / k;
+    lo0 -= need / 2;
+    lo1 += need / 2;
+  }
+  if (lo1 - lo0 < 1e-6) {
+    lo0 -= 0.002;
+    lo1 += 0.002;
+  }
+  if (la1 - la0 < 1e-6) {
+    la0 -= 0.002;
+    la1 += 0.002;
+  }
+  const X = (lon) => (pad + ((lon - lo0) / (lo1 - lo0)) * (1 - 2 * pad)) * w;
+  const Y = (lat) => (pad + ((la1 - lat) / (la1 - la0)) * (1 - 2 * pad)) * h;
+  const label = (x, y, text, cls) => {
+    const left = x > w * 0.5;
+    const t = svgEl('text', {
+      x: x + (left ? -24 : 24),
+      y: y + 10,
+      'text-anchor': left ? 'end' : 'start',
+      class: `label ${cls}`,
+    });
+    t.textContent = text;
+    svg.append(t);
+  };
+  for (const p of places) {
+    const x = X(p.lon);
+    const y = Y(p.lat);
+    svg.append(
+      svgEl('rect', {
+        x: x - 12,
+        y: y - 12,
+        width: 24,
+        height: 24,
+        class: 'place',
+      }),
+    );
+    label(x, y, p.name, 'place-l');
+  }
+  for (const m of marks) {
+    const x = X(m.lon);
+    const y = Y(m.lat);
+    svg.append(svgEl('circle', { cx: x, cy: y, r: 12, class: 'mark' }));
+    label(x, y, m.label, 'cs');
+  }
+  return svg;
 }
 
 /** The map notice, wherever a path is drawn (privacy review 7 / item 12). */

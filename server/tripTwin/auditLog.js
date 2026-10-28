@@ -635,6 +635,11 @@ export const LOOP_EVENT_NAMES = Object.freeze([
   'posture.retier',
   'sitrep.sign',
   'situation.close',
+  // EP-33 §3 reversals (B4).
+  'intel.restore',
+  'verification.reopen',
+  'push.recall',
+  'situation.reopen',
   'ack',
   'dl.respond',
   'salute.file',
@@ -657,9 +662,14 @@ export const PRESENTER_CMD_NAMES = Object.freeze([
   'cancel',
   'wall.role',
   'phone.ticket',
+  // B4: the presenter's two ORTEGA shortcuts (EP-38 #8) and the phones'
+  // scripted/live switch (EP-38 #12).
+  'ortega.countersign',
+  'ortega.retier',
+  'phones.mode',
 ]);
 const LOOP_TYPES = [...LOOP_EVENT_NAMES, ...PRESENTER_CMD_NAMES];
-const LOOP_FROM = ['phone', 'desk', 'presenter'];
+const LOOP_FROM = ['phone', 'desk', 'presenter', 'host'];
 /** Who acted: the system, the presenter, a watch callsign or a participant id. */
 const loopBy = (v) =>
   ['generator', 'presenter', 'VALE', 'ORTEGA'].includes(v) ? v : id(v);
@@ -685,6 +695,10 @@ export const LOOP_AUDIT_EVENTS = Object.freeze({
       code: loopCode,
       from: oneOf(LOOP_FROM),
       run: int,
+      // B4: a reversal names what it reverses; a live event the scripted
+      // one it pre-empts (EP-33 §3, EP-31 §3).
+      reverses: id,
+      preempts: id,
     },
   },
   'loop.refused': {
@@ -701,6 +715,9 @@ export const LOOP_AUDIT_EVENTS = Object.freeze({
       run: int,
     },
   },
+  // B4: the room preset the host applies once per setup (slot roles,
+  // layers, MAIN's text scale): counts only.
+  'room.preset': { peer: false, data: { count: int, slots: int } },
 });
 const EXECUTIVE_EVENTS = Object.freeze({
   ...AUDIT_EVENTS,

@@ -16,10 +16,13 @@ import {
   CLOSE_REASONS,
   DECISIONS,
   DL_ANSWERS,
+  MAY_REVERSE,
   PHONE_EVENTS,
   PROTECTIONS,
   PUSHABLE,
+  REOPEN_REASONS,
   RETIER_EFFECTS,
+  REVERSALS,
   RUNGS,
   ACTIONS,
   actorRole,
@@ -81,6 +84,17 @@ export const CODES = Object.freeze({
   CALLBACK_ORDER: 'Call-back steps follow the escalation chain in order',
   CALLBACK_RESOLVED: 'The call-back chain is resolved',
   SALUTE_IMMUTABLE: 'A SALUTE is never edited',
+  // EP-33 §3, the reversals (B4).
+  REVERSES_MISMATCH: 'A reversal names an event of another kind or record',
+  RECALL_AFTER_READ: 'Read already: supersede instead of recalling',
+  SUPERSEDE_BEFORE_READ: 'Not read yet: recall instead of superseding',
+  SUPERSEDE_REQUIRED: 'This situation has a live push: supersede it',
+  RECALLED: 'This push was recalled',
+  SUPERSEDED: 'This push was superseded',
+  UNDO_LOWERS:
+    'A pushed item keeps its human decision: recall or supersede first',
+  NOT_CLOSED: 'Only a closed situation is reopened',
+  NO_REASON: 'A reason is needed',
 });
 
 const CLOSED_STATES = new Set(['CLOSED']);
@@ -229,6 +243,24 @@ export function applyLoopEvent(loop, ev) {
     if ((ev.via === 'phone' || ev.device) && ev.device?.participant_id !== who)
       return refuse(loop, 'I10_NOT_BOUND');
   }
+  // EP-33 §3: a reversal says what it reverses, and only an event of the
+  // kind (and the record) it may reverse; the reversed event stays put.
+  const rv = REVERSALS[ev.type] || MAY_REVERSE[ev.type];
+  if (REVERSALS[ev.type] && !ev.reverses)
+    return refuse(loop, 'BAD_EVENT', 'reverses');
+  if (ev.reverses != null) {
+    if (!rv || typeof ev.reverses !== 'string')
+      return refuse(loop, 'BAD_EVENT', 'reverses');
+    const target = loop.log.find((l) => l.id === ev.reverses);
+    if (!target) return refuse(loop, 'NOT_FOUND', 'reverses');
+    if (!rv.includes(target.type)) return refuse(loop, 'REVERSES_MISMATCH');
+    for (const k of ['bundle_id', 'sit_id', 'push_id', 'person_id']) {
+      const mine =
+        k === 'push_id' && ev.type === 'push.send' ? ev.supersedes : ev[k];
+      if (mine && target.ids[k] && mine !== target.ids[k])
+        return refuse(loop, 'REVERSES_MISMATCH');
+    }
+  }
   const cx = new Cx(loop, ev, at);
   tick(cx, at);
   const code = HANDLERS[ev.type](cx, ev, at, role);
@@ -263,6 +295,10 @@ export function applyLoopEvent(loop, ev) {
     rev: cx.rev,
     id: ev.id ?? null,
     ids,
+    ...(ev.reverses ? { reverses: ev.reverses } : {}),
+    ...(ev.supersedes ? { supersedes: ev.supersedes } : {}),
+    ...(ev.preempts ? { preempts: ev.preempts } : {}),
+    ...(ev.via && ev.via !== 'script' ? { via: ev.via } : {}),
   });
   return { loop: n, changed: [...cx.changed].sort() };
 }
@@ -290,6 +326,7 @@ function tick(cx, at) {
   for (const p of Object.values(cx.next.pushes)) {
     const sit = cx.get('situations', p.sit_id);
     if (!sit || !OPEN_PUSH_STATES.has(sit.state) || p.expired_at) continue;
+    if (p.recalled_at || p.superseded_by) continue;
     if (p.valid_until && ms(p.valid_until) <= at) {
       cx.patch('pushes', p.push_id, { expired_at: p.valid_until });
       cx.patch('situations', sit.sit_id, {
@@ -303,6 +340,7 @@ function tick(cx, at) {
   // I9: no read within the read timeout opens the call-back at step 1.
   for (const p of Object.values(cx.next.pushes)) {
     if (p.expired_at || cx.next.callbacks[p.push_id]) continue;
+    if (p.recalled_at || p.superseded_by) continue;
     const sit = cx.get('situations', p.sit_id);
     if (!sit || !OPEN_PUSH_STATES.has(sit.state)) continue;
     const due = ms(p.sent_at) + p.read_timeout_min * 60e3;
@@ -576,6 +614,35 @@ function resolveCallback(cx, pushId, pid, at) {
     });
 }
 
+/** I7: the ladder (or a stand-down, expiry, dismissal) lets this situation close. */
+function closable(cx, sit) {
+  const push = sit.push_id && cx.get('pushes', sit.push_id);
+  const live = push && !push.recalled_at ? push : null;
+  if (sit.state === 'EXPIRED' || sit.state === 'DISMISSED') return true;
+  if (!live) return ['VERIFIED', 'UNCONFIRMED', 'WATCH'].includes(sit.state);
+  if (live.tier === 'DETAIL') return Boolean(sit.stand_down_at);
+  if (sit.state === 'NONCONCUR') return Boolean(sit.stand_down_at);
+  return live.order.every((pid) => required(live.recipients[pid]));
+}
+
+/** The state a reopened situation returns to: what its record says now. */
+function reopenState(cx, sit) {
+  const v = sit.verification_id && cx.get('verifications', sit.verification_id);
+  const push = sit.push_id && cx.get('pushes', sit.push_id);
+  if (!push || push.recalled_at) return v ? DECISIONS[v.decision] : 'RAISED';
+  if (push.expired_at) return 'EXPIRED';
+  const rs = push.order.map((pid) => push.recipients[pid]);
+  if (rs.some((r) => r.dl?.answer === 'nonconcur')) return 'NONCONCUR';
+  return sitStateFor({ ...sit, state: 'PUSHED' }, push);
+}
+
+const reading = (p) =>
+  p.order.some(
+    (pid) =>
+      rungIdx(p.recipients[pid].rung) >= rungIdx('read') ||
+      Boolean(p.recipients[pid].dl),
+  );
+
 const capBreach = (kind, text) =>
   typeof text === 'string' && [...text].length > CAPS[kind];
 
@@ -738,10 +805,23 @@ const HANDLERS = {
     if (!DECISIONS[ev.decision]) return 'BAD_VALUE';
     if (ev.decision === 'unconfirmed_actionable' && sit.tier !== 'DETAIL')
       return 'I4_UNCONFIRMED_NOT_DETAIL';
-    const id = ev.verification_id || `v-${sit.sit_id}`;
+    const id =
+      ev.verification_id ||
+      sit.verification_id ||
+      sit.last_verification_id ||
+      `v-${sit.sit_id}`;
     const old = cx.get('verifications', id);
     const version = ev.version ?? (old ? old.version + 1 : 1);
     if (old && version <= old.version) return 'I11_EDIT_IN_PLACE';
+    // B4: the same decision again, unversioned, is a no-op ("already
+    // verified 1604Z"): a click that comes after the script acted.
+    if (
+      old &&
+      !old.reversed_at &&
+      ev.version == null &&
+      old.decision === ev.decision
+    )
+      return 'ALREADY';
     const { meta: _m, versions: oldVersions = [], ...oldRest } = old || {};
     cx.set('verifications', id, {
       id,
@@ -787,6 +867,7 @@ const HANDLERS = {
     );
     if (!sit || !v) return 'NOT_FOUND';
     if (v.verified_by === ev.by) return 'I2_SAME_PERSON';
+    if (v.reversed_at) return 'STALE';
     if (ev.version != null && ev.version !== v.version) return 'STALE';
     if (v.countersigned_by) return 'ALREADY';
     cx.patch('verifications', v.id, {
@@ -872,9 +953,10 @@ const HANDLERS = {
     const sit = cx.get('situations', rec.sit_id);
     const v = cx.get(
       'verifications',
-      rec.verification_id || sit?.verification_id,
+      sit?.verification_id || rec.verification_id,
     );
-    if (!v || !PUSHABLE.includes(v.decision)) return 'I1_NO_VERIFICATION';
+    if (!v || v.reversed_at || !PUSHABLE.includes(v.decision))
+      return 'I1_NO_VERIFICATION';
     if (
       sit.tier === 'DETAIL' &&
       !(v.countersigned_by && v.countersigned_by !== v.verified_by)
@@ -898,11 +980,24 @@ const HANDLERS = {
     if (CLOSED_STATES.has(sit.state)) return 'CLOSED';
     const v = cx.get(
       'verifications',
-      rec.verification_id || sit.verification_id,
+      sit.verification_id || rec.verification_id,
     );
-    if (!v || !PUSHABLE.includes(v.decision)) return 'I1_NO_VERIFICATION';
+    if (!v || v.reversed_at || !PUSHABLE.includes(v.decision))
+      return 'I1_NO_VERIFICATION';
     if (rec.status === 'pushed' || rec.status === 'expired')
       return 'I8_NEEDS_APPROVAL';
+    // EP-33 §3: one live push per situation; a new one supersedes it
+    // (after a read; before a read the old one is recalled instead).
+    const prior = ev.supersedes && cx.get('pushes', ev.supersedes);
+    if (ev.supersedes) {
+      if (!prior || prior.sit_id !== sit.sit_id) return 'NOT_FOUND';
+      if (prior.recalled_at || prior.superseded_by) return 'ALREADY';
+      if (!reading(prior)) return 'SUPERSEDE_BEFORE_READ';
+    } else if (sit.push_id) {
+      const cur = cx.get('pushes', sit.push_id);
+      if (cur && !cur.recalled_at && !cur.superseded_by && !cur.expired_at)
+        return 'SUPERSEDE_REQUIRED';
+    }
     if (rec.status !== 'approved') return 'I1_NOT_APPROVED';
     if (rec.valid_until && ms(rec.valid_until) <= at) return 'I8_EXPIRED';
     const code = checkRecommendation(cx, sit, rec);
@@ -946,7 +1041,21 @@ const HANDLERS = {
       card: clone(ev.card ?? null),
       phone: clone(ev.phone ?? {}),
       expired_at: null,
+      ...(prior ? { supersedes: prior.push_id } : {}),
     });
+    if (prior) {
+      cx.patch('pushes', prior.push_id, {
+        superseded_by: id,
+        superseded_at: iso(at),
+      });
+      const cb = cx.get('callbacks', prior.push_id);
+      if (cb && !cb.resolved_at)
+        cx.patch('callbacks', prior.push_id, {
+          resolved_at: iso(at),
+          resolved_by: ev.by,
+          outcome: 'superseded',
+        });
+    }
     cx.patch('recommendations', rec.id, { status: 'pushed', push_id: id });
     cx.patch('situations', sit.sit_id, {
       push_id: id,
@@ -971,6 +1080,8 @@ const HANDLERS = {
     )
       return 'I10_NOT_BOUND';
     if (!RUNGS.includes(ev.rung)) return 'BAD_VALUE';
+    if (p.recalled_at) return 'RECALLED';
+    if (p.superseded_by) return 'SUPERSEDED';
     if (p.expired_at) return 'I8_EXPIRED';
     if (rungIdx(ev.rung) <= rungIdx(r.rung)) return 'I9_LADDER';
     if (ev.rung === 'accepted' && p.tier === 'DETAIL') return 'I5_DL_ANSWERS';
@@ -1011,6 +1122,8 @@ const HANDLERS = {
     const p = cx.get('pushes', ev.push_id);
     if (!p) return 'NOT_FOUND';
     const sit = cx.get('situations', p.sit_id);
+    if (p.recalled_at) return 'RECALLED';
+    if (p.superseded_by) return 'SUPERSEDED';
     if (sit.tier !== 'DETAIL') return 'I5_NOT_DETAIL';
     const detail = cx.get(
       'details',
@@ -1186,6 +1299,7 @@ const HANDLERS = {
       until: ev.until ? iso(ev.until) : null,
       effects,
       proposed_by: ev.proposed_by ?? null,
+      ...(ev.reverses ? { reverses: ev.reverses } : {}),
     });
     for (const s of Object.values(cx.next.situations))
       if (s.person_id === p.id && !CLOSED_STATES.has(s.state)) {
@@ -1324,15 +1438,7 @@ const HANDLERS = {
     if (!CLOSE_REASONS.includes(ev.reason)) return 'BAD_VALUE';
     const rep = sit.sitrep_id && cx.get('sitreps', sit.sitrep_id);
     if (!rep?.signed_at) return 'I7_NO_SITREP';
-    const push = sit.push_id && cx.get('pushes', sit.push_id);
-    let ok;
-    if (sit.state === 'EXPIRED' || sit.state === 'DISMISSED') ok = true;
-    else if (!push)
-      ok = ['VERIFIED', 'UNCONFIRMED', 'WATCH'].includes(sit.state);
-    else if (push.tier === 'DETAIL') ok = Boolean(sit.stand_down_at);
-    else if (sit.state === 'NONCONCUR') ok = Boolean(sit.stand_down_at);
-    else ok = push.order.every((pid) => required(push.recipients[pid]));
-    if (!ok) return 'I7_OPEN_LADDER';
+    if (!closable(cx, sit)) return 'I7_OPEN_LADDER';
     cx.patch('situations', sit.sit_id, {
       state: 'CLOSED',
       closed_at: iso(at),
@@ -1340,6 +1446,138 @@ const HANDLERS = {
       close_reason: ev.reason,
       decided_at: ev.decided_at ? iso(ev.decided_at) : undefined,
     });
+    return null;
+  },
+
+  // ---------------------------------------------- reversals (EP-33 §3, B4)
+
+  'intel.restore'(cx, ev, at) {
+    const rec = cx.get('intel', ev.bundle_id);
+    if (!rec) return 'NOT_FOUND';
+    if (!rec.decided || !['dismiss', 'watch'].includes(rec.decided.kind))
+      return 'ALREADY';
+    cx.patch('intel', rec.bundle_id, {
+      status: rec.sit_id
+        ? 'raised'
+        : rec.match
+          ? 'matched'
+          : rec.banner
+            ? 'banner'
+            : 'feed',
+      decided: null,
+      not_raised_reason: rec.sit_id
+        ? null
+        : rec.intake_reason || (rec.match ? 'restored' : rec.reason_engine),
+      restored: {
+        by: ev.by,
+        at: iso(at),
+        reverses: ev.reverses,
+        of: clone(rec.decided),
+      },
+    });
+    human(cx, ev, at);
+    return null;
+  },
+
+  'verification.reopen'(cx, ev, at) {
+    const sit = cx.get('situations', ev.sit_id);
+    if (!sit) return 'NOT_FOUND';
+    if (CLOSED_STATES.has(sit.state)) return 'CLOSED';
+    const v =
+      sit.verification_id && cx.get('verifications', sit.verification_id);
+    if (!v) return 'NOT_FOUND';
+    const push = sit.push_id && cx.get('pushes', sit.push_id);
+    if (push && !push.recalled_at) return 'UNDO_LOWERS';
+    cx.patch('verifications', v.id, {
+      reversed_at: iso(at),
+      reversed_by: ev.by,
+      reversed_event: ev.reverses,
+    });
+    cx.patch('situations', sit.sit_id, {
+      state: 'RAISED',
+      verification_id: null,
+      last_verification_id: v.id,
+    });
+    const rec =
+      sit.recommendation_id && cx.get('recommendations', sit.recommendation_id);
+    if (rec?.status === 'approved')
+      cx.patch('recommendations', rec.id, {
+        status: 'draft',
+        approved_by: null,
+        approved_at: null,
+      });
+    human(cx, ev, at);
+    return null;
+  },
+
+  'push.recall'(cx, ev, at) {
+    const p = cx.get('pushes', ev.push_id);
+    if (!p) return 'NOT_FOUND';
+    const sit = cx.get('situations', p.sit_id);
+    if (!sit) return 'NOT_FOUND';
+    if (CLOSED_STATES.has(sit.state)) return 'CLOSED';
+    if (p.recalled_at || p.superseded_by) return 'ALREADY';
+    if (reading(p)) return 'RECALL_AFTER_READ';
+    const reason = String(ev.reason || '').trim();
+    if (!reason) return 'NO_REASON';
+    if (capBreach('dismissalReason', reason)) return 'CAP';
+    cx.patch('pushes', p.push_id, {
+      recalled_at: iso(at),
+      recalled_by: ev.by,
+      recall_reason: reason,
+    });
+    const rec = cx.get('recommendations', p.recommendation_id);
+    if (rec) cx.patch('recommendations', rec.id, { status: 'recalled' });
+    const v =
+      sit.verification_id && cx.get('verifications', sit.verification_id);
+    cx.patch('situations', sit.sit_id, {
+      state: v ? DECISIONS[v.decision] : 'RAISED',
+      next_update_at: null,
+    });
+    const cb = cx.get('callbacks', p.push_id);
+    if (cb && !cb.resolved_at)
+      cx.patch('callbacks', p.push_id, {
+        resolved_at: iso(at),
+        resolved_by: ev.by,
+        outcome: 'recalled',
+      });
+    human(cx, ev, at);
+    return null;
+  },
+
+  'situation.reopen'(cx, ev, at) {
+    const sit = cx.get('situations', ev.sit_id);
+    if (!sit) return 'NOT_FOUND';
+    if (!CLOSED_STATES.has(sit.state)) return 'NOT_CLOSED';
+    if (!REOPEN_REASONS.includes(ev.reason)) return 'BAD_VALUE';
+    cx.patch('situations', sit.sit_id, {
+      state: reopenState(cx, sit),
+      closed_at: null,
+      closed_by: null,
+      close_reason: null,
+      decided_at: undefined,
+      reopened: [
+        ...(sit.reopened || []),
+        { at: iso(at), by: ev.by, reason: ev.reason, reverses: ev.reverses },
+      ],
+    });
+    // The SITREP keeps v1 and gains an unsigned v2 (EP-33 §3).
+    const rep = sit.sitrep_id && cx.get('sitreps', sit.sitrep_id);
+    if (rep) {
+      const { meta: _m, versions = [], ...old } = rep;
+      cx.set('sitreps', rep.id, {
+        ...old,
+        version: rep.version + 1,
+        drafted_by: ev.by,
+        drafted_at: iso(at),
+        signed_by: null,
+        signed_at: null,
+        signed: null,
+        reopened_from: rep.version,
+        versions: [...versions, old],
+      });
+    }
+    human(cx, ev, at);
     return null;
   },
 

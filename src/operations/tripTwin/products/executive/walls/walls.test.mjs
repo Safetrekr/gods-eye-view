@@ -27,6 +27,7 @@ import {
   verifyView,
 } from './views.js';
 import { plainBreach } from '../words.js';
+import { landPath, projection, ROSTER_BOX, rosterLayout } from './geo.js';
 
 const day = JSON.parse(
   fs.readFileSync(new URL('../data/day.json', import.meta.url), 'utf8'),
@@ -198,4 +199,81 @@ test('B3 walls: every fixed wall string is plain (EP-36 §5)', () => {
     for (const s of fixed)
       assert.equal(plainBreach(s), null, `beat ${b}: "${s}"`);
   }
+});
+
+test('B4a MAIN (EP-52): rows as the storyboard, one counter, the map follows the top row or leaves no site behind', () => {
+  const m = (b) => views(beats[b].loop, beats[b].lh).main;
+  const r2 = m(2).rows[0];
+  assert.equal(r2.detail, true);
+  assert.equal(r2.ladder, 'DL: NON-CONCUR');
+  assert.equal(r2.line, 'original plan, +1 post north door');
+  assert.equal(r2.z, '(1930Z)');
+  const r1 = m(1).rows[0];
+  assert.equal(r1.detail, false);
+  assert.equal(r1.ladder, 'ACCEPTED');
+  assert.match(r1.line, /^Arrive 1215L by the Barton Springs Rd side/);
+  assert.match(m(3).rows[0].ladder, /^NO READ 10 MIN · CALLING/);
+  assert.equal(m(4).rows[0].ladder, 'READ');
+  // One counter: the figures; the line exists only as its accessible label.
+  for (const b of [0, 5]) assert.ok(m(b).counter && m(b).counterLine);
+  // The map: the site twin while a row has one; flat for SWIFT at IAD (no
+  // twin), never the previous site; the neutral field with no row.
+  assert.deepEqual(
+    [0, 1, 2, 3, 4, 5].map((b) => m(b).map.mode),
+    ['field', '3d', '3d', '3d', 'flat', 'field'],
+  );
+  assert.equal(m(2).map.site, 'london-festival-hall');
+  assert.equal(m(4).map.site, undefined);
+  assert.equal(m(4).map.title, 'IAD general aviation ramp');
+  assert.match(m(4).map.note, /no 3D site twin/);
+});
+
+test('B4a MAIN carries no roster name, intel title, post or DL reason at any beat', () => {
+  const bad = new Set(NAMES);
+  for (const b of Object.values(day.bundles)) {
+    if (b.title?.length >= 12) bad.add(b.title);
+    for (const p of b.posts || []) if (p.text?.length >= 12) bad.add(p.text);
+  }
+  for (const e of day.events)
+    if (e.type === 'dl.respond' && e.reason) bad.add(e.reason);
+  for (const [b, { lh, loop }] of Object.entries(beats)) {
+    const text = JSON.stringify(
+      mainView(lh.mainView(), { at: loop.clock.simNow, beat: beatOf(loop) }),
+    );
+    for (const s of bad)
+      assert.ok(!text.includes(s), `beat ${b}: MAIN shows "${s.slice(0, 50)}"`);
+  }
+});
+
+test('B4a roster map: each city dot at its true projected place; every leader ends on its panel’s facing edge; panels apart', () => {
+  const proj = projection(ROSTER_BOX);
+  const layout = rosterLayout(CITIES);
+  assert.equal(layout.length, 7);
+  for (const l of layout) {
+    const c = CITIES.find((x) => x.name === l.name);
+    const [x, y] = proj.at(c.lat, c.lon);
+    assert.ok(Math.abs(l.dot.x - x / ROSTER_BOX.w) < 1e-9, l.name);
+    assert.ok(Math.abs(l.dot.y - y / ROSTER_BOX.h) < 1e-9, l.name);
+    assert.ok(l.dot.x > 0 && l.dot.x < 1 && l.dot.y > 0 && l.dot.y < 1);
+    // The leader starts at the dot and ends on the panel's facing edge.
+    assert.equal(l.lead.x1, l.dot.x);
+    assert.equal(l.lead.y2, l.panel.y);
+    assert.ok(l.lead.x2 >= l.panel.x && l.lead.x2 <= l.panel.x + l.panel.w);
+    // The panel sits on the dot's side of its edge.
+    if (l.panel.edge === 'top') assert.ok(l.panel.y > l.dot.y, l.name);
+    else assert.ok(l.panel.y < l.dot.y, l.name);
+  }
+  // Panels' columns do not overlap within the same band (above / below).
+  for (const a of layout)
+    for (const b of layout) {
+      if (a === b || a.panel.edge !== b.panel.edge) continue;
+      const apart =
+        a.panel.x + a.panel.w <= b.panel.x ||
+        b.panel.x + b.panel.w <= a.panel.x ||
+        Math.abs(a.panel.y - b.panel.y) > 0.15;
+      assert.ok(apart, `${a.name} and ${b.name} panels meet`);
+    }
+  // The land outline is real geography: a path with many rings.
+  const d = landPath(proj);
+  assert.ok((d.match(/M/g) || []).length > 50);
 });

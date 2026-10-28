@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { applyLoopEvent } from './twinLoop.js';
 import {
+  byExposure,
   MAIN_STATES,
   queueLine,
   selectCounter,
@@ -72,19 +73,27 @@ test('selectMain never carries a name, an intel title, a note, a post or a DL re
   assert.ok(checked > 200, `checked ${checked} steps`);
 });
 
-test('I3 at every step: MAIN rows are verified situations in a MAIN state only, and only the five fields', () => {
+test('I3 at every step: MAIN rows are verified situations in a MAIN state only, and only the five fields (as MAIN shows them)', () => {
   fold(day, TL, {
     onStep: (loop, e) => {
       if (e.ev.type === 'position.fix') return;
       const main = selectMain(loop);
       for (const row of main.rows) {
+        // callsign, leg, BLUF, ladder, next update: each as data and as
+        // MAIN writes it (leg_z, line, word, tone, next, text). Nothing else.
         assert.deepEqual(Object.keys(row).sort(), [
           'bluf',
           'callsign',
           'ladder',
           'leg',
+          'leg_z',
+          'line',
+          'next',
           'next_update_at',
           'text',
+          'tier',
+          'tone',
+          'word',
         ]);
         const s = Object.values(loop.situations).find(
           (x) => x.callsign === row.callsign && MAIN_STATES.includes(x.state),
@@ -289,4 +298,99 @@ test('the time strip: active cities local, then Zulu', () => {
     ]),
     'AUSTIN 0930L · DC 1030L · LONDON 1430L · 1430Z',
   );
+});
+
+/** A copy of `loop` with situation `id` cloned from `from` as `newId`. */
+function withClone(loop, from, id, newId, patch) {
+  const out = JSON.parse(JSON.stringify(loop));
+  const src = from.situations[id];
+  out.situations[newId] = { ...src, sit_id: newId, ...patch };
+  for (const k of ['pushes', 'verifications', 'recommendations', 'legs'])
+    for (const [kk, v] of Object.entries(from[k])) out[k][kk] ??= v;
+  for (const [kk, v] of Object.entries(from.callbacks || {}))
+    out.callbacks[kk] ??= v;
+  return out;
+}
+
+test('B4a MAIN rows by time until exposure (EP-34 §5), not by raised time; ties by posture, then raised', () => {
+  // 1825Z: ATLAS (raised 1803Z, Keynote 1930Z) is on MAIN. Add a second
+  // verified row raised later (1820Z) whose leg starts sooner (1840Z).
+  const atlas = upTo('2026-10-27T18:25:00Z');
+  const kestrel = upTo('2026-10-27T16:12:00Z');
+  const two = withClone(atlas, kestrel, 's-kestrel-01', 's-kestrel-x', {
+    raised_at: '2026-10-27T18:20:00Z',
+    exposure_at: '2026-10-27T18:40:00Z',
+  });
+  const m = selectMain(two);
+  assert.deepEqual(
+    m.rows.map((r) => r.callsign),
+    ['KESTREL', 'ATLAS'],
+  );
+  // The same pair by raised time would put ATLAS first: the order is exposure.
+  const later = withClone(atlas, kestrel, 's-kestrel-01', 's-kestrel-x', {
+    raised_at: '2026-10-27T17:00:00Z',
+    exposure_at: '2026-10-27T21:00:00Z',
+  });
+  assert.deepEqual(
+    selectMain(later).rows.map((r) => r.callsign),
+    ['ATLAS', 'KESTREL'],
+  );
+  // A leg under way (exposure passed) sorts first.
+  const under = withClone(atlas, kestrel, 's-kestrel-01', 's-kestrel-x', {
+    raised_at: '2026-10-27T18:24:00Z',
+    exposure_at: '2026-10-27T18:00:00Z',
+  });
+  assert.equal(selectMain(under).rows[0].callsign, 'KESTREL');
+  // Same exposure: the higher posture first, whatever was raised first.
+  const tie = withClone(atlas, kestrel, 's-kestrel-01', 's-kestrel-x', {
+    raised_at: '2026-10-27T17:00:00Z',
+    exposure_at: atlas.situations['s-atlas-01'].exposure_at,
+  });
+  tie.people['p-atlas'] = { ...tie.people['p-atlas'], posture: 'HIGH' };
+  tie.people['p-kestrel'] = {
+    ...tie.people['p-kestrel'],
+    posture: 'ROUTINE',
+  };
+  assert.deepEqual(
+    selectMain(tie).rows.map((r) => r.callsign),
+    ['ATLAS', 'KESTREL'],
+  );
+  // MAIN's map follows the top row (one comparator for both).
+  assert.equal(
+    byExposure(two)(
+      two.situations['s-kestrel-x'],
+      two.situations['s-atlas-01'],
+    ) < 0,
+    true,
+  );
+});
+
+test('B4a MAIN rows read as the storyboard: DETAIL shows the DL answer and the DL’s own line; others the BLUF and the ladder word in capitals', () => {
+  const r2 = selectMain(upTo('2026-10-27T18:25:00Z')).rows[0];
+  assert.equal(r2.word, 'DL: NON-CONCUR');
+  assert.equal(r2.line, 'original plan, +1 post north door');
+  assert.equal(r2.tone, 'amber');
+  assert.equal(r2.next, 'next update 1915L');
+  assert.equal(r2.leg_z, '1930Z');
+  assert.equal(
+    r2.text,
+    'ATLAS · Keynote 1930L · DL: NON-CONCUR · original plan, +1 post north door · next update 1915L',
+  );
+  assert.notEqual(r2.line, r2.bluf);
+  const r1 = selectMain(upTo('2026-10-27T16:12:00Z')).rows[0];
+  assert.equal(r1.word, 'ACCEPTED');
+  assert.equal(
+    r1.line,
+    'Arrive 1215L by the Barton Springs Rd side; avoid W Riverside Dr',
+  );
+  const r3 = selectMain(upTo('2026-10-27T22:24:00Z')).rows[0];
+  assert.match(r3.word, /^NO READ 10 MIN · CALLING WREN$/);
+  assert.equal(r3.tone, 'amber');
+  const r4 = selectMain(upTo('2026-10-28T00:36:00Z')).rows[0];
+  assert.equal(r4.word, 'READ');
+  assert.equal(r4.callsign, 'SWIFT 1–2');
+  for (const r of [r1, r2, r3, r4]) {
+    assert.equal(r.word, r.word.toUpperCase());
+    assert.equal(plainBreach(r.line, { main: true }), null, r.line);
+  }
 });

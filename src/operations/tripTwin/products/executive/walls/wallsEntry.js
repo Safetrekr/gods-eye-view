@@ -11,7 +11,8 @@
 import '../executive.css';
 import { EXEC_ROLE_ORDER } from '../host/execProtocol.js';
 import { dtg, localTime, lz, watchTime } from '../format.js';
-import { beatOf, CITIES, timeStrip } from '../loop/wallData.js';
+import { ACTIVE_CITIES, beatOf, CITIES, timeStrip } from '../loop/wallData.js';
+import { renderMainPage } from '../main/mainPage.js';
 import { installTap } from './tap.js';
 import { div, el, span } from './dom.js';
 import {
@@ -26,7 +27,6 @@ import {
 } from './views.js';
 import {
   renderIntel,
-  renderMain,
   renderPrincipal,
   renderRoster,
   renderTrips,
@@ -145,7 +145,17 @@ installTap(onMessage);
 function renderHeader() {
   const t = simNow();
   const paused = clock?.paused;
-  chip.textContent = `SAMPLE · ACCELERATED${paused ? ' · PAUSED' : ''}`;
+  const rest = `· ACCELERATED${paused ? ' · PAUSED' : ''}`;
+  if (role === 'main') {
+    // MAIN reads SAMPLE from the back of the room (EP-52: 10 m tier).
+    if (chip.dataset.k !== rest) {
+      chip.replaceChildren(span('big', 'SAMPLE'), span('rest', rest));
+      chip.dataset.k = rest;
+    }
+  } else if (chip.dataset.k !== `t${rest}`) {
+    chip.textContent = `SAMPLE ${rest}`;
+    chip.dataset.k = `t${rest}`;
+  }
   if (!t) {
     clockEl.textContent = '';
     return;
@@ -183,30 +193,41 @@ function render() {
   if (role === 'main') {
     if (!main) return;
     const v = mainView(main, { at: main.at, beat: beatFromMain() });
-    renderMain(stageIn, v, { prevCounter, strip: timeStrip(main.at) });
+    renderMainPage(stageIn, v, {
+      prevCounter,
+      cities: mainFieldCities(main.at),
+    });
     prevCounter = v.counter;
-    const sc = main.scene;
+    // The map region: the top row's site twin, else no 3D at all (a flat
+    // map or the neutral field), so a previous site never lingers (EP-52).
+    const sc = v.scene;
+    body.dataset.exMainMap = v.map.mode;
+    body.classList.toggle('ex-flat-on', v.map.mode !== '3d');
     if (scene) {
-      if (sc?.site) scene.site(sc.site);
-      scene.draw(
-        sc
-          ? {
-              entrances: sc.entrance ? [sc.entrance] : [],
-              focusEntrance: sc.entrance?.name,
-              marks: sc.person
-                ? [
-                    {
-                      kind: 'person',
-                      label: sc.callsign,
-                      lat: sc.person.lat,
-                      lon: sc.person.lon,
-                      fresh: 'fresh',
-                    },
-                  ]
-                : [],
-            }
-          : {},
-      );
+      if (v.map.mode === '3d') {
+        scene.site(v.map.site);
+        scene.draw({
+          entrances: sc.entrance ? [sc.entrance] : [],
+          focusEntrance: sc.entrance?.name,
+          // The person only when near the venue (a fix in another city is
+          // not this site's: depth-test-free marks would show through).
+          marks:
+            sc.person &&
+            sc.venue &&
+            Math.abs(sc.person.lat - sc.venue.lat) < 0.05 &&
+            Math.abs(sc.person.lon - sc.venue.lon) < 0.07
+              ? [
+                  {
+                    kind: 'person',
+                    label: sc.callsign,
+                    lat: sc.person.lat,
+                    lon: sc.person.lon,
+                    fresh: 'fresh',
+                  },
+                ]
+              : [],
+        });
+      } else scene.clear();
     }
     body.dataset.exPaths = '0';
   } else if (!loop) return;
@@ -250,6 +271,17 @@ function render() {
     .toISOString()
     .replace('.000Z', 'Z');
 }
+/** MAIN's neutral field: the cities with a leg today, local time beside. */
+function mainFieldCities(at) {
+  return ACTIVE_CITIES.map((n) => CITIES.find((c) => c.name === n)).map(
+    (c) => ({
+      lat: c.lat,
+      lon: c.lon,
+      label: `${c.short} ${localTime(at, c.tz)}`,
+      anchor: c.name === 'London' ? 'end' : 'start',
+    }),
+  );
+}
 function beatFromMain() {
   // MAIN gets no loop: its beat from the clock (the relay's clock view).
   if (clock && Number.isFinite(clock.beat)) return clock.beat;
@@ -270,73 +302,9 @@ setInterval(() => {
 // The sample clock moves time-based lines (ages, the counter's window).
 setInterval(() => (dirty = true), 5000);
 
-// MAIN's hidden share (EP-51 open item 4): the All-in-one frame's regions
-// this wall hides, by count and by area, measured live (QA hook).
-const REGIONS = [
-  ['top bar', '#tt-wall-head'],
-  ['left column (hotel card)', '#tt-rcol'],
-  ['map bar (chips, scale, compass)', '#tt-mapbar'],
-  ['street photo', '.tt-photo-plate'],
-  ['wall menu (aperture)', '#tt-wst-ap'],
-  ['weather strip', '.tt-wall-wx'],
-  ['incident banner', '.tt-wall-banner'],
-  ['STALE band', '.tt-wall-stale'],
-  ['3D map', '#cesiumContainer'],
-  ['source line', '#tt-sources'],
-  ['wall chip and tags', '.tt-wall-right'],
-];
-function visible(n) {
-  if (!n) return false;
-  const r = n.getBoundingClientRect();
-  if (r.width < 2 || r.height < 2) return false;
-  for (let e = n; e && e !== document.documentElement; e = e.parentElement) {
-    const cs = getComputedStyle(e);
-    if (
-      cs.display === 'none' ||
-      cs.visibility === 'hidden' ||
-      Number(cs.opacity) === 0
-    )
-      return false;
-  }
-  return true;
-}
-function measure() {
-  return REGIONS.map(([name, sel]) => {
-    const n = document.querySelector(sel);
-    const r = n?.getBoundingClientRect();
-    return {
-      name,
-      shown: visible(n),
-      area: r ? Math.round(r.width * r.height) : 0,
-    };
-  });
-}
-globalThis.__exMainShare = () => {
-  const r = body.dataset.exRole;
-  const on = measure();
-  delete body.dataset.exRole;
-  body.classList.add('ex-measure-off');
-  const off = measure();
-  body.dataset.exRole = r;
-  body.classList.remove('ex-measure-off');
-  const school = off.filter((x) => x.shown);
-  const hidden = school.filter(
-    (x) => !on.find((y) => y.name === x.name)?.shown,
-  );
-  const area = (list) => list.reduce((s, x) => s + x.area, 0);
-  return {
-    role: r,
-    regions: school.length,
-    hidden: hidden.length,
-    countShare: school.length ? +(hidden.length / school.length).toFixed(2) : 0,
-    hiddenNames: hidden.map((x) => x.name),
-    shownNames: school.filter((x) => !hidden.includes(x)).map((x) => x.name),
-    areaShare: +(
-      area(hidden.filter((x) => x.name !== '3D map')) /
-      (innerWidth * innerHeight)
-    ).toFixed(2),
-  };
-};
+// MAIN's hidden share (EP-51 open item 4) was measured in B3 (50–71 %, over
+// the 40 % line), so MAIN is its own page in B4a (EP-52): it hides no
+// school region to make room, and the share hook is gone.
 
 // ------------------------------------------------------------ page.js
 // The tap is in place: now the wall itself (pairing, frame, twin).

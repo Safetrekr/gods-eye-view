@@ -1,5 +1,6 @@
-// SafeTrekr Executive B3: the six walls as DOM (EP-32 §3), from views.js.
-// Each render replaces its stage's children; nothing here keeps state.
+// SafeTrekr Executive B3: the five analyst walls as DOM (EP-32 §3), from
+// views.js; MAIN is its own page (main/mainPage.js, EP-52). Each render
+// replaces its stage's children; nothing here keeps state.
 import {
   bars,
   chain,
@@ -23,56 +24,6 @@ import {
 
 const panel = (cls = '') => div(`ex-panel tt-panel ${cls}`.trim());
 const kicker = (text) => div('ex-k', text);
-
-/** MAIN: three changes only (EP-31 §2). Left: the summary; right: decisions. */
-export function renderMain(stage, v, { prevCounter = null, strip = '' } = {}) {
-  const left = panel('ex-main-left');
-  left.append(div('tt-watch', v.watch));
-  left.append(div('tt-lastv', v.verified));
-  left.append(
-    div(`tt-queue-line${/overdue/.test(v.queue) ? ' amber' : ''}`, v.queue),
-  );
-  left.append(...counterStrip(v.counter, prevCounter));
-  left.append(div('ex-main-cline', v.counterLine));
-  const right = panel('ex-main-board');
-  if (v.bands.length)
-    for (const b of v.bands) right.append(div('tt-comms late', b.text));
-  if (v.rows.length) {
-    right.append(kicker(`ACTIVE SITUATIONS · ${v.rows.length}`));
-    for (const r of v.rows) {
-      const row = div(`tt-main-row${r.tone ? ` ${r.tone}` : ''}`);
-      const l1 = div('l1');
-      l1.append(span('cs', r.callsign), span('leg', r.leg));
-      const l2 = div('l2', r.bluf || '');
-      const l3 = div('l3');
-      l3.append(
-        span(`tt-ladder-word${r.tone ? ` ${r.tone}` : ''}`, r.ladder || ''),
-      );
-      if (r.next) l3.append(span('next', r.next));
-      row.append(l1, l2, l3);
-      right.append(row);
-    }
-    if (v.more) right.append(div('ex-more', v.more));
-  } else if (v.brief) {
-    right.append(kicker(v.brief.header));
-    right.append(div('ex-brief-counts', v.brief.counts));
-    for (const r of v.brief.rows) right.append(div('ex-brief-row', r));
-    right.append(div('ex-empty', v.empty));
-  } else if (v.closed.length) {
-    right.append(kicker(`CLOSED TODAY · ${v.closed.length}`));
-    for (const c of v.closed) right.append(div('ex-closed-row', c.text));
-    right.append(div('ex-empty small', v.empty));
-  } else right.append(div('ex-empty', v.empty));
-  const foot = div('ex-main-strip');
-  void strip;
-  foot.append(
-    span(
-      'room',
-      'SAMPLE · fictional Halden family enterprise · no real people, companies, handles or addresses',
-    ),
-  );
-  stage.replaceChildren(left, right, foot);
-}
 
 /** Verify (EP-32 §3.3): the queue by time to exposure, the evidence card. */
 export function renderVerify(stage, v) {
@@ -174,7 +125,9 @@ export function renderRoster(stage, v) {
     for (const t of v.retiers) left.append(div('tt-retier', t));
   }
   const right = div('ex-roster-map');
-  right.append(rosterMap(v), rosterLegend());
+  const box = div('ex-rmap-box');
+  box.append(rosterMap(v));
+  right.append(box, rosterLegend());
   stage.replaceChildren(left, right);
 }
 
