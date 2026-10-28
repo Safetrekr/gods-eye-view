@@ -216,6 +216,35 @@ export function script(relay, steps) {
   return socks;
 }
 
+/**
+ * K10: run a command on a host and answer the server's question when it
+ * asks (as the remote's Confirm does). Returns the final answer.
+ */
+export function confirmed(host, by, cmd, opts = {}) {
+  const r = host.command({ by, cmd, ...opts });
+  return r.code === 'CONFIRM_REQUIRED'
+    ? host.confirm({ by, confirmId: r.confirmId })
+    : r;
+}
+/** K10: the same for an undo whose inverse asks first (CF-D4). */
+export function undoConfirmed(host, by, undoId) {
+  const r = host.undo({ by, undoId });
+  return r.code === 'CONFIRM_REQUIRED'
+    ? host.confirm({ by, confirmId: r.confirmId })
+    : r;
+}
+/**
+ * K10: say a `cmd` (or `undo`) on a fake socket and, when the server asks,
+ * confirm it with the same reqId (as the remote's Confirm button).
+ */
+export function sayConfirmed(ws, msg) {
+  ws.say(msg);
+  const a = ws.last('ack');
+  if (a?.code === 'CONFIRM_REQUIRED')
+    ws.say({ t: 'confirm', reqId: msg.reqId, confirmId: a.confirmId });
+  return ws.last('ack');
+}
+
 /** The setup token a launcher socket was given (script helper). */
 export const setupOf = (ws) => ws?.last('setup')?.setup;
 

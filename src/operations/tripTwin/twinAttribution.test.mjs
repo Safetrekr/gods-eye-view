@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { clockHost, fakeSocket } from './twinTestKit.mjs';
+import { clockHost, fakeSocket, sayConfirmed } from './twinTestKit.mjs';
 import { createSession } from './twinSession.js';
 import { createSessionHost } from './twinSessionHost.js';
 import {
@@ -135,10 +135,8 @@ test('K5 T8.1: after setup, pairing, commands, undo, a handover, a duplicate win
   assert.equal(ipad.last('pair-result').ok, true);
   // Commands and an undo from the iPad.
   let req = 10;
-  const cmd = (ws, c) => {
-    ws.say({ t: 'cmd', reqId: ++req, cmd: c });
-    return ws.last('ack');
-  };
+  // K10: a confirm-class command is answered as the remote's Confirm does.
+  const cmd = (ws, c) => sayConfirmed(ws, { t: 'cmd', reqId: ++req, cmd: c });
   cmd(ipad, { type: 'screens', target: 2, patch: { role: 'day' } });
   cmd(ipad, { type: 'session', patch: { visitor: true, wxAt: 5 } });
   cmd(ipad, {
@@ -147,8 +145,11 @@ test('K5 T8.1: after setup, pairing, commands, undo, a handover, a duplicate win
     patch: { layers: { radar: true } },
   });
   const a = cmd(ipad, { type: 'screens', target: 1, patch: { pinned: true } });
-  ipad.say({ t: 'undo', reqId: ++req, undoId: a.undoId });
-  assert.equal(ipad.last('ack').ok, true);
+  // CF-D4: undoing a pin unpins, so it asks first.
+  assert.equal(
+    sayConfirmed(ipad, { t: 'undo', reqId: ++req, undoId: a.undoId }).ok,
+    true,
+  );
   cmd(ipad, { type: 'returnLive' });
   // A second remote asks for control; the iPad hands over.
   const laptop = w.join(ID.laptop, { kind: 'remote', setup, name: 'Laptop' });
@@ -550,8 +551,14 @@ test('K5: walls still see a truthy `by` after a command and after an undo; setup
   // (K7, SEC-7), from the setup on.
   assert.equal(w.socks[0].all('state').length, 0);
   assert.ok(w.socks[0].all('presence').length >= 1);
+  // K9: the broadcast names what went back (the role brings its scale).
   assert.deepEqual(wall.last('state').undone, {
     of: wall.all('state').at(-2).state.rev,
+    restored: [
+      { scope: 'S2', field: 'role' },
+      { scope: 'S2', field: 'scale' },
+    ],
+    skipped: [],
   });
 });
 
@@ -581,7 +588,7 @@ test('K5: setup and pairing are written by the host (D0, Trip Twin computer, via
   const m = w.host.state.session.meta.visitor;
   assert.equal(m.by, w.host.presence().remotes[0].ref);
   assert.equal(m.rev, w.host.state.rev);
-  ipad.say({ t: 'cmd', reqId: 3, cmd: { type: 'returnLive' } });
+  sayConfirmed(ipad, { t: 'cmd', reqId: 3, cmd: { type: 'returnLive' } });
   assert.equal(w.host.state.session.meta.simStorm.by, m.by);
 });
 

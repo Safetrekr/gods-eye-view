@@ -43,9 +43,12 @@ const rel = (p) => path.relative(ROOT, p).split(path.sep).join('/');
  * crypto-id tests (twinLimits.test.mjs); L5 adds seven hashed-store tests
  * (twinTokens.test.mjs) and retires K2's dual-write revert test. Raise per
  * slice. K8 adds fifteen describer, chip, card-copy and status-strip tests
- * (twinDescribe.test.mjs).
+ * (twinDescribe.test.mjs). The voice platform's pre-V1 carry-over (review/
+ * voice/PRE-V1-NOTES.md) raises it to the count at that change: K9
+ * revision-checked undo (twinUndo.test.mjs), K10 server confirm
+ * (twinConfirm.test.mjs) and the voice policy (twinVoice.test.mjs).
  */
-export const BASELINE = 298;
+export const BASELINE = 610;
 /**
  * From K6 every gate re-runs the audit canary (PHASE-CF-PLAN §6.2 rule 8);
  * from L5 the token scan and the v1 migration (§6.6 L5 gate, S-14): these
@@ -67,6 +70,11 @@ export const REQUIRED_TESTS = Object.freeze([
   {
     file: 'src/operations/tripTwin/twinTokens.test.mjs',
     name: /^L5 gate: a v1 store \(K2–K7\) migrates once/,
+  },
+  // K10 gate (sec S4): nothing confirm-class applies without the question.
+  {
+    file: 'src/operations/tripTwin/twinConfirm.test.mjs',
+    name: /^K10 oracle \(sec S4\)/,
   },
 ]);
 /** The commit CF-core branches from (cf/core). */

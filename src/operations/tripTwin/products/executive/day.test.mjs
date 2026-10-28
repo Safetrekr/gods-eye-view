@@ -1,16 +1,16 @@
 // SafeTrekr Executive B1: the fixture file itself (EP-41, EP-36 §§4–5).
 // The ledger and every id (the generator's own assertions, re-run on the
 // committed file), `sample: true`, no banned word in any string a screen
-// shows, the length caps, the school build hashes and the school import
-// graph (nothing on twin.html's graph imports products/executive/).
+// shows, the length caps and the school import graph (nothing on
+// twin.html's graph imports products/executive/ or names the product flag;
+// the profile check's rule from 28 Oct 2026, review/voice/PRE-V1-NOTES.md).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { assertDay } from '../../../../../scripts/executive-fixtures-lib.mjs';
 import {
   FORBIDDEN,
-  HASHES,
-  TAG,
+  flagHits,
   twinGraph,
 } from '../../../../../scripts/trip-twin-profile-check.mjs';
 import { CAPS, plainBreach } from './words.js';
@@ -19,7 +19,6 @@ import { bluf } from './format.js';
 const day = JSON.parse(
   readFileSync(new URL('./data/day.json', import.meta.url), 'utf8'),
 );
-const root = new URL('../../../../../', import.meta.url);
 
 test('day.json: the EP-41 ledger holds and every id resolves (the generator’s assertions)', () => {
   assert.equal(assertDay(day), true);
@@ -121,14 +120,8 @@ test('day.json: times are ISO UTC, events in time order, the beats at their anch
   });
 });
 
-test('school build hashes: recorded once from the clean tag (twin.html and assets/twin-*.js)', () => {
-  const h = JSON.parse(readFileSync(new URL(HASHES, root), 'utf8'));
-  assert.equal(h.tag, TAG);
-  assert.match(h.commit, /^[0-9a-f]{40}$/);
-  const names = Object.keys(h.files);
-  assert.ok(names.includes('twin.html'));
-  assert.ok(names.some((n) => /^assets\/twin-[^.]+\.js$/.test(n)));
-  for (const v of Object.values(h.files)) assert.match(v, /^[0-9a-f]{64}$/);
+test('no module on the school graph names the executive product flag or folder (profile check 2; the build-hash pin to the clean tag is retired)', () => {
+  assert.deepEqual(flagHits(twinGraph()), []);
 });
 
 test('nothing on twin.html’s import graph imports products/executive/', () => {

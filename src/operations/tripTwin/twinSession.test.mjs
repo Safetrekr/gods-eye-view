@@ -340,7 +340,13 @@ test('commands and 10 s undo through the host', () => {
   });
   assert.equal(r.ok, true);
   assert.equal(host.state.session.visitor, true);
-  assert.equal(host.undo({ by: 'r1', undoId: r.undoId }).ok, true);
+  // CF-D4 (K10): an undo that turns Visitor mode off asks first, from the
+  // author too; the answer applies it.
+  const u = host.undo({ by: 'r1', undoId: r.undoId });
+  assert.equal(u.code, 'CONFIRM_REQUIRED');
+  assert.equal(u.question.text, 'Undo · names back on');
+  assert.equal(host.state.session.visitor, true);
+  assert.equal(host.confirm({ by: 'r1', confirmId: u.confirmId }).ok, true);
   assert.equal(host.state.session.visitor, false);
   const r2 = host.command({
     by: 'r1',

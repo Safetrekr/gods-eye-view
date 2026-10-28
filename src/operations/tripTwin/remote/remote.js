@@ -64,10 +64,11 @@ import {
   hhmm,
   lastChangeOf,
   metaPhrase,
+  notUndoneText,
   render,
   scopeLine,
 } from '../twinDescribe.js';
-import { DENY, VIA, pairPausedUntil } from '../twinProtocol.js';
+import { CODE, DENY, VIA, pairPausedUntil } from '../twinProtocol.js';
 
 const params = new URLSearchParams(location.search);
 const app = document.getElementById('rm-app');
@@ -106,7 +107,9 @@ const ui = {
     ss.get('target', '1') === 'all' ? 'all' : Number(ss.get('target', '1')),
   station: ss.get('station', 'incident'),
   day: null,
-  confirm: null, // {cmd, label, text}
+  // K10: the server's question {kind: 'cmd'|'undo', confirmId, cmd, label,
+  // text, until}; the remote only words it.
+  confirm: null,
   bar: null, // {kind: 'undo'|'err'|'ok', text, undoId, until}
   link: 'connecting',
   denied: null,
@@ -121,6 +124,7 @@ const ui = {
   seenAny: null,
   pair: null, // {text, err, until}
   awaitUndo: false,
+  undoLeft: '', // K9: what an undo left, said with its broadcast
 };
 
 const device =
@@ -182,40 +186,112 @@ function notify(text, err = false) {
   ui.bar = { kind: err ? 'err' : 'ok', text, until: Date.now() + 5000 };
   renderBar();
 }
-/** Ask before running a command, with this text (review R11/R13). */
-function ask(cmd, text, label = '') {
-  ui.confirm = { cmd, label, text, until: Date.now() + 15000 };
-  renderBar();
+/**
+ * Ask before running a command, with this text (review R11/R13). K10: the
+ * server holds the question; `hint` is the closed-list reason this page
+ * raises it (twinProtocol.js ASK_HINTS), never a way to lower one.
+ */
+function ask(cmd, text, label = '', hint = null) {
+  return send(cmd, label, { ask: hint, text });
 }
-async function send(cmd, label = '') {
+async function send(cmd, label = '', { ask: hint = null, text = null } = {}) {
   if (ui.outOfDate) return notify(STATUS.RELOAD_REMOTE, true);
   if (!ui.controller)
     return notify('View only — take control first (top bar)', true);
-  if (needsConfirm(cmd) && ui.confirm?.cmd !== cmd)
-    return ask(
-      cmd,
-      cmd.type === 'screens' && cmd.target === 'all'
+  // K10 (S-18): no local pre-check. needsConfirm only words the question
+  // the server asks, as the confirm bar always worded it.
+  const words =
+    text ||
+    (needsConfirm(cmd)
+      ? cmd.type === 'screens' && cmd.target === 'all'
         ? `${label} · ${previewAll(ui.state, cmd.patch).text.replace(/^[^→]*→ /, 'on ')}`
-        : label || 'Change every screen',
-      label,
-    );
+        : label || 'Change every screen'
+      : null);
   ui.confirm = null;
   // What will change, from a dry run of the same reducer (SUP-1, G2).
   const before = ui.state;
-  const r = await sync.request({ t: 'cmd', cmd });
+  const r = await sync.request({
+    t: 'cmd',
+    cmd,
+    ...(hint ? { ask: hint } : {}),
+  });
+  if (r.code === CODE.CONFIRM_REQUIRED)
+    return askServer(r, { kind: 'cmd', cmd, label, text: words });
+  applied(r, cmd, label, before);
+}
+/** Show the server's question in the bar (K10); it ends 1 s early. */
+function askServer(r, item) {
+  ui.confirm = {
+    ...item,
+    confirmId: r.confirmId,
+    text: item.text || r.question?.text || 'Change every screen',
+    until: Date.now() + Math.max(1000, (r.ttlMs || 15000) - 1000),
+  };
+  renderBar();
+}
+/** A command's answer: the result bar, with Undo when there is one. */
+function applied(r, cmd, label, before) {
   if (!r.ok) return notify(r.error || 'Not applied', true);
   const said = render(describeCommand(cmd, before), {
     audience: 'remote',
     names: personNames(),
   });
   ui.bar = {
-    kind: 'undo',
+    // A framing alone cannot be undone (K9).
+    kind: r.undoId ? 'undo' : 'ok',
     undoId: r.undoId,
     // Every end state says whether the wall changed (G1).
     text: said || `${label ? `${label} · ` : ''}nothing changed on the walls`,
     until: Date.now() + 10000,
   };
   renderBar();
+}
+/** Confirm: the server applies what it asked about (K10). */
+async function confirmNow() {
+  const c = ui.confirm;
+  if (!c) return;
+  const before = ui.state;
+  // An answered undo question is said like an undo (its broadcast).
+  if (c.kind === 'undo') {
+    ui.awaitUndo = true;
+    ui.undoLeft = '';
+  }
+  const r = await sync.request({ t: 'confirm', confirmId: c.confirmId });
+  // The wall changed: the fresh question, asked in place (S-18).
+  if (r.code === CODE.CONFIRM_STALE)
+    return askServer(r, {
+      ...c,
+      text: `The wall changed · check and confirm again · ${r.question?.text || c.text}`,
+      focused: false,
+    });
+  ui.confirm = null;
+  if (c.kind === 'undo') return undoAnswered(r);
+  applied(r, c.cmd, c.label, before);
+}
+/** Cancel (or Esc): the server drops the question too. */
+function cancelConfirm() {
+  const c = ui.confirm;
+  ui.confirm = null;
+  if (c?.confirmId) sync.send({ t: 'confirm-cancel', confirmId: c.confirmId });
+  renderBar();
+}
+/**
+ * An undo's answer (K9): what it put back comes with the undone state;
+ * what it left is said here ("Not undone: S4 role, changed 21:32 by
+ * iPad"). Nothing restored → no broadcast, so it is said at once.
+ */
+function undoAnswered(r) {
+  if (!r.ok) {
+    ui.awaitUndo = false;
+    return notify(r.error, true);
+  }
+  const left = notUndoneText(r.skipped, ui.presence?.actors);
+  if (!r.restored?.length) {
+    ui.awaitUndo = false;
+    return notify(left ? `Nothing undone · ${left}` : 'Nothing undone');
+  }
+  ui.undoLeft = left;
+  if (ui.awaitUndo) notify(left ? `Undone · ${left}` : 'Undone');
 }
 /** Full names on this device only (the walls show their own forms). */
 function personNames() {
@@ -279,6 +355,7 @@ function setMode(mode) {
       cmd,
       `Incident open · Advance hides traveler positions on ${p ? p.applied.map((s) => `S${s}`).join(', ') : `S${target}`}${p?.pinned.length ? ` · ${p.pinned.map((s) => `S${s}`).join(', ')} pinned, stays as it is` : ''}`,
       label,
+      'incident',
     );
   }
   send(cmd, label);
@@ -302,6 +379,7 @@ function showDay(day) {
     cmd,
     `${incidentOpen() ? 'Incident open · traveler positions leave those walls · ' : ''}Advance · Day ${day} on ${p.applied.map((s) => `S${s}`).join(', ')}${p.pinned.length ? ` · ${p.pinned.map((s) => `S${s}`).join(', ')} pinned, stays as it is` : ''}`,
     `Advance · Day ${day} on all screens`,
+    'day-all',
   );
 }
 async function copyResponders(report) {
@@ -1270,7 +1348,9 @@ function noteChange(prev, m) {
   };
   if (ui.awaitUndo && m.cause === 'undo') {
     ui.awaitUndo = false;
-    notify(render(c, { audience: 'remote', ...o }));
+    const said = render(c, { audience: 'remote', ...o });
+    notify(ui.undoLeft ? `${said} · ${ui.undoLeft}` : said);
+    ui.undoLeft = '';
   }
 }
 function renderBar() {
@@ -1282,21 +1362,12 @@ function renderBar() {
     bar.className = 'rm-bar ask';
     bar.replaceChildren(
       el('span', 't', `Confirm: ${ui.confirm.text}`),
-      btn(
-        'rm-btn primary',
-        'Confirm',
-        () => send(ui.confirm.cmd, ui.confirm.label),
-        { 'data-tt-confirm': 'yes' },
-      ),
-      btn(
-        'rm-btn',
-        'Cancel',
-        () => {
-          ui.confirm = null;
-          renderBar();
-        },
-        { 'data-tt-confirm': 'no' },
-      ),
+      btn('rm-btn primary', 'Confirm', () => confirmNow(), {
+        'data-tt-confirm': 'yes',
+      }),
+      btn('rm-btn', 'Cancel', () => cancelConfirm(), {
+        'data-tt-confirm': 'no',
+      }),
     );
     // Focus the new question once; the 1 s repaint must not steal focus.
     // The bar also scrolls into view, so a question is never off screen.
@@ -1333,13 +1404,16 @@ function renderBar() {
         `Undo (${left} s)`,
         async () => {
           ui.awaitUndo = true;
+          ui.undoLeft = '';
           const r = await sync.request({ t: 'undo', undoId: b.undoId });
           ui.bar = null;
-          // The words come with the undone state (what really went back).
-          if (!r.ok) {
+          // CF-D4: an undo that lowers protection asks first, here too.
+          if (r.code === CODE.CONFIRM_REQUIRED) {
             ui.awaitUndo = false;
-            notify(r.error, true);
-          } else if (ui.awaitUndo) notify('Undone');
+            return askServer(r, { kind: 'undo', text: r.question?.text });
+          }
+          // The words come with the undone state (what really went back).
+          undoAnswered(r);
         },
         { 'data-tt-undo': '' },
       ),
@@ -1470,10 +1544,7 @@ const sync = connectSync({
 });
 // Laptop keys: Alt+1–6 / Alt+A target, Esc cancels a confirm.
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && ui.confirm) {
-    ui.confirm = null;
-    return renderBar();
-  }
+  if (e.key === 'Escape' && ui.confirm) return cancelConfirm();
   if (!e.altKey || !ui.state) return;
   if (/^[1-6]$/.test(e.key) && ui.state.screens[Number(e.key)])
     setTarget(Number(e.key));

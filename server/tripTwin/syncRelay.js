@@ -46,6 +46,19 @@
 // (twinTokens.js: sha256, timingSafeEqual), so the wall in memory and on
 // disk holds token hashes only; the store migrates a v1 file once and no
 // longer writes the old tmp-path copy.
+// The server asks (Phase CF K10, BE-3, S-18) and undo is checked (K9,
+// BE-4): `cmd` carries an optional closed-list `ask`; a confirm-class
+// command comes back CONFIRM_REQUIRED and is applied only on the asking
+// device's `confirm`; `confirm-cancel` drops it; the 5 s tick expires it;
+// health says `confirm: 'server'` and `counters.confirmBypass` (always 0).
+// An undo's broadcast says what it restored and skipped.
+// Voice proposals (VOICE-CONTROL §3.2, §4; PRE-V1 carry-over): a `cmd` or
+// `undo` with `voice: {intent}` beside it is a Fitzroy proposal the device
+// submits under its own identity. The relay checks it against the voice
+// policy table generated from the catalog (voicePolicy.js), stamps
+// `via: 'voice'` on what passes (strict-rev questions for Tier B), and
+// writes `voice.refused` (allowlisted fields, never a transcript) for what
+// does not. Voice is refused while the audit log cannot write (CF-D9).
 // Prototype only: plain ws, LAN, no login — production needs TLS, device
 // enrolment, SSO, signed commands and an append-only audit store off the
 // host (07-production-delta).
@@ -75,6 +88,7 @@ import { openSessionStore, resolveDataDir } from './sessionStore.js';
 import { LIMITS, createLimiter, socketBudget, thumbOk } from './twinLimits.js';
 import { TOKENS } from './twinTokens.js';
 import { hostCheckFor, twinLogger } from './twinHostCheck.js';
+import { voiceVerdict } from './voicePolicy.js';
 import {
   SYNC_PATH,
   hostVerdict,
@@ -226,9 +240,10 @@ export function createRelay({
     pairFailed: {},
     setupRefused: 0,
     // A command the policy asks about applied without the server's
-    // question. Stays 0: K10 moves the question to the server and asserts
-    // this after every apply; until then the remote asks (CF-core K10).
+    // question (K10): read from the host, asserted 0 by the tests.
     confirmBypass: 0,
+    // Voice proposals the relay's voice policy refused, by reason.
+    voiceRefused: {},
     thumbs: 0,
     msgDropped: 0,
     // K7: limits and pending sockets.
@@ -789,7 +804,9 @@ export function createRelay({
       // `by` comes from this socket's device, never from the message: an
       // envelope `by`, `via` or `name` beside `cmd` is not read (S-18).
       case 'cmd':
-      case 'undo': {
+      case 'undo':
+      case 'confirm':
+      case 'confirm-cancel': {
         // Per device (S-16): 10 a second, burst 20; then RATE_LIMITED.
         const lim = limiter.command(me.id, now());
         if (!lim.ok) {
@@ -797,7 +814,7 @@ export function createRelay({
             kind: me.kind,
             retryAfterMs: lim.retryAfterMs,
           });
-          record(m.t === 'cmd' ? 'cmd.refused' : 'undo.refused', {
+          record(m.t === 'undo' ? 'undo.refused' : 'cmd.refused', {
             actor: host.actorOf(me.id),
             data: {
               ...(m.t === 'cmd' ? { type: m.cmd?.type } : {}),
@@ -814,27 +831,68 @@ export function createRelay({
           });
           break;
         }
-        if (m.t === 'undo') {
-          const r = host.undo({ by: me.id, undoId: m.undoId });
+        if (m.t === 'confirm-cancel') {
+          const r = host.confirmCancel({ by: me.id, confirmId: m.confirmId });
           send(ws, { t: 'ack', reqId: m.reqId, ...r });
-          if (r.ok)
-            broadcastState({
-              cause: CAUSE.UNDO,
-              undone: { of: r.of },
-              by: host.actorOf(me.id, VIA.TOUCH),
+          break;
+        }
+        // A Fitzroy proposal: the voice policy first (never a transcript).
+        let via = VIA.TOUCH;
+        let voiceAsk = false;
+        if ((m.t === 'cmd' || m.t === 'undo') && m.voice != null) {
+          const v = voiceVerdict({
+            voice: m.voice,
+            msg: m.t === 'undo' ? { t: 'undo' } : { t: 'cmd', cmd: m.cmd },
+            state: host.state,
+            controller: host.isController(me.id),
+            logOk: flags().audit,
+          });
+          if (!v.ok) {
+            voiceRefused(ws, m, me, v);
+            break;
+          }
+          via = VIA.VOICE;
+          voiceAsk = v.tier === 'ask';
+        }
+        if (m.t === 'undo') {
+          const r = host.undo({ by: me.id, undoId: m.undoId, via });
+          if (r.code === CODE.VOICE_REFUSED) {
+            voiceRefused(ws, m, me, {
+              intent: m.voice?.intent,
+              reason: r.reason,
+              say: r.error,
             });
+            break;
+          }
+          send(ws, { t: 'ack', reqId: m.reqId, ...r });
+          undone(me, r, via);
           break;
         }
         const t0 = performance.now();
-        const r = host.command({ by: me.id, cmd: m.cmd });
+        const r =
+          m.t === 'confirm'
+            ? host.confirm({ by: me.id, confirmId: m.confirmId })
+            : host.command({
+                by: me.id,
+                cmd: m.cmd,
+                ask: m.ask ?? null,
+                via,
+                voiceAsk,
+              });
         const t1 = performance.now();
         send(ws, { t: 'ack', reqId: m.reqId, ...r });
+        // An answered undo question broadcasts as an undo.
+        if (r.ok && Array.isArray(r.restored)) {
+          undone(me, r, r.via ?? via);
+          break;
+        }
         if (r.ok) {
+          counters.confirmBypass = host.confirmBypass ?? 0;
           broadcastState({
             cause: CAUSE.CMD,
             changed: r.changed,
             skipped: r.skipped,
-            by: host.actorOf(me.id, VIA.TOUCH),
+            by: host.actorOf(me.id, r.via ?? via),
           });
           sample('applyMs', t1 - t0);
           sample('applyToBroadcastMs', performance.now() - t0);
@@ -1018,6 +1076,47 @@ export function createRelay({
   }
 
   /**
+   * A voice proposal the policy refused: `voice.refused` (the intent from
+   * the table's closed list, the reason, the command type and field; never
+   * a transcript or anything else from the envelope) and a coded refusal
+   * the device speaks.
+   */
+  function voiceRefused(ws, m, me, v) {
+    bump(counters.voiceRefused, v.reason);
+    record('voice.refused', {
+      actor: host.actorOf(me.id, VIA.VOICE),
+      data: {
+        intent: v.intent ?? null,
+        reason: v.reason,
+        cmdType: m.t === 'undo' ? 'undo' : m.cmd?.type,
+        field: v.field ?? null,
+        tier: v.tier ?? null,
+      },
+    });
+    send(ws, {
+      t: 'ack',
+      reqId: m.reqId,
+      ok: false,
+      code: CODE.VOICE_REFUSED,
+      reason: v.reason,
+      error: v.say,
+    });
+  }
+  /**
+   * An undo that restored something goes to every wall with what it put
+   * back and what it left (K9). Nothing restored, or a repeat: no
+   * broadcast, the wall did not change.
+   */
+  function undone(me, r, via) {
+    if (!r.ok || r.replay || !r.restored?.length) return;
+    broadcastState({
+      cause: CAUSE.UNDO,
+      undone: { of: r.of, restored: r.restored, skipped: r.skipped },
+      by: host.actorOf(me.id, via),
+    });
+  }
+
+  /**
    * A wall's hands-on and drift (BE-6): one line for a `local` message
    * that changes either. Hands-on wins when both change (the drift it
    * stopped is in the same line). `text` is never read here.
@@ -1157,6 +1256,8 @@ export function createRelay({
       // A demo past its time ends here, for every wall at once (hazards H5).
       if (host.expireDemos?.(now()).ok)
         broadcastState({ cause: CAUSE.CMD, changed: ['session'] });
+      // A question nobody answered goes (K10: `confirm.expired`).
+      host.expireConfirms?.(now());
       presence();
       sweep();
     },
@@ -1180,7 +1281,13 @@ export function createRelay({
         sockets: conns.size,
         socketsUnpaired: unauth,
         codes: host.codesOut?.() ?? null,
-        counters: JSON.parse(JSON.stringify(counters)),
+        question: Boolean(host.questionOpen),
+        counters: JSON.parse(
+          JSON.stringify({
+            ...counters,
+            confirmBypass: host.confirmBypass ?? counters.confirmBypass,
+          }),
+        ),
         timings: {
           applyMsP95: p95(timings.applyMs),
           applyToBroadcastMsP95: p95(timings.applyToBroadcastMs),
@@ -1324,9 +1431,9 @@ export function healthOf({
     store: st,
     audit: a,
     hostCheck: check?.status?.() ?? null,
-    // Where the confirm question is asked: the remote, until K10 moves it
-    // to the server (counters.confirmBypass is asserted from then on).
-    confirm: 'remote',
+    // Where the confirm question is asked (K10): the server holds it;
+    // counters.confirmBypass stays 0.
+    confirm: 'server',
   };
 }
 

@@ -308,6 +308,278 @@ export function applyUndo(
   return next;
 }
 
+// ---------------------------------------------------------------- A9
+// Revision-checked undo (Phase CF K9; cf/02-backend.md BE-4, C10, C11;
+// VOICE-CONTROL §3.4). The host keeps a ledger: for every field (screen
+// layers, motion and layout per key; a screen itself as `S4`), the
+// revision that last wrote it. An undo restores a field only while the
+// ledger still names the undone command's revision; anything changed since
+// is skipped and named ("Not undone: role, changed 21:32 by iPad"). The
+// broadcast `meta` keeps its meaning (C10): the ledger is the host's alone.
+
+const SUBKEYED = new Set(['layers', 'motion', 'layout']);
+/** Screen fields the ledger follows: the reducer's, plus `merged`. */
+const SCREEN_LEDGER = [...SCREEN_FIELDS, 'merged'];
+const sameValue = (a, b) =>
+  JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+/**
+ * Every field that differs between two states, as ledger entries
+ * `{key, scope, field, sub?, from, to}`: `session.visitor`, `S4.role`,
+ * `S4.layers.radar`, and `S4` (field null) for a screen added or removed.
+ * Pure; `meta`, `rev` and `count` are not fields (count follows screens).
+ */
+export function changeList(before, after) {
+  const out = [];
+  const b = before || { session: {}, screens: {} };
+  const a = after || { session: {}, screens: {} };
+  for (const f of SESSION_FIELDS)
+    if (!sameValue(b.session?.[f], a.session?.[f]))
+      out.push({
+        key: `session.${f}`,
+        scope: 'session',
+        field: f,
+        from: b.session?.[f] ?? null,
+        to: a.session?.[f] ?? null,
+      });
+  const slots = [
+    ...new Set([
+      ...Object.keys(b.screens || {}),
+      ...Object.keys(a.screens || {}),
+    ]),
+  ]
+    .map(Number)
+    .sort((x, y) => x - y);
+  for (const slot of slots) {
+    const s0 = b.screens?.[slot];
+    const s1 = a.screens?.[slot];
+    const scope = `S${slot}`;
+    if (!s0 || !s1) {
+      out.push({
+        key: scope,
+        scope,
+        field: null,
+        from: s0 ? 'screen' : null,
+        to: s1 ? 'screen' : null,
+      });
+      continue;
+    }
+    for (const f of SCREEN_LEDGER) {
+      if (SUBKEYED.has(f)) {
+        const keys = new Set([
+          ...Object.keys(s0[f] || {}),
+          ...Object.keys(s1[f] || {}),
+        ]);
+        for (const k of [...keys].sort())
+          if (!sameValue(s0[f]?.[k], s1[f]?.[k]))
+            out.push({
+              key: `${scope}.${f}.${k}`,
+              scope,
+              field: f,
+              sub: k,
+              from: s0[f]?.[k] ?? null,
+              to: s1[f]?.[k] ?? null,
+            });
+      } else if (!sameValue(s0[f], s1[f]))
+        out.push({
+          key: `${scope}.${f}`,
+          scope,
+          field: f,
+          from: s0[f] ?? null,
+          to: s1[f] ?? null,
+        });
+    }
+  }
+  return out;
+}
+
+/**
+ * The ledger keys a command NAMES on the screens it reached, changed or
+ * not: a second writer who sets the same value still owns the field, so
+ * an undo of the first leaves it (BE-4). Keys only.
+ */
+export function namedKeys(cmd, state, skipped = []) {
+  const out = [];
+  const patch = cmd?.patch && typeof cmd.patch === 'object' ? cmd.patch : {};
+  if (cmd?.type === 'session')
+    for (const k of Object.keys(patch))
+      if (SESSION_FIELDS.has(k)) out.push(`session.${k}`);
+  if (cmd?.type === 'screens')
+    for (const slot of slotsFor(state, cmd.target)) {
+      if (skipped.includes(slot)) continue;
+      for (const [k, v] of Object.entries(patch)) {
+        if (!SCREEN_FIELDS.has(k)) continue;
+        if (SUBKEYED.has(k) && v && typeof v === 'object')
+          for (const sub of Object.keys(v)) out.push(`S${slot}.${k}.${sub}`);
+        else if (k === 'role')
+          for (const f of ['role', 'scale', 'merged'])
+            out.push(`S${slot}.${f}`);
+        else out.push(`S${slot}.${k}`);
+      }
+    }
+  return out;
+}
+
+/** Stamp the ledger (in place) with what one write touched. */
+export function stampLedger(ledger, keys, { rev, by = null, via = null, at }) {
+  for (const k of keys) ledger[k] = { rev, by, via, at };
+  return ledger;
+}
+
+/**
+ * The undo of one command, field by field against the ledger (A9).
+ * record: {rev, before, changes, type} (the command's revision, the state
+ * before it, its changeList, its type). Returns {state, restored, skipped,
+ * changes}: `restored` [{scope, field}], `skipped` [{scope, field, reason,
+ * by, via, at, rev}] with reason 'changed' (written since; `by`/`at` say
+ * who and when), 'camera' (a framing is never replayed), 'gone' (the
+ * screen is not there any more) or 'recreated' (a removed screen came
+ * back). Nothing restored → the same state, no new revision.
+ */
+export function applyUndoChecked(
+  state,
+  record,
+  ledger = {},
+  { by = null, at = Date.now() } = {},
+) {
+  const restored = [];
+  const skipped = [];
+  if (!record?.before || !Array.isArray(record.changes))
+    return { state, restored, skipped, changes: [] };
+  const before = record.before;
+  const next = clone(state);
+  const newRev = state.rev + 1;
+  // Reset, Return all and count replace whole screens with empty meta: the
+  // fields they put back get the meta they had (as the old whole undo did).
+  const whole = ['reset', 'returnLive', 'count'].includes(record.type);
+  const owned = (key) => ledger[key]?.rev === record.rev;
+  const who = (key, reason) => {
+    const l = ledger[key];
+    return {
+      reason,
+      by: l?.by ?? null,
+      via: l?.via ?? null,
+      at: l?.at ?? null,
+      rev: l?.rev ?? null,
+    };
+  };
+  const name = (c) => (c.sub != null ? `${c.field}.${c.sub}` : c.field);
+  for (const c of record.changes) {
+    const slot = c.scope === 'session' ? null : Number(c.scope.slice(1));
+    if (c.field === 'frame') {
+      skipped.push({ scope: c.scope, field: 'frame', ...who(c.key, 'camera') });
+      continue;
+    }
+    if (c.field === null) {
+      // A screen the command added or removed.
+      const here = Boolean(next.screens[slot]);
+      if (c.from == null) {
+        if (!here)
+          skipped.push({
+            scope: c.scope,
+            field: 'screen',
+            ...who(c.key, 'gone'),
+          });
+        else {
+          // Deleted only if nothing on it was written since (BE-4).
+          const later = Object.entries(ledger).find(
+            ([k, v]) =>
+              (k === c.scope || k.startsWith(`${c.scope}.`)) &&
+              v.rev > record.rev,
+          );
+          if (later || !owned(c.key))
+            skipped.push({
+              scope: c.scope,
+              field: 'screen',
+              ...who(later ? later[0] : c.key, 'changed'),
+            });
+          else {
+            delete next.screens[slot];
+            restored.push({ scope: c.scope, field: 'screen' });
+          }
+        }
+      } else if (here)
+        skipped.push({
+          scope: c.scope,
+          field: 'screen',
+          ...who(c.key, 'recreated'),
+        });
+      else if (!owned(c.key))
+        skipped.push({
+          scope: c.scope,
+          field: 'screen',
+          ...who(c.key, 'changed'),
+        });
+      else {
+        next.screens[slot] = { ...clone(before.screens[slot]), frame: null };
+        restored.push({ scope: c.scope, field: 'screen' });
+      }
+      continue;
+    }
+    if (slot === null) {
+      if (!owned(c.key)) {
+        skipped.push({
+          scope: 'session',
+          field: c.field,
+          ...who(c.key, 'changed'),
+        });
+        continue;
+      }
+      next.session[c.field] = clone(before.session?.[c.field] ?? null);
+      if (whole) {
+        const m = before.session?.meta?.[c.field];
+        next.session.meta = { ...(next.session.meta || {}) };
+        if (m) next.session.meta[c.field] = clone(m);
+        else delete next.session.meta[c.field];
+      }
+      restored.push({ scope: 'session', field: c.field });
+      continue;
+    }
+    const s = next.screens[slot];
+    if (!s) {
+      skipped.push({ scope: c.scope, field: name(c), ...who(c.key, 'gone') });
+      continue;
+    }
+    if (!owned(c.key)) {
+      skipped.push({
+        scope: c.scope,
+        field: name(c),
+        ...who(c.key, 'changed'),
+      });
+      continue;
+    }
+    const old = before.screens?.[slot];
+    if (c.sub != null) {
+      s[c.field] = { ...(s[c.field] || {}) };
+      const v = old?.[c.field]?.[c.sub];
+      if (v === undefined) delete s[c.field][c.sub];
+      else s[c.field][c.sub] = clone(v);
+    } else
+      s[c.field] = clone(old?.[c.field] ?? (c.field === 'merged' ? [] : null));
+    s.meta = { ...(s.meta || {}) };
+    if (
+      c.field === 'scale' &&
+      state.screens[slot]?.meta?.scale?.rev === record.rev
+    )
+      // C11: a scale write undone gets a new rev, so the wall flies back.
+      s.meta.scale = { source: 'undo', rev: newRev, by, at };
+    else if (
+      whole &&
+      !restored.some((r) => r.scope === c.scope && r.field === c.field)
+    ) {
+      const m = old?.meta?.[c.field];
+      if (m) s.meta[c.field] = clone(m);
+      else delete s.meta[c.field];
+    }
+    restored.push({ scope: c.scope, field: name(c) });
+  }
+  if (!restored.length) return { state, restored, skipped, changes: [] };
+  next.count = Object.keys(next.screens).length;
+  next.rev = newRev;
+  next.lastUndo = { by, at, of: record.rev };
+  return { state: next, restored, skipped, changes: changeList(state, next) };
+}
+
 /** What an All push would change, for the confirm line on the remote. */
 export function previewAll(state, patch) {
   const slots = Object.keys(state.screens).map(Number);

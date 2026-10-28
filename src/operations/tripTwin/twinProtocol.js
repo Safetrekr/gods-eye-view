@@ -90,14 +90,18 @@ export const MSG_TYPES = Object.freeze([
   // The traffic camera sent to one wall (review/traffic-cameras T5;
   // launcher, this computer only): {tripId, place, slot, id} or {stop}.
   'camera',
+  // K10: the asking device answers the server's question (S-18, C24).
+  'confirm',
+  'confirm-cancel',
 ]);
 
 // ---------------------------------------------------------------- K5
 // Protocol version (S-15, review U-B1, ET S1). Every slice that changes a
 // message shape raises PROTO and sets PROTO_MIN = PROTO: K5 → 2, K7 → 3,
 // wall keyboard commands (shell D5) → 4, the wall menu's layout
-// (screens/05-S1-PLAN) → 5, the hazard demos (review/hazards H5) → 6, then
-// K9 → 7, K10 → 8, K11 → 9. A hello below PROTO_MIN (or with no `proto`:
+// (screens/05-S1-PLAN) → 5, the hazard demos (review/hazards H5) → 6, K9
+// and K10 together (review/voice/PRE-V1-NOTES.md) → 7, then K11 → 8. A
+// hello below PROTO_MIN (or with no `proto`:
 // every page from before K5) is refused RELOAD with text an old page can
 // show. twinProtocol.test.mjs keeps one schema hash per PROTO: a shape
 // change without a bump fails it.
@@ -115,10 +119,18 @@ export const MSG_TYPES = Object.freeze([
  * it, and is refused PINNED, VISITOR, SAFETY_LAYER or VIEW_ONLY; the
  * session carries `wallControls` (false = every wall view only). 6 (hazards
  * H5): the session carries `simFire` and `simCyclone` beside `simStorm`.
+ * 7 (K9 + K10): the server asks. A confirm-class command (or one the page
+ * raises with a closed-list `ask`) is answered `CONFIRM_REQUIRED` with
+ * `confirmId`, `expiresAt`, `ttlMs` and `question {parts, text}`; the page
+ * sends `{t:'confirm', confirmId}` or `{t:'confirm-cancel', confirmId}`.
+ * An undo answers `{restored, skipped, undoable}` (no `undoId`; `replay`
+ * for a repeat), and its broadcast says `undone {of, restored, skipped}`.
+ * A command may carry `voice {intent}` (a Fitzroy proposal): the relay
+ * stamps `via` 'voice' and checks its voice policy table.
  */
-export const PROTO = 6;
+export const PROTO = 7;
 /** The oldest page the relay still talks to. */
-export const PROTO_MIN = 6;
+export const PROTO_MIN = 7;
 
 /** True when a page says a protocol this relay still talks to. */
 export const protoOk = (proto) => Number.isInteger(proto) && proto >= PROTO_MIN;
@@ -199,7 +211,53 @@ export const CODE = Object.freeze({
   SAFETY_LAYER: 'SAFETY_LAYER',
   // The remote's "Wall controls: view only" (screens Q2).
   VIEW_ONLY: 'VIEW_ONLY',
+  // A Fitzroy proposal the relay's voice policy refuses (V1 carry-over).
+  VOICE_REFUSED: 'VOICE_REFUSED',
 });
+
+// ---------------------------------------------------------------- K10
+/**
+ * Closed-list reasons a page may give to RAISE a question the policy would
+ * not ask (BE-3, S-18): never to lower one. Anything else is refused
+ * VALIDATION_COMMAND. 'incident': Advance while an incident is open (the
+ * remote knows the trip's incidents); 'day-all': a day on every screen;
+ * 'replace-report': a new floor over an open report.
+ */
+export const ASK_HINTS = Object.freeze([
+  'incident',
+  'day-all',
+  'replace-report',
+]);
+/** How long a touch question stands on the server (today's 15 s bar). */
+export const CONFIRM_MS = 15 * 1000;
+/**
+ * A voice question (VOICE-CONTROL §3.3): the device keeps its own 10 s
+ * from the end of the spoken question; the server's outer bound is the
+ * touch window, so a 5 s question still fits. Strict rev: any change to
+ * the wall since the question cancels the yes (re-asked in place).
+ */
+export const VOICE_CONFIRM_MS = 15 * 1000;
+/** Why an undo left a field as it is (BE-4, A9). */
+export const UNDO_SKIP = Object.freeze([
+  'changed',
+  'camera',
+  'gone',
+  'recreated',
+]);
+/**
+ * Why the relay refused a voice proposal (`voice.refused`; the code is
+ * VOICE_REFUSED). Never a transcript: these words only.
+ */
+export const VOICE_REFUSALS = Object.freeze([
+  'unknown_intent', // not in the voice policy table
+  'touch_only', // Tier C: incident, pairing, visitor off, unpin, demo start …
+  'not_a_command', // a device control (mute, yes, stop) never reaches the relay
+  'undeclared', // a command type or field the intent does not emit
+  'lowers_protection', // never less safe (CF-D4), whatever the intent says
+  'undo_protective', // an undo whose inverse lowers protection: touch only
+  'log_down', // CF-D9: voice is refused while the audit log cannot write
+  'not_controller', // only the device in control may propose (V3a: guests)
+]);
 
 /** Why a state broadcast went out: `{t:'state', cause, by?}`. */
 export const CAUSE = Object.freeze({
@@ -214,12 +272,17 @@ export const CAUSE = Object.freeze({
  * How an actor acted (§4.4). Set by the relay from the socket, never taken
  * from a message. 'keyboard': a paired wall's own controls — its L / D
  * sheets and rail, by key, mouse or touch (shell D5, screens/05-S1-PLAN;
- * `screen-cmd`; read as "at the wall"). V1 adds 'voice', relay-verified, never client-claimed.
+ * `screen-cmd`; read as "at the wall"). 'voice': a Fitzroy proposal the
+ * source device submitted under its own identity (`voice {intent}` beside
+ * `cmd`); the relay stamps it after its voice policy passed, never from a
+ * field the page names. A page that leaves the envelope off gets touch's
+ * rules, which are never weaker than voice's (VOICE-CONTROL §1, §3.2).
  */
 export const VIA = Object.freeze({
   TOUCH: 'touch',
   SYSTEM: 'system',
   KEYBOARD: 'keyboard',
+  VOICE: 'voice',
 });
 
 /**

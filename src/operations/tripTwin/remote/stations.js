@@ -331,6 +331,7 @@ function incident(ctx) {
           cmd,
           `Replace the reported floor ${ss.report.floor} with floor ${Math.round(n)} on every screen`,
           label,
+          'replace-report',
         );
       else ctx.send(cmd, label);
     }),

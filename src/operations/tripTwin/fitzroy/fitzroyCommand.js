@@ -99,7 +99,14 @@ export function defineCommand(spec) {
           summary: built.refuse.say,
           data: { message: null, effect: 'none', refusal: built.refuse },
         };
-      const message = built.t === 'undo' ? built : { t: 'cmd', cmd: built };
+      // The device submits this as it is, on its own socket: `voice`
+      // names the intent, so the relay checks its voice policy table and
+      // stamps via 'voice' (server/tripTwin/voicePolicy.js).
+      const voice = { intent: name };
+      const message =
+        built.t === 'undo'
+          ? { ...built, voice }
+          : { t: 'cmd', cmd: built, voice };
       return { summary: title, data: { message, effect: 'relay' } };
     },
   });

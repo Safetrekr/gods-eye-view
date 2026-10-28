@@ -105,6 +105,17 @@ function seeded(seed = 0.4242) {
   };
 }
 
+
+/**
+ * A command that never asks (K10): limits, ids and fuzz are about the
+ * relay, not the question, so they use a plain one-screen layer change.
+ */
+const PLAIN = Object.freeze({
+  type: 'screens',
+  target: 1,
+  patch: { layers: { radar: true } },
+});
+
 test('K7 T3.7 SEC-4: tokens are 256-bit base64url, codes 4 digits, undo ids 128-bit hex, all from the CSPRNG (getRandomValues); a constant Math.random changes none of them (T3.16)', () => {
   const real = Math.random;
   Math.random = () => 0.5;
@@ -136,7 +147,7 @@ test('K7 T3.7 SEC-4: tokens are 256-bit base64url, codes 4 digits, undo ids 128-
     const tv = r.sock();
     tv.say({ t: 'hello', id: 'screen-k7-tv', kind: 'screen' });
     assert.match(tv.last('welcome').code, /^\d{4}$/);
-    ip.say({ t: 'cmd', reqId: 1, cmd: { type: 'returnLive' } });
+    ip.say({ t: 'cmd', reqId: 1, cmd: PLAIN });
     assert.match(ip.last('ack').undoId, /^[0-9a-f]{32}$/);
   } finally {
     Math.random = real;
@@ -275,7 +286,7 @@ test('K7 SEC-7: a launcher gets presence only: no state in its welcome or after 
   s1.say({ t: 'hello', id: 'screen-k7-1', kind: 'screen', setup, slot: 1 });
   const ip = r.sock({ local: false });
   ip.say({ t: 'hello', id: 'remote-k7', kind: 'remote', setup, name: 'iPad' });
-  ip.say({ t: 'cmd', reqId: 1, cmd: { type: 'returnLive' } });
+  ip.say({ t: 'cmd', reqId: 1, cmd: PLAIN });
   assert.equal(ip.last('ack').ok, true);
   for (const l of [link, start]) {
     assert.equal(l.all('state').length, 0, 'never state');
@@ -702,7 +713,7 @@ test('K7 T3.14 SEC-8: 10,000 seeded fuzz frames (JSON and not, before and after 
   assert.equal(r.relay.health().counters.msgError, 0, 'no handler threw');
   // The controller still works.
   ip.say({ t: 'hb' });
-  ip.say({ t: 'cmd', reqId: 1, cmd: { type: 'returnLive' } });
+  ip.say({ t: 'cmd', reqId: 1, cmd: PLAIN });
   assert.equal(ip.last('ack').ok, true);
 });
 
@@ -719,14 +730,14 @@ test('K7 SEC-8: a message the host throws on is caught: msg.error with the type 
     throw new Error('boom: Ottoline Quarnby');
   };
   assert.doesNotThrow(() =>
-    ip.say({ t: 'cmd', reqId: 1, cmd: { type: 'returnLive' } }),
+    ip.say({ t: 'cmd', reqId: 1, cmd: PLAIN }),
   );
   assert.equal(ip.last('ack'), undefined);
   const e = events.find((x) => x.type === 'msg.error');
   assert.deepEqual(e.data, { type: 'cmd' });
   assert.equal(r.relay.health().counters.msgError, 1);
   r.host.command = command;
-  ip.say({ t: 'cmd', reqId: 2, cmd: { type: 'returnLive' } });
+  ip.say({ t: 'cmd', reqId: 2, cmd: PLAIN });
   assert.equal(ip.last('ack').ok, true);
 });
 
@@ -757,7 +768,7 @@ test('K7 S-16: per device, 20 commands in a burst, then RATE_LIMITED with retryA
   const r = rig();
   const ip = r.ipad();
   for (let i = 0; i < 21; i += 1)
-    ip.say({ t: 'cmd', reqId: i, cmd: { type: 'returnLive' } });
+    ip.say({ t: 'cmd', reqId: i, cmd: PLAIN });
   const acks = ip.all('ack');
   assert.equal(acks.filter((a) => a.ok).length, 20);
   assert.equal(acks.at(-1).code, CODE.RATE_LIMITED);
@@ -770,7 +781,7 @@ test('K7 S-16: per device, 20 commands in a burst, then RATE_LIMITED with retryA
       ip.say({
         t: 'cmd',
         reqId: 100 + s * 10 + i,
-        cmd: { type: 'returnLive' },
+        cmd: PLAIN,
       });
     assert.ok(
       ip

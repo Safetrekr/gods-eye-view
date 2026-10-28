@@ -11,6 +11,7 @@ import {
   clientFrame,
   fakeSocket,
   fakeViteRelay as kitViteRelay,
+  sayConfirmed,
   script,
   serverFrames,
   setupOf,
@@ -288,10 +289,7 @@ test("a wall's menu: layout from the allowlist; pinned, visitor and safety layer
     });
     return sock.last('ack');
   };
-  const cmd = (c) => {
-    remote.say({ t: 'cmd', reqId: ++req, cmd: c });
-    return remote.last('ack');
-  };
+  const cmd = (c) => sayConfirmed(remote, { t: 'cmd', reqId: ++req, cmd: c });
   const screen = (n) => remote.last('state').state.screens[n];
 
   // Layout: enums kept, junk and other roles' or locked cards dropped.
@@ -588,7 +586,8 @@ test('S4: the demo storm keeps alert areas on at a wall (A5-S4-PLAN)', () => {
   // Calm: the wall may turn them off.
   assert.equal(wall({ layers: { alertAreas: false } }).ok, true);
   assert.equal(wall({ layers: { alertAreas: true } }).ok, true);
-  remote.say({
+  // K10: starting a demo asks first; the remote confirms.
+  sayConfirmed(remote, {
     t: 'cmd',
     reqId: ++req,
     cmd: { type: 'session', patch: { simStorm: Date.now() } },
@@ -730,7 +729,7 @@ test('hazards H5: each demo keeps its own layer on at a wall; the host ends a de
   };
   assert.equal(wall({ layers: { fireBounds: false } }).ok, true);
   assert.equal(wall({ layers: { fireBounds: true } }).ok, true);
-  remote.say({
+  sayConfirmed(remote, {
     t: 'cmd',
     reqId: ++req,
     cmd: { type: 'session', patch: { simFire: t, simCyclone: t } },
@@ -853,7 +852,7 @@ test('traffic cameras: a trip switch or a role change at its wall clears it; the
   remote.say({ t: 'hello', id: 'R', kind: 'remote', setup, name: 'iPad' });
   remote.say({ t: 'request-control' });
   let req = 0;
-  const cmd = (c) => remote.say({ t: 'cmd', reqId: ++req, cmd: c });
+  const cmd = (c) => sayConfirmed(remote, { t: 'cmd', reqId: ++req, cmd: c });
   const cam = () => s1.last('state').state.session.camera ?? null;
   const told = () => launcher.last('camera-state');
   launcher.say({ t: 'camera', place: 'hotel:austin', role: 'site', id: 'c-1' });
@@ -933,7 +932,11 @@ test('traffic cameras: a wall stops only its own; fewer walls drop it; the launc
     id: 'c-9',
   });
   assert.equal(cam().slot, 5);
-  remote.say({ t: 'cmd', reqId: ++req, cmd: { type: 'count', count: 4 } });
+  sayConfirmed(remote, {
+    t: 'cmd',
+    reqId: ++req,
+    cmd: { type: 'count', count: 4 },
+  });
   assert.equal(cam(), null);
 });
 

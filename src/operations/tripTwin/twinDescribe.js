@@ -535,6 +535,45 @@ export function byText(actor, actors = []) {
 }
 
 /**
+ * What an undo left as it was (K9, A9; Appendix D "partial"), from the
+ * undo answer's `skipped` [{scope, field, reason, by, at}]: "Not undone:
+ * S4 role, changed 21:32 by iPad · camera stays where it is". Empty when
+ * nothing was left. Names a device, never a person.
+ */
+export function notUndoneText(skipped = [], actors = [], o = {}) {
+  const out = [];
+  const seen = new Set();
+  let camera = false;
+  for (const x of skipped || []) {
+    if (x?.reason === 'camera') {
+      camera = true;
+      continue;
+    }
+    const base = String(x?.field || '').split('.')[0];
+    const label =
+      base === 'screen' ? 'screen' : FIELD_LABELS[base] || base || 'a field';
+    const where = x?.scope && x.scope !== 'session' ? `${x.scope} ` : '';
+    const why =
+      x?.reason === 'changed'
+        ? `changed${Number.isFinite(x.at) ? ` ${hhmm(x.at, o.timeZone)}` : ''}${x.by ? ` by ${byText(x.by, actors)}` : ''}`
+        : x?.reason === 'gone'
+          ? 'that screen is gone'
+          : x?.reason === 'recreated'
+            ? 'that screen is back'
+            : 'left as it is';
+    const line = `${where}${label}, ${why}`;
+    if (!seen.has(line)) {
+      seen.add(line);
+      out.push(line);
+    }
+  }
+  const parts = [];
+  if (out.length) parts.push(`Not undone: ${out.join(' · ')}`);
+  if (camera) parts.push('camera stays where it is');
+  return parts.join(' · ');
+}
+
+/**
  * The newest change a wall shows, from the state's field meta: its slot's
  * fields and the wall-wide ones. {at, ref, field, scope, rev} or null.
  */

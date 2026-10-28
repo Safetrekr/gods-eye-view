@@ -200,6 +200,29 @@ async function device(base, { id, kind, slot = null, name = '' }) {
   return d;
 }
 
+/**
+ * K10: a command as the remote's Confirm sends it: when the server asks
+ * (CONFIRM_REQUIRED), answer with `confirm` and the same reqId. Resolves
+ * with the final ack.
+ */
+async function cmdAnswered(dev, reqId, cmd, ms = 8000) {
+  const first = dev.c.next(
+    (m) => m.t === 'ack' && m.reqId === reqId,
+    ms,
+    'ack',
+  );
+  dev.c.say({ t: 'cmd', reqId, cmd });
+  const a = await first;
+  if (a.code !== 'CONFIRM_REQUIRED') return a;
+  const second = dev.c.next(
+    (m) => m.t === 'ack' && m.reqId === reqId,
+    ms,
+    'confirm ack',
+  );
+  dev.c.say({ t: 'confirm', reqId, confirmId: a.confirmId });
+  return second;
+}
+
 /** The real launcher's sequence: hello (refused), then setup. */
 async function startSetup(base, count = 6) {
   const c = await client(base);
@@ -944,15 +967,25 @@ async function smoke(server, browser) {
           v.mode,
         ]),
       );
-      // The remote asks first (its confirm bar); today the server takes the
-      // command as sent. K10 moves the confirmation to the server.
-      const acks = remote.c.next(
+      // K10: the server asks; nothing changes until the remote confirms.
+      const asked = remote.c.next(
         (m) => m.t === 'ack' && m.reqId === 3,
         8000,
         'ack',
       );
-      const st = walls[0].c.next('state', 8000, 'state');
       remote.c.say({ t: 'cmd', reqId: 3, cmd });
+      const q = await asked;
+      must(
+        q.code === 'CONFIRM_REQUIRED' && q.confirmId,
+        `the server did not ask: ${q.code || q.ok}`,
+      );
+      const acks = remote.c.next(
+        (m) => m.t === 'ack' && m.reqId === 3,
+        8000,
+        'confirm ack',
+      );
+      const st = walls[0].c.next('state', 8000, 'state');
+      remote.c.say({ t: 'confirm', reqId: 3, confirmId: q.confirmId });
       const a = await acks;
       must(a.ok && a.undoId, `ack: ${a.error}`);
       undoId = a.undoId;
@@ -963,7 +996,7 @@ async function smoke(server, browser) {
         `modes ${modes.join(',')}`,
       );
       return {
-        detail: `rev ${a.rev}; confirmation is client-side today (K10)`,
+        detail: `rev ${a.rev}; the server asked and the remote confirmed (K10)`,
       };
     },
   );
@@ -1093,14 +1126,10 @@ async function smoke(server, browser) {
     'H5-S1',
     'hazard demos (review/hazards H5): the remote starts the demo fire; the S6 wall shows LIVE · DEMO FIRE and the SIMULATED fire line on the trip in focus; Return all ends it on the wall',
     async () => {
+      // A demo start and Return all ask first (K10): confirmed here.
       const send = async (reqId, cmd) => {
-        const ack = remote.c.next(
-          (m) => m.t === 'ack' && m.reqId === reqId,
-          8000,
-          'ack',
-        );
-        remote.c.say({ t: 'cmd', reqId, cmd });
-        must((await ack).ok, `${cmd.type} refused`);
+        const a = await cmdAnswered(remote, reqId, cmd);
+        must(a.ok, `${cmd.type} refused: ${a.code || a.error}`);
       };
       const look = () =>
         page.evaluate(() => ({

@@ -394,6 +394,7 @@ test('undo by voice never takes back a protective change; nothing to undo is sai
   assert.deepEqual((await c2.propose('undo_last')).message, {
     t: 'undo',
     undoId: 'u10',
+    voice: { intent: 'undo_last' },
   });
   const { cat: c3 } = catalogOn(before, { lastUndo: () => null });
   assert.equal((await c3.propose('undo_last')).say, 'Nothing to undo.');

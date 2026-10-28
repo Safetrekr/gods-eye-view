@@ -44,8 +44,11 @@ import {
   REMOTE_NAMES,
   isRef,
   REVIEW_ITEMS,
+  UNDO_SKIP,
+  VOICE_REFUSALS,
 } from '../../src/operations/tripTwin/twinProtocol.js';
 import { LIMIT_NAMES } from './twinLimits.js';
+import { VOICE_INTENTS } from './voicePolicy.table.js';
 import { ROLES } from '../../src/operations/tripTwin/twinScreenRoles.js';
 
 export const AUDIT_VERSION = 1;
@@ -372,12 +375,21 @@ const part = (v) => {
 
 const CONFIRM_DATA = {
   parts: list(part, 12),
-  cmdType: oneOf(CMD_TYPES),
+  // K10: an undo whose inverse lowers protection is asked too (CF-D4).
+  cmdType: oneOf([...CMD_TYPES, 'undo']),
   applied: list(slot, 6),
   pinned: list(slot, 6),
   answer: oneOf(['confirm', 'cancel']),
   waitedMs: int,
-  reason: oneOf(['timeout', 'stale', 'superseded', 'cancelled', 'gone']),
+  reason: oneOf([
+    'timeout',
+    'stale',
+    'superseded',
+    'cancelled',
+    'gone',
+    // K10: the question goes with its device's lease.
+    'lease',
+  ]),
 };
 
 // ------------------------------------------------------------ catalogue
@@ -542,7 +554,12 @@ export const AUDIT_EVENTS = Object.freeze({
       field,
     },
   },
-  'undo.applied': { peer: false, data: { of: int } },
+  // K9: how many fields went back, and why the others did not (reasons
+  // from a closed list; never the values or who).
+  'undo.applied': {
+    peer: false,
+    data: { of: int, restored: int, skipped: list(oneOf(UNDO_SKIP), 24) },
+  },
   'undo.refused': { peer: false, data: { code } },
   // Server-held questions (K10 emits them; parts only, F-0004).
   'confirm.asked': { peer: false, data: CONFIRM_DATA },
@@ -599,6 +616,21 @@ export const AUDIT_EVENTS = Object.freeze({
   },
   // One message the relay could not handle (K7, SEC-8): its type only.
   'msg.error': { peer: 'always', data: { type: oneOf(MSG_TYPES) } },
+  // A Fitzroy proposal the relay's voice policy refused (VOICE-CONTROL
+  // §3.6, PRE-V1): the intent from the generated table's closed list, the
+  // reason, the command's type and field name, the tier. Never a
+  // transcript, a heard word, a proposal id or anything else the device
+  // put in its envelope.
+  'voice.refused': {
+    peer: false,
+    data: {
+      intent: oneOf(VOICE_INTENTS),
+      reason: oneOf(VOICE_REFUSALS),
+      cmdType: oneOf([...CMD_TYPES, 'undo']),
+      field,
+      tier: oneOf(['act', 'ask', 'touch']),
+    },
+  },
 });
 
 export const AUDIT_EVENT_TYPES = Object.freeze(Object.keys(AUDIT_EVENTS));
@@ -752,7 +784,8 @@ const ACTOR_SPEC = {
   kind: oneOf(['remote', 'screen', 'launcher', 'host']),
   name: actorName,
   slot: nul(slot),
-  via: oneOf(['touch', 'system', 'keyboard']),
+  // 'voice': stamped by the relay on a proposal its voice policy passed.
+  via: oneOf(['touch', 'system', 'keyboard', 'voice']),
 };
 const CORR_SPEC = {
   reqId: (v) => (Number.isInteger(v) && v >= 0 && v <= 1e12 ? v : undefined),

@@ -57,6 +57,12 @@ const WIRE_SCHEMA = Object.freeze({
   // The hazard demos: the session carries `simFire` and `simCyclone`
   // (review/hazards H5-PLAN).
   6: 'bf856c9db174d7e75e1a214b792992751e70374de294927f16cc02a29c7035e8',
+  // K9 + K10 (review/voice/PRE-V1-NOTES.md): the server asks
+  // (CONFIRM_REQUIRED with confirmId, expiresAt, ttlMs, question), an undo
+  // answers restored / skipped / undoable (replay for a repeat) and its
+  // broadcast says undone {of, restored, skipped}; VOICE_REFUSED carries a
+  // reason.
+  7: '80c941b49e557e03f2b50121d2e0a177ca85ded0676df1011e3ce9e357bad5ae',
 });
 
 /** A host on a fake clock with a seeded random (deterministic tokens). */
@@ -147,7 +153,28 @@ function goldenTranscript() {
     reqId: 6,
     cmd: { type: 'screens', target: 'all', patch: { mode: 'advance' } },
   });
+  // K10: the server asks; the asking remote confirms.
+  r.say({ t: 'confirm', reqId: 61, confirmId: r.last('ack').confirmId });
   const undoId = r.last('ack').undoId;
+  // A question dropped, an answer to nothing, a raised question (ask).
+  r.say({ t: 'cmd', reqId: 62, cmd: { type: 'returnLive' } });
+  r.say({ t: 'confirm-cancel', reqId: 63, confirmId: r.last('ack').confirmId });
+  r.say({ t: 'confirm', reqId: 64, confirmId: 'gone' });
+  r.say({
+    t: 'cmd',
+    reqId: 65,
+    ask: 'incident',
+    cmd: { type: 'screens', target: 2, patch: { mode: 'advance' } },
+  });
+  r.say({ t: 'confirm-cancel', reqId: 66, confirmId: r.last('ack').confirmId });
+  // Voice proposals (PRE-V1): one the policy refuses (no audit log here,
+  // so voice is off: log_down). Same `ack` shapes as touch.
+  r.say({
+    t: 'cmd',
+    reqId: 67,
+    voice: { intent: 'set_screen_layer' },
+    cmd: { type: 'screens', target: 2, patch: { layers: { radar: true } } },
+  });
   r.say({ t: 'cmd', reqId: 7, cmd: { type: 'nope' } });
   r.say({
     t: 'cmd',
@@ -167,6 +194,13 @@ function goldenTranscript() {
     t: 'screen-cmd',
     reqId: 91,
     cmd: { type: 'screens', target: 1, patch: { role: 'day' } },
+  });
+  // K9: S1 changes after the All push, so its undo skips S1 (changed, by
+  // whom and when) and restores the rest; the same undo again is a replay.
+  r.say({
+    t: 'cmd',
+    reqId: 68,
+    cmd: { type: 'screens', target: 1, patch: { mode: 'live' } },
   });
   r.say({ t: 'undo', reqId: 10, undoId });
   r.say({ t: 'undo', reqId: 11, undoId });
@@ -321,7 +355,7 @@ test('K5 S-15: a launcher page from before K5 cannot start a setup (RELOAD); thi
 });
 
 test('K5 S-15: every welcome says PROTO; PROTO_MIN equals PROTO at this slice; protoOk takes integers from PROTO_MIN up', () => {
-  assert.equal(PROTO, 6);
+  assert.equal(PROTO, 7);
   assert.equal(PROTO_MIN, PROTO);
   for (const p of [PROTO, PROTO + 1]) assert.equal(protoOk(p), true);
   for (const p of [undefined, null, 0, 1, '2', 1.5, NaN])

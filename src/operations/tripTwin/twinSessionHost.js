@@ -45,19 +45,54 @@
 // Phase CF K8 (SUP-5): a wrong code says how many tries are left before
 // the 1-minute pause, and the pause says when it ends (the same words on
 // the remote; values only, no new fields).
+//
+// Phase CF K9 (BE-4, A9, C10, C11, S-18): revision-checked undo. The host
+// keeps a ledger (field → the revision that last wrote it), fed by every
+// write here, setup and pairing included; an undo restores a field only
+// while the ledger still names the undone command, and says what it left
+// and why (`changed` with who and when, `camera`, `gone`, `recreated`).
+// Nothing restored → no new revision. A repeated undo id in its window
+// answers `replay: true`; an undo answer has no undo id of its own.
+// Phase CF K10 (BE-3, SEC-10, C24, C25, CF-D4, S-18): the server asks.
+// A command `needsConfirm` names, or one the page raises with a closed-list
+// `ask`, is held as the room's one question: `CONFIRM_REQUIRED` with a
+// confirm id, the preview's parts and words, and an expiry. Only the device
+// that asked may confirm, while it holds the lease and before expiry; the
+// stored command is applied, never one sent at confirm time. A touch
+// question is stale when what it would change differs (C24); a voice
+// question when the wall's revision moved at all (VOICE-CONTROL §3.3).
+// Stale re-asks in place (a fresh id in the same answer). A new question
+// from the same device replaces its old one; another device's gets
+// PENDING_BUSY, except Return all, which pre-empts. A lease change cancels
+// the question. An undo whose inverse lowers protection (CF-D4) asks too.
+// `confirmBypass` counts confirm-class commands applied without a question:
+// it stays 0 (health asserts it).
 // Prototype only — production needs TLS, device enrolment, operator SSO,
 // signed commands and an audit log (07-production-delta).
 import { LIMITS } from '../../../server/tripTwin/twinLimits.js';
 import {
   applyCommand,
-  applyUndo,
+  applyUndoChecked,
+  changeList,
   createSession,
+  namedKeys,
+  needsConfirm,
   SIM_DEMO_MAX_MS,
   SIM_KEYS,
+  stampLedger,
 } from './twinSession.js';
 import {
+  previewOf,
+  undoLowers,
+  undoPreviewOf,
+  UNDO_CONSEQUENCE,
+} from './twinPolicy.js';
+import {
   ACTOR_FIELDS as ACTOR_KEYS,
+  ASK_HINTS,
   CODE,
+  CONFIRM_MS,
+  VOICE_CONFIRM_MS,
   DENY,
   HOST_NAME,
   HOST_REF,
@@ -375,7 +410,38 @@ export function createSessionHost({
   // Setup tokens: the computer that chose Multi-view opens its own screen
   // windows and shows a QR for the remote; both carry this token.
   const setups = new Map(); // token → {expires}
-  const undos = new Map(); // id → {undo, expires, of}
+  // id → {before, changes, type, rev, owner, expires, result?} (K9).
+  const undos = new Map();
+  // K9 (C10): field key → {rev, by, via, at} of the last write.
+  let ledger = {};
+  // K10: the room's one server-held question (never saved, never sent
+  // whole: the page gets its id, parts and words).
+  let pending = null;
+  // The last questions a newer one replaced: their answer says so.
+  const superseded = new Set();
+  let confirmBypass = 0;
+
+  /**
+   * The state becomes `next`: the ledger is stamped with every field that
+   * changed and every key the write named (K9). One place for every write.
+   */
+  function commit(next, { by = null, via = null, keys = [] } = {}) {
+    const changes = changeList(session, next);
+    if (next.rev !== session.rev)
+      stampLedger(
+        ledger,
+        [...new Set([...changes.map((c) => c.key), ...keys])],
+        { rev: next.rev, by, via, at: now() },
+      );
+    session = next;
+    return changes;
+  }
+  /** Undo records past their window go, unless a question holds one. */
+  const purgeUndos = () => {
+    const t = now();
+    for (const [k, v] of undos)
+      if (v.expires < t && pending?.undoId !== k) undos.delete(k);
+  };
 
   /** Names taken by devices on the wall now, for one kind. */
   const namesInUse = (kind, notId = null) => {
@@ -597,12 +663,157 @@ export function createSessionHost({
   /** The lease to a new holder: `since` is when it changed hands. */
   const grant = (id) => {
     const t = now();
+    // A question belongs to its device's lease (BE-3): it goes with it.
+    if (pending && pending.owner !== id) dropPending('lease');
     lease = {
       holder: id,
       at: t,
       since: lease.holder === id ? (lease.since ?? t) : t,
     };
   };
+
+  /** The audit data of a question: parts and closed words, never text. */
+  const confirmData = (p, extra = {}) => ({
+    parts: p.parts,
+    cmdType: p.cmdType,
+    applied: p.applied,
+    pinned: p.pinned,
+    ...extra,
+  });
+  /** The question goes (lease, setup, timeout, a newer one). */
+  function dropPending(reason) {
+    const p = pending;
+    if (!p) return;
+    pending = null;
+    say(
+      reason === 'superseded'
+        ? 'confirm.superseded'
+        : reason === 'timeout'
+          ? 'confirm.expired'
+          : 'confirm.cancelled',
+      {
+        actor: actorOfId(p.owner, p.via),
+        data: confirmData(p, { reason, waitedMs: now() - p.askedAt }),
+      },
+    );
+  }
+  /**
+   * Hold `item` as the room's question (K10, C25): {kind, cmd | undoId,
+   * via, strict, reason, cmdType, text?}. Returns CONFIRM_REQUIRED, or
+   * PENDING_BUSY when another device's question is open (Return all
+   * pre-empts it).
+   */
+  function askFor(by, item, preview) {
+    const t = now();
+    if (pending && pending.expiresAt <= t) dropPending('timeout');
+    if (pending && pending.owner !== by) {
+      const preempt = item.kind === 'cmd' && item.cmd.type === 'returnLive';
+      if (!preempt) {
+        say('cmd.refused', {
+          actor: actorOfId(by, item.via),
+          data: {
+            type: item.cmdType === 'undo' ? null : item.cmdType,
+            code: CODE.PENDING_BUSY,
+            field: null,
+          },
+        });
+        return {
+          ok: false,
+          code: CODE.PENDING_BUSY,
+          error: `A question is waiting for ${refs[refOfId(pending.owner)]?.name || 'another device'} · nothing changed`,
+        };
+      }
+    }
+    if (pending) {
+      superseded.add(pending.confirmId);
+      if (superseded.size > 32)
+        superseded.delete(superseded.values().next().value);
+      dropPending('superseded');
+    }
+    const ttlMs = item.via === VIA.VOICE ? VOICE_CONFIRM_MS : CONFIRM_MS;
+    pending = {
+      ...item,
+      confirmId: rng.id(),
+      owner: by,
+      key: preview.key,
+      askedRev: session.rev,
+      askedAt: t,
+      expiresAt: t + ttlMs,
+      parts: preview.parts,
+      applied: preview.applied,
+      pinned: preview.pinned,
+      text: item.text || preview.text,
+    };
+    say('confirm.asked', {
+      actor: actorOfId(by, item.via),
+      data: confirmData(pending),
+    });
+    return {
+      ok: false,
+      code: CODE.CONFIRM_REQUIRED,
+      confirmId: pending.confirmId,
+      expiresAt: pending.expiresAt,
+      ttlMs,
+      reason: item.reason,
+      question: { parts: pending.parts, text: pending.text },
+      error:
+        'This change needs the newer remote page · nothing changed · Reload',
+    };
+  }
+  /** Apply a command (asked already, or never asking): K9 record, audit. */
+  function applyCmd(by, cmd, via, refused, { confirmed = false } = {}) {
+    const ref = refOfId(by);
+    const r = applyCommand(session, cmd, { by: ref, at: now() });
+    if (r.error)
+      return refused({
+        ok: false,
+        code: CODE.UNKNOWN_COMMAND,
+        error: r.error,
+      });
+    // K10 invariant: a confirm-class command only ever applies answered.
+    if (needsConfirm(cmd) && !confirmed) confirmBypass += 1;
+    const before = session;
+    const changes = commit(r.state, {
+      by: ref,
+      via,
+      keys: namedKeys(cmd, before, r.skipped),
+    });
+    lease.at = now();
+    // A framing alone cannot be undone (K9: `undoable: false`).
+    const undoable = changes.some((c) => c.field !== 'frame');
+    const undoId = undoable ? rng.id() : null;
+    if (undoId)
+      undos.set(undoId, {
+        before,
+        changes,
+        type: cmd.type,
+        rev: session.rev,
+        owner: by,
+        expires: now() + UNDO_MS,
+      });
+    purgeUndos();
+    say('cmd.applied', {
+      actor: actorOfId(by, via),
+      rev: { before: before.rev, after: session.rev },
+      corr: undoId ? { undoId } : {},
+      data: {
+        type: cmd.type,
+        target: cmd.target ?? null,
+        fields: Object.keys(cmd.patch || {}),
+        diffs: commandDiffs(before, session, cmd, r.changed),
+        changed: r.changed,
+        skipped: r.skipped,
+      },
+    });
+    return {
+      ok: true,
+      rev: session.rev,
+      changed: r.changed,
+      skipped: r.skipped,
+      undoId,
+      undoable,
+    };
+  }
 
   const api = {
     get state() {
@@ -635,14 +846,19 @@ export function createSessionHost({
     setup({ count = 4, tripId = null, siteKey = null } = {}) {
       const t = now();
       const prevRev = session.rev;
-      session = createSession({ count, epochMs: t });
-      session.rev = prevRev + 1;
-      session = applyCommand(
-        session,
+      // A fresh wall: nothing before it can be undone or confirmed.
+      if (pending) dropPending('gone');
+      undos.clear();
+      ledger = {};
+      let fresh = createSession({ count, epochMs: t });
+      fresh.rev = prevRev + 1;
+      fresh = applyCommand(
+        fresh,
         { type: 'session', patch: { tripId, siteKey } },
         { by: HOST_REF, at: t },
       ).state;
-      session.session.epochMs = t;
+      fresh.session.epochMs = t;
+      session = fresh;
       const tk = token();
       setups.set(tk, { expires: t + SETUP_TTL_MS });
       say('session.setup', {
@@ -725,11 +941,14 @@ export function createSessionHost({
           devices.set(id, d);
           screenRef(id, d);
           if (!session.screens[s])
-            session = applyCommand(
-              session,
-              { type: 'count', n: Math.max(s, session.count) },
-              { by: HOST_REF, at: t },
-            ).state;
+            commit(
+              applyCommand(
+                session,
+                { type: 'count', n: Math.max(s, session.count) },
+                { by: HOST_REF, at: t },
+              ).state,
+              { by: HOST_REF, via: VIA.SYSTEM },
+            );
           return { type: 'paired', slot: s, token: issued, unpaired };
         }
         if (known?.tokenHash && known.slot) {
@@ -863,11 +1082,14 @@ export function createSessionHost({
       const revBefore = session.rev;
       // The wall grows to fit as part of pairing: written by the host.
       if (!session.screens[s])
-        session = applyCommand(
-          session,
-          { type: 'count', n: Math.max(s, session.count) },
-          { by: HOST_REF, at: t },
-        ).state;
+        commit(
+          applyCommand(
+            session,
+            { type: 'count', n: Math.max(s, session.count) },
+            { by: HOST_REF, at: t },
+          ).state,
+          { by: HOST_REF, via: VIA.SYSTEM },
+        );
       say('device.paired', {
         actor: actorOfId(by),
         rev:
@@ -937,11 +1159,17 @@ export function createSessionHost({
     isController(id) {
       return lease.holder === id && leaseLive();
     },
-    /** Run a command from the controlling remote. */
-    command({ by, cmd }) {
+    /**
+     * Run a command from the controlling device (K10). `ask`: a closed-list
+     * reason the page raises a question (ASK_HINTS); `via`: 'voice' for a
+     * Fitzroy proposal the relay passed (strict-rev question); `voiceAsk`:
+     * the voice policy's tier said ask. Returns the apply's answer, or
+     * `CONFIRM_REQUIRED` with the question.
+     */
+    command({ by, cmd, ask = null, via = VIA.TOUCH, voiceAsk = false }) {
       const refused = (r, field = null) => {
         say('cmd.refused', {
-          actor: actorOfId(by),
+          actor: actorOfId(by, via),
           data: { type: cmd?.type, code: r.code, field },
         });
         return r;
@@ -966,43 +1194,174 @@ export function createSessionHost({
           },
           claimed,
         );
-      const r = applyCommand(session, cmd, { by: refOfId(by), at: now() });
-      if (r.error)
+      // A page may raise a question, from a closed list; never lower one.
+      if (ask != null && !ASK_HINTS.includes(ask))
+        return refused(
+          {
+            ok: false,
+            code: CODE.VALIDATION_COMMAND,
+            error: 'Not applied: ask is not valid',
+          },
+          'ask',
+        );
+      const voice = via === VIA.VOICE;
+      if (needsConfirm(cmd) || ask != null || (voice && voiceAsk)) {
+        const preview = previewOf(session, cmd, { at: now() });
+        if (!preview)
+          return refused({
+            ok: false,
+            code: CODE.UNKNOWN_COMMAND,
+            error: 'unknown command',
+          });
+        return askFor(
+          by,
+          {
+            kind: 'cmd',
+            cmd: JSON.parse(JSON.stringify(cmd)),
+            via,
+            strict: voice,
+            reason: voice ? 'voice' : ask != null ? 'client' : 'policy',
+            cmdType: cmd.type,
+          },
+          preview,
+        );
+      }
+      return applyCmd(by, cmd, via, refused);
+    },
+    /**
+     * The asking device answers its question (K10). Checked in order: the
+     * question exists and has not expired, it is this device's, the device
+     * still holds the lease, and it is not stale; then the stored command
+     * (or undo) is applied. A stale question is asked again in place.
+     */
+    confirm({ by, confirmId }) {
+      const t = now();
+      const p = pending;
+      const refused = (r) => {
+        say('cmd.refused', {
+          actor: actorOfId(by, p?.via ?? VIA.TOUCH),
+          data: {
+            type: p?.kind === 'cmd' ? p.cmd.type : null,
+            code: r.code,
+            field: null,
+          },
+        });
+        return r;
+      };
+      if (p && p.confirmId === confirmId && p.expiresAt <= t)
+        dropPending('timeout');
+      if (typeof confirmId === 'string' && superseded.has(confirmId))
         return refused({
           ok: false,
-          code: CODE.UNKNOWN_COMMAND,
-          error: r.error,
+          code: CODE.CONFIRM_SUPERSEDED,
+          error: 'Replaced by a newer question · nothing changed',
         });
-      const before = session;
-      session = r.state;
-      lease.at = now();
-      const undoId = rng.id();
-      undos.set(undoId, {
-        undo: r.undo,
-        expires: now() + UNDO_MS,
-        of: session.rev,
+      if (
+        !pending ||
+        pending.confirmId !== confirmId ||
+        typeof confirmId !== 'string'
+      )
+        return refused({
+          ok: false,
+          code: CODE.CONFIRM_UNKNOWN,
+          error: 'That question has expired · nothing changed',
+        });
+      if (p.owner !== by)
+        return refused({
+          ok: false,
+          code: CODE.CONFIRM_NOT_YOURS,
+          error: 'Only the device that asked can confirm',
+        });
+      if (!(lease.holder === by && leaseLive()))
+        return refused({
+          ok: false,
+          code: CODE.LEASE_NOT_CONTROLLER,
+          error: 'This remote is not in control',
+        });
+      const fresh =
+        p.kind === 'cmd'
+          ? previewOf(session, p.cmd, { at: t })
+          : undos.get(p.undoId)
+            ? undoPreviewOf(session, undos.get(p.undoId), ledger, { at: t })
+            : null;
+      const stale = p.strict
+        ? session.rev !== p.askedRev
+        : !fresh || fresh.key !== p.key;
+      if (stale) {
+        pending = null;
+        say('confirm.stale', {
+          actor: actorOfId(by, p.via),
+          data: confirmData(p, { reason: 'stale', waitedMs: t - p.askedAt }),
+        });
+        if (!fresh)
+          return refused({
+            ok: false,
+            code: CODE.CONFIRM_UNKNOWN,
+            error: 'That question no longer applies · nothing changed',
+          });
+        // S-18: the fresh question in the same answer, shown in place.
+        const again = askFor(
+          by,
+          { ...p, text: p.kind === 'undo' ? p.text : null },
+          fresh,
+        );
+        return {
+          ...again,
+          code: CODE.CONFIRM_STALE,
+          error: 'The wall changed · check and confirm again',
+        };
+      }
+      pending = null;
+      say('confirm.answered', {
+        actor: actorOfId(by, p.via),
+        data: confirmData(p, { answer: 'confirm', waitedMs: t - p.askedAt }),
       });
-      for (const [k, v] of undos) if (v.expires < now()) undos.delete(k);
-      say('cmd.applied', {
-        actor: actorOfId(by),
-        rev: { before: before.rev, after: session.rev },
-        corr: { undoId },
-        data: {
-          type: cmd.type,
-          target: cmd.target ?? null,
-          fields: Object.keys(cmd.patch || {}),
-          diffs: commandDiffs(before, session, cmd, r.changed),
-          changed: r.changed,
-          skipped: r.skipped,
-        },
+      // The answer says how the question was asked (the relay's `by`).
+      const done =
+        p.kind === 'undo'
+          ? api.undo({ by, undoId: p.undoId, via: p.via, confirmed: true })
+          : applyCmd(by, p.cmd, p.via, refused, { confirmed: true });
+      return done.ok ? { ...done, via: p.via } : done;
+    },
+    /** The asking device (or the device in control) drops its question. */
+    confirmCancel({ by, confirmId }) {
+      const p = pending;
+      if (
+        !p ||
+        p.confirmId !== confirmId ||
+        !(p.owner === by || (lease.holder === by && leaseLive()))
+      )
+        return {
+          ok: false,
+          code: CODE.CONFIRM_UNKNOWN,
+          error: 'That question has expired · nothing changed',
+        };
+      pending = null;
+      say('confirm.cancelled', {
+        actor: actorOfId(by, p.via),
+        data: confirmData(p, {
+          answer: 'cancel',
+          reason: 'cancelled',
+          waitedMs: now() - p.askedAt,
+        }),
       });
-      return {
-        ok: true,
-        rev: session.rev,
-        changed: r.changed,
-        skipped: r.skipped,
-        undoId,
-      };
+      return { ok: true };
+    },
+    /** The relay's tick: a question past its time goes (`confirm.expired`). */
+    expireConfirms(at = now()) {
+      if (pending && pending.expiresAt <= at) {
+        dropPending('timeout');
+        return true;
+      }
+      return false;
+    },
+    /** Confirm-class commands applied without a question (K10): stays 0. */
+    get confirmBypass() {
+      return confirmBypass;
+    },
+    /** Is a question open (health; never its id or command). */
+    get questionOpen() {
+      return Boolean(pending && pending.expiresAt > now());
     },
     /**
      * A review tick from the All-in-one (Jesse, 26 Oct 2026): the relay
@@ -1036,7 +1395,11 @@ export function createSessionHost({
       const before = session;
       const cmd = { type: 'session', patch };
       const r = applyCommand(session, cmd, { by: HOST_REF, at });
-      session = r.state;
+      commit(r.state, {
+        by: HOST_REF,
+        via: VIA.SYSTEM,
+        keys: namedKeys(cmd, before),
+      });
       say('cmd.applied', {
         actor: actor(HOST_REF),
         rev: { before: before.rev, after: session.rev },
@@ -1082,11 +1445,11 @@ export function createSessionHost({
           .slice(0, keys.length - REVIEW_MAX))
           delete reviews[k];
       const before = session.rev;
-      session = {
+      commit({
         ...session,
         rev: session.rev + 1,
         session: { ...session.session, reviews },
-      };
+      });
       say('review.set', {
         actor: actorOfId(by),
         rev: { before, after: session.rev },
@@ -1167,11 +1530,14 @@ export function createSessionHost({
       )
         return { ok: true, rev: session.rev, unchanged: true };
       const before = session.rev;
-      session = {
-        ...session,
-        rev: session.rev + 1,
-        session: { ...session.session, camera: next },
-      };
+      commit(
+        {
+          ...session,
+          rev: session.rev + 1,
+          session: { ...session.session, camera: next },
+        },
+        { by: refOfId(by), via: VIA.TOUCH },
+      );
       say('camera.set', {
         actor: actorOfId(by),
         rev: { before, after: session.rev },
@@ -1265,11 +1631,11 @@ export function createSessionHost({
           .slice(0, keys.length - PHOTO_MAX))
           delete photos[k];
       const before = session.rev;
-      session = {
+      commit({
         ...session,
         rev: session.rev + 1,
         session: { ...session.session, photos },
-      };
+      });
       say('photo.set', {
         actor: actorOfId(by),
         rev: { before, after: session.rev },
@@ -1443,7 +1809,11 @@ export function createSessionHost({
       const r = applyCommand(session, safe, { by: refOfId(by), at: now() });
       if (r.error) return refused(r.error, CODE.UNKNOWN_COMMAND);
       const before = session;
-      session = r.state;
+      commit(r.state, {
+        by: refOfId(by),
+        via: VIA.KEYBOARD,
+        keys: namedKeys(safe, before, r.skipped),
+      });
       say('cmd.applied', {
         actor: actorOfId(by, VIA.KEYBOARD),
         rev: { before: before.rev, after: session.rev },
@@ -1463,10 +1833,18 @@ export function createSessionHost({
         skipped: r.skipped || [],
       };
     },
-    undo({ by, undoId }) {
+    /**
+     * Undo one command (K9): checked field by field against the ledger. An
+     * inverse that lowers protection (CF-D4) asks first, from every device;
+     * by voice it is touch only. `confirmed`: the answer to that question.
+     */
+    undo({ by, undoId, via = VIA.TOUCH, confirmed = false }) {
       const u = undos.get(undoId);
       const refused = (r) => {
-        say('undo.refused', { actor: actorOfId(by), data: { code: r.code } });
+        say('undo.refused', {
+          actor: actorOfId(by, via),
+          data: { code: r.code },
+        });
         return r;
       };
       if (!(lease.holder === by && leaseLive()))
@@ -1475,26 +1853,76 @@ export function createSessionHost({
           code: CODE.LEASE_NOT_CONTROLLER,
           error: 'This remote is not in control',
         });
-      if (!u || u.expires < now())
+      if (!u || (u.expires < now() && !confirmed))
         return refused({
           ok: false,
           code: CODE.UNDO_EXPIRED,
           error: 'Undo is no longer available',
         });
-      undos.delete(undoId);
+      // S-18: the same undo again inside its window is the same answer.
+      if (u.result) return { ...u.result, replay: true };
+      const ref = refOfId(by);
+      const t = now();
+      const dry = applyUndoChecked(session, u, ledger, { by: ref, at: t });
+      const lowers = dry.restored.length
+        ? undoLowers(session, dry.state)
+        : null;
+      if (lowers && !confirmed) {
+        if (via === VIA.VOICE)
+          return refused({
+            ok: false,
+            code: CODE.VOICE_REFUSED,
+            reason: 'undo_protective',
+            error:
+              'Touch only: undo that on the remote, in Screens and devices.',
+          });
+        const pv = undoPreviewOf(session, u, ledger, { at: t });
+        pv.text = `Undo · ${UNDO_CONSEQUENCE[lowers]}`;
+        return askFor(
+          by,
+          {
+            kind: 'undo',
+            undoId,
+            via,
+            strict: false,
+            reason: 'policy',
+            cmdType: 'undo',
+            text: pv.text,
+          },
+          pv,
+        );
+      }
       const before = session.rev;
-      session = applyUndo(session, u.undo, {
-        by: refOfId(by),
-        at: now(),
-        of: u.of,
-      });
+      if (dry.restored.length) commit(dry.state, { by: ref, via });
+      const skipped = dry.skipped.map((x) => ({
+        scope: x.scope,
+        field: x.field,
+        reason: x.reason,
+        by: x.by ? actor(x.by, x.via || VIA.TOUCH) : null,
+        at: x.at,
+        rev: x.rev,
+      }));
+      const result = {
+        ok: true,
+        rev: session.rev,
+        of: u.rev,
+        restored: dry.restored,
+        skipped,
+        undoable: false,
+      };
+      u.result = result;
+      purgeUndos();
       say('undo.applied', {
-        actor: actorOfId(by),
-        rev: { before, after: session.rev },
+        actor: actorOfId(by, via),
+        rev: session.rev !== before ? { before, after: session.rev } : null,
         corr: { undoId },
-        data: { of: u.of },
+        data: {
+          of: u.rev,
+          restored: dry.restored.length,
+          skipped: skipped.map((x) => x.reason),
+        },
       });
-      return { ok: true, rev: session.rev, of: u.of };
+      return result;
     },
     /** A device's slot (to address thumbnails and identify). */
     slotOf(id) {

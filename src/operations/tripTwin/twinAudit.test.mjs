@@ -184,7 +184,8 @@ function goldenSession(audit) {
   });
   keep(V.last('welcome'));
   V.say({ t: 'cmd', reqId: 5, cmd: { type: 'returnLive' } });
-  // Undo the spotlight; the same undo again is refused.
+  // Undo the spotlight; the same undo again is the same answer (K9, S-18:
+  // `replay`, no new revision, no line).
   const spotUndo = R.all('ack')[1].undoId;
   R.say({ t: 'undo', reqId: 6, undoId: spotUndo });
   R.say({ t: 'undo', reqId: 7, undoId: spotUndo });
@@ -247,8 +248,7 @@ const GOLDEN = [
   'cmd.applied', // spotlight
   'device.hello', // the laptop
   'cmd.refused', // the laptop is not in control
-  'undo.applied',
-  'undo.refused', // the same undo again
+  'undo.applied', // the same undo again: a replay, no line (K9, S-18)
   'handover.requested',
   'handover.answered',
   'wall.hands', // S2 hands on
@@ -263,7 +263,10 @@ test('K6 T7.1 golden: a scripted relay session writes exactly the golden event s
   const dir = freshDir();
   const audit = createAuditLog({ dir, pruneEveryMs: 0 });
   const { socks } = goldenSession(audit);
-  assert.equal(socks.R.all('ack').filter((a) => a.ok).length, 3);
+  assert.equal(socks.R.all('ack').filter((a) => a.ok).length, 4);
+  const [undone, again] = socks.R.all('ack').filter((a) => a.reqId >= 6);
+  assert.equal(again.replay, true);
+  assert.equal(again.rev, undone.rev);
   assert.equal(await audit.flush(), true);
   const lines = linesIn(dir);
   assert.equal(lines[0].type, 'log.opened');
@@ -301,7 +304,11 @@ test('K6 T7.1 golden: a scripted relay session writes exactly the golden event s
     },
   ]);
   assert.equal(of('cmd.refused')[0].data.code, 'LEASE_NOT_CONTROLLER');
-  assert.equal(of('undo.refused')[0].data.code, 'UNDO_EXPIRED');
+  assert.deepEqual(of('undo.applied')[0].data, {
+    of: spot.rev.after,
+    restored: 1,
+    skipped: [],
+  });
   assert.deepEqual(
     of('wall.drift').map((l) => [l.data.on, l.data.reason]),
     [
@@ -681,6 +688,21 @@ const FIXTURES = {
   'msg.error': {
     data: { type: 'cmd', error: `TypeError: ${PLANTED}`, raw: THUMB },
   },
+  // PRE-V1: a refused voice proposal. The device's envelope (a transcript,
+  // a heard name, a proposal id) rides along and must never be written.
+  'voice.refused': {
+    data: {
+      intent: 'acknowledge_incident',
+      reason: 'touch_only',
+      cmdType: 'session',
+      field: 'incidentAck',
+      tier: 'touch',
+      transcript: `acknowledge the incident for ${PLANTED}`,
+      heard: PLANTED,
+      proposalId: TOKEN,
+      voice: { intent: 'acknowledge_incident', transcript: PLANTED },
+    },
+  },
 };
 
 test('K6 canary (catalogue): every event type has a fixture; with generated poison in every field, no secret, id, code, thumbnail, user agent or planted name reaches the folder', async () => {
@@ -742,6 +764,13 @@ test('K6 canary (catalogue): every event type has a fixture; with generated pois
     pinned: [3],
   });
   assert.deepEqual(first('confirm.asked').corr, {}, 'never the confirm id');
+  assert.deepEqual(first('voice.refused').data, {
+    intent: 'acknowledge_incident',
+    reason: 'touch_only',
+    cmdType: 'session',
+    field: 'incidentAck',
+    tier: 'touch',
+  });
   assert.deepEqual(first('device.hello').actor, { ref: 'D7', kind: 'remote' });
   assert.equal(first('session.setup').data.tripId, 'trip-choir-austin');
   assert.equal(first('upgrade.refused').data.host, 'evil.example:4173');
@@ -1192,7 +1221,7 @@ test('K6 health (BE-10): GET /api/twin-sync/health on this computer says store, 
     assert.equal(h.store.ok, true);
     assert.equal(h.hostCheck.mode, 'report');
     assert.equal(h.counters.confirmBypass, 0);
-    assert.equal(h.confirm, 'remote');
+    assert.equal(h.confirm, 'server');
     assert.equal(h.proto, PROTO);
     assert.ok('applyToBroadcastMsP95' in h.timings);
     assert.equal(r.headers['cache-control'], 'no-store');
@@ -1214,7 +1243,9 @@ test('K6 health (BE-10): GET /api/twin-sync/health on this computer says store, 
   });
   assert.equal(body.counters.cmdApplied, 2);
   assert.deepEqual(body.counters.cmdRefused, { LEASE_NOT_CONTROLLER: 1 });
-  assert.deepEqual(body.counters.undoRefused, { UNDO_EXPIRED: 1 });
+  // K9: the repeated undo is a replay, not a refusal.
+  assert.deepEqual(body.counters.undoRefused, {});
+  assert.equal(body.counters.undoApplied, 1);
   assert.deepEqual(body.counters.helloDenied, { NOT_TRUSTED: 1 });
   assert.deepEqual(body.counters.pairFailed, { code: 1 });
   assert.equal(body.counters.thumbs, 1);
