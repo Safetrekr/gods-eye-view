@@ -30,8 +30,18 @@
 // system draft the action needs is pulled forward the same way. Reversals
 // name what they reverse. Previous and Reset re-derive the pre-emptions
 // from the live events they keep; Reset keeps none, so the script is back.
+//
+// B5 (EP-38 #12, DATA-REVIEW-privacy #1): a phone's view is the phone view
+// model plus hints of its own scripted replies still to come in the beat,
+// so a form opens pre-filled with what the script would say. A tap that
+// says what the script says carries the script's own record (its ids,
+// card and tags) under the phone's fields; a different answer carries the
+// phone's fields only; either way it pre-empts the scripted reply. A
+// scripted fix from a person's own phone is withheld while that person's
+// sharing is requested or paused: the watch asks, it never switches it on.
 import { applyLoopEvent, createLoop } from '../loop/twinLoop.js';
-import { selectMain, selectPhone } from '../loop/select.js';
+import { selectMain } from '../loop/select.js';
+import { phoneViewModel, scriptHint } from '../phone/phoneView.js';
 import {
   LOOP_ACTIONS,
   PHONE_EVENTS,
@@ -130,6 +140,32 @@ const payloadOf = (ev, { keepVersion = false } = {}) => {
   return out;
 };
 
+/** B5: sharing states in which a person has not turned sharing on. */
+const NOT_SHARED = new Set(['requested', 'paused']);
+/** Fields of a scripted reply a live copy never carries (it has its own). */
+const NOT_COPIED = new Set(['latency_s']);
+/** The scripted reply's record, for a tap that says the same. */
+const scriptPayload = (ev) => {
+  const out = payloadOf(ev);
+  for (const k of NOT_COPIED) delete out[k];
+  return out;
+};
+/**
+ * B5: does a phone's tap say what the scripted reply says? Every plain
+ * value the phone sent equals the script's where the script has it.
+ */
+export function agrees(ev, fields) {
+  for (const [k, v] of Object.entries(fields)) {
+    if (k === 'type' || v == null || ev[k] == null) continue;
+    if (typeof v === 'object') {
+      // A place agrees by its name (the phone sends a subset of it).
+      if (v.name != null && ev[k].name != null && v.name !== ev[k].name)
+        return false;
+    } else if (ev[k] !== v) return false;
+  }
+  return true;
+}
+
 /** Hex from Web Crypto (Node 24 and browsers): never Math.random. */
 export function randomHex(bytes = 16) {
   const b = new Uint8Array(bytes);
@@ -179,6 +215,8 @@ export function createLoopHost({
   let phoneModes = [];
   /** B4: scripted phone replies held while the phones are live. */
   let held = [];
+  /** B5: scripted own-phone fixes withheld (sharing requested or paused). */
+  let withheld = [];
   /** B4 (EP-33 §3): each desk device's last act-tier change, for 10 s. */
   const undos = new Map();
   let pullSeq = 0;
@@ -239,6 +277,12 @@ export function createLoopHost({
     actorRole(loop, e.ev.by) === 'person' &&
     modeAt(t) === 'live';
 
+  /** B5: a fix from the person's own phone while they have not turned sharing on. */
+  const notShared = (ev) =>
+    ev.type === 'position.fix' &&
+    ev.source === 'own_phone' &&
+    NOT_SHARED.has(loop.people?.[ev.person_id]?.sharing);
+
   /** Apply every scripted entry at or before `target`, in order. */
   function foldTo(target) {
     while (cursor < T.length && tms[cursor] <= target) {
@@ -255,6 +299,11 @@ export function createLoopHost({
       }
       if (heldForPhone(e, tms[cursor])) {
         held.push({ run, seq: e.seq, id: e.ev.id });
+        cursor += 1;
+        continue;
+      }
+      if (notShared(e.ev)) {
+        withheld.push({ run, seq: e.seq, id: e.ev.id });
         cursor += 1;
         continue;
       }
@@ -351,6 +400,7 @@ export function createLoopHost({
     preempted = new Map();
     skipped = [];
     held = [];
+    withheld = [];
     undos.clear();
     phoneModes = keepLive ? phoneModes.filter((m) => m.at <= target) : [];
     let j = 0;
@@ -705,11 +755,54 @@ export function createLoopHost({
       from === 'phone' && PHONE_EVENTS.includes(fields.type)
         ? counterpart(fields)
         : null;
+    // B5: the scripted reply, early → the script's own record under it.
+    const sent =
+      cp && agrees(cp.ev, fields)
+        ? { ...scriptPayload(cp.ev), ...fields }
+        : fields;
     const r = batch(
-      [{ fields, by, via, device, from, preempts: cp ? [cp.ev.id] : [] }],
+      [
+        {
+          fields: sent,
+          by,
+          via,
+          device,
+          from,
+          preempts: cp ? [cp.ev.id] : [],
+        },
+      ],
       real,
     );
     return r.ok ? { ok: true, ev: r.ev } : { ok: false, code: r.code };
+  }
+
+  /**
+   * B5: this participant's scripted phone replies still to come in the
+   * current beat (and any held while the phones are live), as hints.
+   */
+  function scriptFor(pid) {
+    const t = Math.max(lastSim, ms(loop.clock.simNow));
+    const beat = beatAt(day, t);
+    const until = beats[beat + 1] ? ms(beats[beat + 1]) : endMs + 1;
+    // Only replies to the day's situations: a routine check-in's free
+    // text may name a companion, and the phone sends `OK` for those.
+    const mine = (ev) =>
+      PHONE_EVENTS.includes(ev.type) &&
+      ev.by === pid &&
+      (ev.participant_id ?? ev.person_id) === pid &&
+      Boolean(ev.sit_id || ev.push_id);
+    const out = [];
+    const heldIds = new Set(held.filter((x) => x.run === run).map((x) => x.id));
+    if (heldIds.size)
+      for (let i = 0; i < cursor; i++)
+        if (heldIds.has(T[i].ev.id) && mine(T[i].ev))
+          out.push(scriptHint(T[i].ev));
+    for (let i = cursor; i < T.length && tms[i] < until; i++) {
+      const e = T[i];
+      if (preempted.has(e.ev.id) || !mine(e.ev)) continue;
+      out.push(scriptHint(e.ev));
+    }
+    return out.filter(Boolean);
   }
 
   /** A system draft (scripted) pulled forward because a live action needs it. */
@@ -1246,7 +1339,11 @@ export function createLoopHost({
     },
     /** MAIN gets selectMain, the brief and where its map goes: never the loop (I3). */
     mainView: () => ({ ...selectMain(loop), brief, scene: mainScene(loop) }),
-    phoneView: (pid) => selectPhone(loop, pid),
+    phoneView: (pid) =>
+      phoneViewModel(loop, pid, {
+        script: scriptFor(pid),
+        watchName: day.watch?.name,
+      }),
     wallRole: (slot) => roleOfSlot(slot, wallRoles),
     get loop() {
       return loop;
@@ -1277,6 +1374,9 @@ export function createLoopHost({
     },
     get held() {
       return [...held];
+    },
+    get withheld() {
+      return [...withheld];
     },
     phoneMode: () => modeAt(simAt(now())),
     callsignOf: (pid) => loop.people?.[pid]?.callsign ?? null,

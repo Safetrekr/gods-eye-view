@@ -690,34 +690,16 @@ const WORDS = {
   'checkin.respond': 'check-in',
 };
 
-/** The record so far (K): every line for this situation, reversals beside what they reverse. */
+/**
+ * The record so far (K, B6): the frame only. The record itself is built
+ * from the loop by assembleRecord and drawn as DOM into #dk-record-slot
+ * (desk/deskRecord.js): fixed slots, the access log and disclosures, the
+ * timeline with reversals beside what they reverse. Below it, the
+ * scripted watch actions still to come for this situation.
+ */
 export function recordHtml(loop, desk, sitId) {
   const sit = loop.situations[sitId];
   if (!sit) return '';
-  const pushIds = new Set(
-    Object.values(loop.pushes)
-      .filter((p) => p.sit_id === sitId)
-      .map((p) => p.push_id),
-  );
-  const bundles = new Set([...sit.intel_ids, ...sit.related_intel_ids]);
-  const lines = loop.log.filter((l) => {
-    const i = l.ids || {};
-    return (
-      i.sit_id === sitId ||
-      (i.push_id && pushIds.has(i.push_id)) ||
-      (i.bundle_id &&
-        bundles.has(i.bundle_id) &&
-        l.type !== 'intel.received') ||
-      (l.type === 'posture.retier' && i.person_id === sit.person_id) ||
-      (i.sitrep_id && i.sitrep_id === sit.sitrep_id)
-    );
-  });
-  const items = lines
-    .map(
-      (l) =>
-        `<li class="${l.reverses ? 'rev' : ''}"><span class="dk-mono">${watchTime(l.at)}</span><span>${esc(WORDS[l.type] || l.type)}</span><span class="dk-cs">${esc(l.by ?? '')}</span><span class="dk-dim">${l.via ? esc(l.via) : 'script'}${l.reverses ? ` · reverses ${esc(l.reverses)}` : ''}${l.preempts ? ` · in place of ${esc(l.preempts)}` : ''}</span></li>`,
-    )
-    .join('');
   const ahead = scriptFor(desk, sit)
     .map(
       (p) =>
@@ -725,10 +707,8 @@ export function recordHtml(loop, desk, sitId) {
     )
     .join('');
   return `<article class="dk-card dk-record">
-    <header class="dk-k">RECORD · ${esc(sit.callsign)} · ${esc(sit.sit_id)} · SAMPLE</header>
-    <ol>${items}</ol>
+    <div id="dk-record-slot"></div>
     ${ahead ? `<header class="dk-k">SCRIPT AHEAD</header><ol>${ahead}</ol>` : ''}
-    <footer class="dk-dim">Seen by VALE and ORTEGA (SafeTrekr Watch) and your security lead. No one else. Retained 90 days (SAMPLE policy).</footer>
   </article>`;
 }
 

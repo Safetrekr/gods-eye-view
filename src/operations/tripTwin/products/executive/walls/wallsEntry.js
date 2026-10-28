@@ -9,6 +9,7 @@
 //      executive role, {t:'loop'} carries selectMain (MAIN) or the loop
 //      and its map data (the others), {t:'loop-clock'} the sample clock.
 import '../executive.css';
+import '../record/record.css';
 import { EXEC_ROLE_ORDER } from '../host/execProtocol.js';
 import { dtg, localTime, lz, watchTime } from '../format.js';
 import { ACTIVE_CITIES, beatOf, CITIES, timeStrip } from '../loop/wallData.js';

@@ -8,6 +8,8 @@
 // letters inside a card (V U W D G B X C N M S T O), Z undo (10 s). The
 // supervisor switch is visible: acting as ORTEGA turns the header amber.
 import './desk.css';
+import '../record/record.css';
+import { deskDayNode, deskRecordNode } from './deskRecord.js';
 import { connectExec, simNowOf } from '../host/execClient.js';
 import { dtg, zl } from '../format.js';
 import {
@@ -173,8 +175,13 @@ function renderMain() {
   const loop = S.loop;
   const sit = selSit();
   if (!sit) {
+    if (S.tab === 'record') {
+      // K with nothing selected: the day's record (B6).
+      $('dk-main').replaceChildren(deskDayNode(loop));
+      return;
+    }
     $('dk-main').innerHTML =
-      `<div class="dk-empty"><div class="dk-empty-big">${deskLists(loop).queue.length ? 'Press A for the oldest raised item' : 'Queue: 0 awaiting'}</div><div class="dk-dim">A oldest raised · ] [ next and previous · ↑ ↓ select · E evidence · R recommendation · K record · Esc back</div></div>`;
+      `<div class="dk-empty"><div class="dk-empty-big">${deskLists(loop).queue.length ? 'Press A for the oldest raised item' : 'Queue: 0 awaiting'}</div><div class="dk-dim">A oldest raised · ] [ next and previous · ↑ ↓ select · E evidence · R recommendation · K record (the day's record when nothing is selected) · Esc back</div></div>`;
     return;
   }
   const body =
@@ -209,6 +216,8 @@ function renderMain() {
     <div class="dk-body-card">${body}</div>
     <div id="dk-confirm" class="dk-confirm" ${S.confirm ? '' : 'hidden'}>${S.confirm ? `${esc(S.confirm.text)} <kbd>Enter</kbd> yes · <kbd>Esc</kbd> no` : ''}</div>
     <div class="dk-acts">${buttons}</div>`;
+  const slot = document.getElementById('dk-record-slot');
+  if (slot) slot.replaceChildren(deskRecordNode(loop, sit.sit_id));
 }
 
 function renderUndo() {
@@ -427,6 +436,12 @@ document.addEventListener('keydown', (e) => {
   }
   if (k === 'z' || k === 'Z') {
     send([{ type: 'undo' }]);
+    return e.preventDefault();
+  }
+  if (!S.sel && (k === 'k' || k === 'K' || k === 'Escape')) {
+    // K with nothing selected opens the day's record; Esc closes it.
+    S.tab = k === 'Escape' ? 'evidence' : 'record';
+    renderMain();
     return e.preventDefault();
   }
   if (!S.sel) return;

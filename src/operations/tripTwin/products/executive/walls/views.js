@@ -20,7 +20,8 @@ import {
   selectFeed,
   selectQueue,
 } from '../loop/select.js';
-import { focusOf, legAt, SITE_OF_PLACE } from '../loop/wallData.js';
+import { beatOf, focusOf, legAt, SITE_OF_PLACE } from '../loop/wallData.js';
+import { assembleRecord } from '../loop/record.js';
 
 const ms = (t) => (typeof t === 'number' ? t : Date.parse(t));
 const now = (loop) => ms(loop.clock.simNow);
@@ -211,13 +212,56 @@ export function recOf(loop, s) {
       push
         ? `pushed ${watchTime(push.sent_at)} · ${push.sent_by}`
         : 'not pushed',
+      push?.recalled_at
+        ? `RECALLED ${watchTime(push.recalled_at)} ${push.recalled_by} · reason: ${scrub(loop, push.recall_reason)}`
+        : null,
     ]
       .filter(Boolean)
       .join(' · '),
-    ladders: push ? push.order.map((pid) => ladderOf(loop, push, pid)) : [],
+    // Every push of the situation, newest first: a superseded card stays,
+    // greyed, under the one that replaced it; a recalled one says so
+    // (EP-33 §3, B4b request 1–2).
+    ladders: pushesOf(loop, s).flatMap((p) =>
+      p.order.map((pid) => ({
+        ...ladderOf(loop, p, pid),
+        state: pushState(p),
+        note: pushNote(loop, p),
+      })),
+    ),
+    pushes: pushesOf(loop, s).map((p) => ({
+      id: p.push_id,
+      state: pushState(p),
+      text: `${p.push_id} · pushed ${watchTime(p.sent_at)} ${p.sent_by}${p.supersedes ? ` · supersedes ${p.supersedes}` : ''}${pushNote(loop, p) ? ` · ${pushNote(loop, p)}` : ''}`,
+    })),
+    recalled: Boolean(push?.recalled_at),
     chain: push ? chainOf(loop, push) : null,
     expired: Boolean(push?.expired_at),
   };
+}
+
+/** The pushes of a situation, newest first. */
+export function pushesOf(loop, s) {
+  return Object.values(loop.pushes || {})
+    .filter((p) => p.sit_id === s.sit_id)
+    .sort((a, b) => ms(b.sent_at) - ms(a.sent_at));
+}
+/** live · recalled · superseded · expired. */
+export const pushState = (p) =>
+  p.recalled_at
+    ? 'recalled'
+    : p.superseded_by
+      ? 'superseded'
+      : p.expired_at
+        ? 'expired'
+        : 'live';
+/** `RECALLED 1605Z VALE · reason: …` / `SUPERSEDED 1607Z · see push-…`. */
+export function pushNote(loop, p) {
+  if (p.recalled_at)
+    return `RECALLED ${watchTime(p.recalled_at)} ${p.recalled_by} · reason: ${scrub(loop, p.recall_reason)}`;
+  if (p.superseded_by)
+    return `SUPERSEDED ${watchTime(p.superseded_at)} · see ${p.superseded_by}`;
+  if (p.expired_at) return `EXPIRED ${watchTime(p.expired_at)}`;
+  return null;
 }
 
 const DECISION = {
@@ -365,33 +409,69 @@ export function verifyView(loop) {
       overdue: i.overdue,
     };
   });
+  // Recalled pushes: back on Verify for a decision (B4b request 2); the
+  // situation keeps its push id, so the queue itself skips it.
+  const recalledSits = Object.values(loop.situations)
+    .filter(
+      (s) =>
+        s.state !== 'CLOSED' &&
+        s.push_id &&
+        loop.pushes[s.push_id]?.recalled_at,
+    )
+    .sort((a, b) => ms(b.raised_at) - ms(a.raised_at));
+  const recalled = recalledSits.map((s) => ({
+    grade: gradeToken(s.grade),
+    callsign: s.callsign,
+    why: scrub(loop, s.why_raised),
+    line: pushNote(loop, loop.pushes[s.push_id]),
+  }));
   // Decided today, newest first (the queue's history, for the room).
   const decided = Object.values(loop.situations)
-    .filter((s) => s.verification_id && !q.some((i) => i.sit_id === s.sit_id))
+    .filter(
+      (s) =>
+        s.verification_id &&
+        !q.some((i) => i.sit_id === s.sit_id) &&
+        !recalledSits.includes(s),
+    )
     .sort((a, b) => ms(b.raised_at) - ms(a.raised_at))
     .slice(0, 6)
     .map((s) => {
       const v = loop.verifications[s.verification_id];
+      const replaced = pushesOf(loop, s).filter((p) => p.superseded_by).length;
       return {
         grade: gradeToken(v?.grade || s.grade),
         callsign: s.callsign,
-        line: `${DECISION[v?.decision] || '—'} · ${v?.verified_by ?? ''} ${v?.verified_at ? watchTime(v.verified_at) : ''}${s.state === 'CLOSED' ? ' · closed' : ''}`,
+        line: `${DECISION[v?.decision] || '—'} · ${v?.verified_by ?? ''} ${v?.verified_at ? watchTime(v.verified_at) : ''}${replaced ? ` · ${replaced} superseded` : ''}${s.state === 'CLOSED' ? ' · closed' : ''}`,
       };
     });
-  const pick = q[0] ? loop.situations[q[0].sit_id] : beatSituation(loop);
+  const pick = q[0]
+    ? loop.situations[q[0].sit_id]
+    : recalledSits[0] || beatSituation(loop);
+  // Beat 5 (EP-20): nothing waits, so the record of the beat's person
+  // opens here, with the day summary beside it (EP-33 §8, privacy 2).
+  const closing = beatOf(loop) >= 5 && !q.length && !recalledSits.length;
+  const focus = closing ? focusOf(loop).sit_id : null;
   return {
     head: `NEEDS VERIFICATION · ${q.length}${q.length ? ` · oldest ${oldest} min` : ''}`,
     line: queueLine(q),
     rows,
     decided,
+    recalled,
     card: pick ? evidenceOf(loop, pick) : null,
     cardWhy: q[0]
       ? 'oldest in the queue'
-      : pick
-        ? pick.state === 'CLOSED'
-          ? 'last decided today'
-          : 'active situation'
+      : recalledSits[0]
+        ? 'recalled · awaiting a new push'
+        : pick
+          ? pick.state === 'CLOSED'
+            ? 'last decided today'
+            : 'active situation'
+          : null,
+    record:
+      focus && loop.situations[focus]
+        ? assembleRecord(loop, { sitId: focus, audience: 'room' })
         : null,
+    day: focus ? assembleRecord(loop, { audience: 'room' }) : null,
     at: t,
   };
 }

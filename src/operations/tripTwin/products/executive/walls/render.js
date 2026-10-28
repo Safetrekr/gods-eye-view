@@ -16,6 +16,11 @@ import {
   tag,
 } from './dom.js';
 import {
+  situationNode,
+  situationRows,
+  summaryNode,
+} from '../record/recordView.js';
+import {
   flatPrincipal,
   osmNotice,
   rosterLegend,
@@ -27,6 +32,9 @@ const kicker = (text) => div('ex-k', text);
 
 /** Verify (EP-32 §3.3): the queue by time to exposure, the evidence card. */
 export function renderVerify(stage, v) {
+  stage.classList.toggle('ex-record', Boolean(v.record));
+  if (v.record) return renderRecordWall(stage, v);
+  delete document.body.dataset.exRecord;
   const left = panel('ex-vq');
   left.append(kicker(v.head));
   if (!v.rows.length) left.append(div('ex-empty small', 'Queue: empty'));
@@ -38,6 +46,18 @@ export function renderVerify(stage, v) {
     if (r.kicker) mid.append(span('tt-tag', r.kicker));
     row.append(mid, span('age', r.age));
     left.append(row);
+  }
+  if (v.recalled.length) {
+    left.append(kicker(`RECALLED · ${v.recalled.length}`));
+    for (const r of v.recalled) {
+      const row = div('ex-vq-row amber');
+      row.append(grade(r.grade));
+      const mid = div('mid');
+      mid.append(span('cs', r.callsign), span('why', r.why));
+      mid.append(div('tt-push-note', r.line));
+      row.append(mid);
+      left.append(row);
+    }
   }
   if (v.decided.length) {
     left.append(kicker('DECIDED TODAY'));
@@ -56,6 +76,32 @@ export function renderVerify(stage, v) {
     right.append(evidenceCard(v.card));
   } else right.append(div('ex-empty', 'Nothing raised today'));
   stage.replaceChildren(left, right);
+}
+
+/**
+ * Beat 5 on the Verify wall (EP-20): the record of the beat's person opens
+ * (ATLAS), the day summary beside it, reconciled to the close counter;
+ * the access log per privacy review 2. The room sees callsigns only.
+ */
+function renderRecordWall(stage, v) {
+  const r = v.record;
+  const left = panel('ex-vq ex-rc-left rc-wall');
+  left.append(kicker(`THE DAY'S RECORD · ${v.day.date}`));
+  left.append(summaryNode(v.day, { compact: true }));
+  left.append(kicker(`SITUATIONS · ${v.day.situations.length}`));
+  left.append(situationRows(v.day, { mark: r.situations[0]?.sit_id }));
+  if (v.day.daily)
+    left.append(
+      kicker('DAILY SITREP'),
+      div('rc-line rc-mono', v.day.daily.signed),
+    );
+  left.append(div('rc-line rc-dim', v.day.access.retention));
+  const right = div('ex-rc-card ex-panel tt-panel rc-wall');
+  right.append(div('ex-rc-title', r.title));
+  for (const s of r.situations)
+    right.append(situationNode(s, r, { variant: 'wall' }));
+  stage.replaceChildren(left, right);
+  document.body.dataset.exRecord = r.situations[0]?.sit_id ?? '';
 }
 
 /** Intel feed (EP-32 §3.4): newest first, every item with its status line. */

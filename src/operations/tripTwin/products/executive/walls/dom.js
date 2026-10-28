@@ -53,8 +53,11 @@ export function bars(n, posture, { word = false } = {}) {
 
 /** `.tt-ladder`: four segments, the current one with the live dot. */
 export function ladder(l, { big = false } = {}) {
-  const box = div(`tt-ladder${big ? ' big' : ''}`);
+  const gone = l.state && l.state !== 'live';
+  const box = div(`tt-ladder${big ? ' big' : ''}${gone ? ` ${l.state}` : ''}`);
   if (l.who) box.append(div('tt-ladder-who', l.who));
+  // A recalled or superseded push stays, greyed, with what happened to it.
+  if (gone && l.note) box.append(div('tt-push-note', l.note));
   const row = div('tt-ladder-row');
   for (const r of l.rungs) {
     const seg = div(
@@ -96,7 +99,7 @@ export function recCard(r, { compact = false } = {}) {
   }
   for (const l of r.ladders) box.append(ladder(l));
   if (r.chain) box.append(chain(r.chain));
-  box.append(div('tt-sig', r.sig));
+  box.append(div(`tt-sig${r.recalled ? ' amber' : ''}`, r.sig));
   return box;
 }
 

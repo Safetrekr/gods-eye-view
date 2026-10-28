@@ -103,6 +103,10 @@ export default async (env) => {
                 twinExecutiveRemote: fileURLToPath(
                   new URL('./twin-executive-remote.html', import.meta.url),
                 ),
+                // B6: the printable day's record and white-label sheet.
+                twinExecutiveRecord: fileURLToPath(
+                  new URL('./twin-executive-record.html', import.meta.url),
+                ),
               }
             : {}),
         },

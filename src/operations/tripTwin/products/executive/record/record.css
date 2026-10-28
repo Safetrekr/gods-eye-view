@@ -1,0 +1,353 @@
+/* SafeTrekr Executive B6: the day's record (EP-34 §6, EP-36 §7A). One set
+   of classes (.rc-*) in three places: a wall at beat 5 (.rc-wall, the
+   walls' Instrument tokens), the analyst's desk (.rc-desk, the desk's
+   aliases) and the printed leave-behind (.rc-print, black on white). Only
+   the tokens change between them. No new colour: amber is "waiting on a
+   person" or a non-concur, as everywhere else. */
+.rc-wall {
+  --rc-text: var(--tt-text);
+  --rc-text-2: var(--tt-text-2);
+  --rc-dim: var(--tt-text-dim);
+  --rc-hair: var(--tt-hair);
+  --rc-edge: var(--tt-edge-ctl);
+  --rc-amber: var(--tt-attention);
+  --rc-mono: var(--tt-mono);
+  --rc-display: var(--tt-display);
+  --rc-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+.rc-desk {
+  --rc-text: var(--dk-text);
+  --rc-text-2: var(--dk-text-2);
+  --rc-dim: var(--dk-dim);
+  --rc-hair: var(--dk-hair);
+  --rc-edge: var(--dk-edge);
+  --rc-amber: var(--dk-amber);
+  --rc-mono: var(--dk-mono);
+  --rc-display: var(--dk-display);
+  --rc-sans: var(--dk-sans);
+}
+.rc-print {
+  --rc-text: #000;
+  --rc-text-2: #222;
+  --rc-dim: #555;
+  --rc-hair: #c8c8c8;
+  --rc-edge: #888;
+  --rc-amber: #000;
+  --rc-mono: 'Intel One Mono', ui-monospace, Menlo, monospace;
+  --rc-display: Manrope, Inter, ui-sans-serif, system-ui, sans-serif;
+  --rc-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.rc-k {
+  font: 600 10.5px var(--rc-mono);
+  letter-spacing: 0.13em;
+  color: var(--rc-dim);
+  text-transform: uppercase;
+  margin: 6px 0 2px;
+}
+.rc-v,
+.rc-line {
+  font: 400 12.5px/1.4 var(--rc-sans);
+  color: var(--rc-text);
+  overflow-wrap: anywhere;
+}
+.rc-none {
+  color: var(--rc-dim);
+}
+.rc-mono {
+  font-family: var(--rc-mono);
+  font-size: 0.95em;
+}
+.rc-dim {
+  color: var(--rc-text-2);
+}
+.amber {
+  color: var(--rc-amber);
+}
+.rc-slot {
+  padding: 4px 0 5px;
+  border-top: 1px solid var(--rc-hair);
+  break-inside: avoid;
+}
+.rc-slot > .rc-k {
+  margin-top: 0;
+}
+.rc-who {
+  display: inline-flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-right: 8px;
+}
+.rc-cs {
+  font: 600 12.5px var(--rc-mono);
+  letter-spacing: 0.04em;
+  color: var(--rc-text);
+}
+.rc-name {
+  font: 500 13px var(--rc-sans);
+  color: var(--rc-text-2);
+}
+.rc-tag,
+.rc-grade {
+  display: inline-block;
+  font: 600 10.5px/1.2 var(--rc-mono);
+  letter-spacing: 0.08em;
+  border: 1px solid var(--rc-edge);
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-right: 6px;
+  color: var(--rc-text-2);
+}
+.rc-grade {
+  font-size: 12px;
+  color: var(--rc-text);
+}
+.rc-dimtag {
+  color: var(--rc-dim);
+  border-color: var(--rc-hair);
+}
+.rc-bluf {
+  font: 300 16px/1.25 var(--rc-display);
+  color: var(--rc-text);
+  margin-bottom: 2px;
+}
+.rc-quote {
+  font: 300 14px/1.3 var(--rc-display);
+  color: var(--rc-text);
+}
+.rc-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 1px 10px;
+  margin: 2px 0;
+}
+.rc-card dt {
+  font: 500 10.5px/1.6 var(--rc-mono);
+  letter-spacing: 0.08em;
+  color: var(--rc-dim);
+}
+.rc-card dd {
+  margin: 0;
+  font: 400 12.5px/1.45 var(--rc-sans);
+  color: var(--rc-text);
+}
+.rc-push.recalled,
+.rc-push.superseded,
+.rc-push.expired {
+  color: var(--rc-text-2);
+}
+.rc-push.recalled .rc-push-state {
+  color: var(--rc-amber);
+}
+.rc-ladder {
+  margin: 3px 0 5px;
+}
+.rc-ladder.superseded,
+.rc-ladder.recalled {
+  opacity: 0.6;
+}
+.rc-ladder-who {
+  font: 500 11px var(--rc-mono);
+  color: var(--rc-dim);
+}
+.rc-rungs {
+  display: flex;
+  gap: 5px;
+}
+.rc-rung {
+  flex: 1;
+  min-width: 0;
+  border-top: 3px solid var(--rc-hair);
+  padding-top: 2px;
+  font: 500 10.5px var(--rc-mono);
+  color: var(--rc-dim);
+  display: flex;
+  flex-direction: column;
+}
+.rc-rung.on {
+  border-top-color: var(--rc-text);
+  color: var(--rc-text);
+}
+.rc-rung.amber {
+  border-top-color: var(--rc-amber);
+  color: var(--rc-amber);
+}
+.rc-rung i {
+  font-style: normal;
+  color: var(--rc-text-2);
+}
+.rc-sitrep-head {
+  font: 600 11.5px var(--rc-mono);
+  color: var(--rc-text);
+  margin-top: 3px;
+}
+.rc-sitrep-line {
+  font: 400 12px/1.4 var(--rc-sans);
+  color: var(--rc-text);
+}
+.rc-sitrep-sig {
+  font: 500 11px var(--rc-mono);
+  color: var(--rc-text-2);
+  margin-top: 2px;
+}
+.rc-sit-head {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding-bottom: 4px;
+}
+.rc-sit-head .rc-cs {
+  font-size: 15px;
+}
+.rc-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 18px;
+}
+.rc-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr) minmax(0, 0.95fr);
+  column-gap: 14px;
+}
+.rc-col {
+  min-width: 0;
+}
+.rc-access .rc-line {
+  font-size: 11.5px;
+}
+.rc-seen {
+  margin-top: 4px;
+}
+.rc-tl {
+  list-style: none;
+  margin: 4px 0 10px;
+  padding: 0;
+}
+.rc-tl li {
+  display: grid;
+  grid-template-columns: 112px 74px minmax(0, 1fr);
+  gap: 8px;
+  padding: 2px 0;
+  border-bottom: 1px solid var(--rc-hair);
+  font: 400 12.5px/1.4 var(--rc-sans);
+  color: var(--rc-text);
+}
+.rc-tl li.rev {
+  padding-left: 14px;
+  color: var(--rc-amber);
+}
+.rc-tl li.reversed {
+  color: var(--rc-text-2);
+}
+.rc-rev {
+  font-style: normal;
+  color: var(--rc-amber);
+}
+.rc-figs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 2px 0 6px;
+}
+.rc-fig {
+  border-top: 2px solid var(--rc-text);
+  padding-top: 3px;
+  display: flex;
+  flex-direction: column;
+}
+.rc-fig b {
+  font: 300 30px/1 var(--rc-display);
+  color: var(--rc-text);
+}
+.rc-fig i {
+  font: 500 9.5px var(--rc-mono);
+  font-style: normal;
+  letter-spacing: 0.08em;
+  color: var(--rc-dim);
+}
+.rc-fig.amber b {
+  color: var(--rc-amber);
+}
+.rc-rows {
+  margin: 4px 0;
+}
+.rc-row {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  column-gap: 8px;
+  padding: 4px 0;
+  border-top: 1px solid var(--rc-hair);
+  font: 400 12px/1.35 var(--rc-sans);
+  color: var(--rc-text);
+}
+.rc-row .rc-dim {
+  grid-column: 2;
+  font-size: 11.5px;
+}
+.rc-row.mark {
+  border-left: 3px solid var(--rc-text);
+  padding-left: 6px;
+}
+
+/* ---------- the wall at beat 5 (the Verify wall, EP-20 beat 5) ---------- */
+body[data-ex-role='verify'] .ex-stage-in.ex-record {
+  grid-template-columns: 300px minmax(0, 1fr);
+}
+.ex-rc-left .rc-fig b {
+  font-size: 22px;
+}
+.ex-rc-left .rc-figs {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.ex-rc-card {
+  min-width: 0;
+  overflow: hidden;
+  padding: 10px 14px;
+}
+.ex-rc-title {
+  font: 300 22px var(--tt-display);
+  color: var(--tt-text);
+  margin: 0 0 4px;
+}
+.rc-sit-wall .rc-v,
+.rc-sit-wall .rc-line {
+  font-size: 12px;
+  line-height: 1.32;
+}
+.rc-sit-wall .rc-slot {
+  padding: 3px 0 4px;
+}
+.rc-sit-wall .rc-bluf {
+  font-size: 15px;
+}
+
+.ex-rc-left .rc-row {
+  grid-template-columns: 74px minmax(0, 1fr);
+  font-size: 11px;
+  padding: 3px 0;
+}
+.ex-rc-left .rc-row .rc-dim {
+  display: none;
+}
+.ex-rc-left > .rc-line,
+.ex-rc-left .rc-summary .rc-line {
+  font-size: 11px;
+}
+.ex-rc-left .rc-fig i {
+  font-size: 8.5px;
+}
+.rc-sit-wall .rc-access .rc-line {
+  font-size: 11px;
+}
+.rc-sit-wall .rc-card dd {
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+/* The desk and the print pack the slots in two columns, in reading order. */
+.rc-sit-desk .rc-grid,
+.rc-sit-print .rc-grid {
+  display: block;
+  column-count: 2;
+  column-gap: 18px;
+}

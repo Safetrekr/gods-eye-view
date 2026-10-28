@@ -8,88 +8,26 @@
     />
     <meta name="robots" content="noindex" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#e7ecee" />
     <link
       rel="icon"
       type="image/png"
       sizes="32x32"
       href="/trip-twin/favicon-32x32.png"
     />
+    <link rel="apple-touch-icon" href="/trip-twin/apple-touch-icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    />
     <title>SafeTrekr Executive · phone (SAMPLE)</title>
-    <!-- SafeTrekr Executive B2: a bare mock phone; the Traveler look is B5. -->
-    <style>
-      body {
-        margin: 0;
-        background: #f4f6f7;
-        color: #10232b;
-        font:
-          16px/1.4 -apple-system,
-          Inter,
-          system-ui,
-          sans-serif;
-      }
-      .ph-app {
-        padding: 16px;
-        max-width: 480px;
-      }
-      .ph-head {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-      }
-      .ph-chip {
-        background: #f2c14e;
-        padding: 2px 8px;
-        font-weight: 600;
-        font-size: 13px;
-      }
-      .ph-who {
-        font-weight: 700;
-      }
-      .ph-link {
-        margin-left: auto;
-        opacity: 0.6;
-        font-size: 13px;
-      }
-      .ph-status {
-        margin: 10px 0;
-      }
-      .ph-card {
-        background: #fff;
-        border-radius: 10px;
-        padding: 12px;
-        margin: 10px 0;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
-      }
-      .ph-expired {
-        opacity: 0.5;
-      }
-      .ph-kicker {
-        font-size: 12px;
-        font-weight: 700;
-        letter-spacing: 0.06em;
-      }
-      .ph-title {
-        font-weight: 700;
-      }
-      .ph-meta,
-      .ph-note,
-      .ph-msgline,
-      .ph-dim {
-        font-size: 13px;
-        opacity: 0.7;
-      }
-      .ph-btn {
-        margin: 6px 6px 0 0;
-        padding: 8px 12px;
-        font: inherit;
-        border-radius: 8px;
-        border: 1px solid #9fb3bb;
-        background: #fff;
-      }
-    </style>
+    <!-- SafeTrekr Executive B5: the mock phone in the Traveler app's look
+         (EP-32 §4). The styles live in products/executive/phone/phone.css. -->
   </head>
   <body>
-    <main id="ph-app" class="ph-app"></main>
+    <main id="ph-app"></main>
     <script
       type="module"
       src="/src/operations/tripTwin/products/executive/phone/phone.js"

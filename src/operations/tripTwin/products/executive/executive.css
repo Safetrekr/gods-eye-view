@@ -1512,3 +1512,23 @@ body[data-ex-role='trips'] .ex-stage-in {
   text-transform: uppercase;
   margin: -2px 0 6px;
 }
+
+/* ---------- B6: recalled and superseded pushes on Verify (EP-33 §3) ---------- */
+.tt-ladder.superseded,
+.tt-ladder.recalled,
+.tt-ladder.expired {
+  opacity: 0.55;
+}
+.tt-push-note {
+  font: 500 11px var(--tt-mono);
+  letter-spacing: 0.04em;
+  color: var(--tt-text-2);
+  margin: 1px 0 3px;
+}
+.tt-ladder.recalled .tt-push-note,
+.ex-vq-row.amber .tt-push-note {
+  color: var(--tt-attention);
+}
+.tt-sig.amber {
+  color: var(--tt-attention);
+}
