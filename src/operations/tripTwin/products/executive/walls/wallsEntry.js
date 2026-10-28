@@ -1,0 +1,350 @@
+// SafeTrekr Executive B3: a wall (twin-executive.html?view=screen&slot=N).
+// EP-51's path, in order:
+//   1. the WebSocket tap goes in (tap.js);
+//   2. ?freeze is set, so page.js feeds its demo snapshot once only;
+//   3. page.js is imported, unchanged: the wall frame, pairing, the
+//      session role (site for MAIN and Principal, trips for the flat walls);
+//   4. the executive overlay draws on top, keyed on body[data-ex-role],
+//      from the relay's loop messages: {t:'loop-role'} names the wall's
+//      executive role, {t:'loop'} carries selectMain (MAIN) or the loop
+//      and its map data (the others), {t:'loop-clock'} the sample clock.
+import '../executive.css';
+import { EXEC_ROLE_ORDER } from '../host/execProtocol.js';
+import { dtg, localTime, lz, watchTime } from '../format.js';
+import { beatOf, CITIES, timeStrip } from '../loop/wallData.js';
+import { installTap } from './tap.js';
+import { div, el, span } from './dom.js';
+import {
+  intelView,
+  mainView,
+  principalOverlay,
+  principalView,
+  rosterView,
+  ROLE_NAMES,
+  tripsView,
+  verifyView,
+} from './views.js';
+import {
+  renderIntel,
+  renderMain,
+  renderPrincipal,
+  renderRoster,
+  renderTrips,
+  renderVerify,
+} from './render.js';
+import { osmNotice } from './flatmap.js';
+import { createScene } from './scene3d.js';
+
+const params = new URLSearchParams(location.search);
+const slot = Number(params.get('slot')) || null;
+const cityKey = params.get('city') || 'austin';
+
+// page.js reads ?freeze when it loads: its demo feed then runs once.
+if (!params.has('freeze')) {
+  params.set('freeze', '1');
+  history.replaceState(null, '', `?${params}`);
+}
+
+const ms = (t) => (typeof t === 'number' ? t : Date.parse(t));
+const body = document.body;
+
+// ------------------------------------------------------------ the frame
+const root = div('ex-root');
+root.setAttribute('aria-live', 'off');
+const bar = el('header', 'ex-bar');
+const barIn = div('ex-bar-in');
+const brand = span('ex-brand');
+const mark = el('img', 'tt-brand-mark');
+mark.src = '/safetrekr-logo.svg';
+mark.alt = 'SafeTrekr';
+const sep = span('tt-brand-sep');
+const slotK = span('ex-slot');
+const roleN = span('ex-role');
+brand.append(mark, sep, slotK, roleN);
+const chip = span('tt-wall-tag sample ex-sample', 'SAMPLE · ACCELERATED');
+const clockEl = span('ex-clock');
+const linkEl = span('ex-link');
+const mid = div('ex-bar-mid');
+mid.append(chip);
+const right = div('ex-bar-right');
+right.append(clockEl, linkEl);
+barIn.append(brand, mid, right);
+bar.append(barIn);
+const stage = div('ex-stage');
+const stageIn = div('ex-stage-in');
+stage.append(stageIn);
+const wait = div('ex-wait', 'Waiting for the Trip Twin computer');
+root.append(bar, stage, wait);
+
+// ------------------------------------------------------------ the state
+let role = null; // the executive role (loop-role, else the slot's)
+let roleFromRelay = false;
+let loop = null;
+let geo = null;
+let main = null;
+let clock = null;
+let clockAt = 0;
+let prevCounter = null;
+let dirty = true;
+let scene = null;
+
+const simNow = () => {
+  if (!clock) return loop?.clock?.simNow ?? main?.at ?? null;
+  const base = ms(clock.simNow);
+  return clock.paused ? base : base + (Date.now() - clockAt) * clock.rate;
+};
+
+function setRole(r) {
+  if (!r || r === role) return;
+  role = r;
+  body.dataset.exRole = r;
+  body.classList.toggle('ex-3d', r === 'main' || r === 'principal');
+  slotK.textContent = r === 'main' ? '' : slot ? `S${slot}` : '';
+  roleN.textContent = r === 'main' ? 'Executive' : ROLE_NAMES[r] || r;
+  document.title = `SafeTrekr Executive · ${ROLE_NAMES[r] || r} (SAMPLE)`;
+  if ((r === 'main' || r === 'principal') && !scene)
+    scene = createScene({ cityKey });
+  if (r !== 'main' && r !== 'principal') scene?.clear();
+  prevCounter = null;
+  dirty = true;
+}
+
+function onMessage(m) {
+  if (m.t === 'loop-role') {
+    if (Number(m.slot) === slot) {
+      roleFromRelay = true;
+      setRole(m.role);
+    }
+    return;
+  }
+  if (m.t === 'loop-clock') {
+    clock = m.clock;
+    clockAt = Date.now();
+    return;
+  }
+  if (m.t !== 'loop') return;
+  if (m.clock) {
+    clock = m.clock;
+    clockAt = Date.now();
+  }
+  if (m.view === 'main') {
+    main = m.main;
+    if (!roleFromRelay) setRole('main');
+  } else if (m.view === 'loop') {
+    loop = m.loop;
+    if (m.geo) geo = m.geo;
+    if (!roleFromRelay)
+      setRole(slot ? EXEC_ROLE_ORDER[slot - 1] || 'verify' : 'verify');
+  }
+  dirty = true;
+}
+
+installTap(onMessage);
+
+// ------------------------------------------------------------ the header
+function renderHeader() {
+  const t = simNow();
+  const paused = clock?.paused;
+  chip.textContent = `SAMPLE · ACCELERATED${paused ? ' · PAUSED' : ''}`;
+  if (!t) {
+    clockEl.textContent = '';
+    return;
+  }
+  if (role === 'main') clockEl.textContent = timeStrip(t);
+  else if (role === 'principal' && loop) {
+    const pv = principalView(loop, geo);
+    const tz = loop.people[pv.person_id]?.tz || 'UTC';
+    clockEl.textContent = lz(t, tz);
+  } else {
+    // Analyst walls: Zulu first, the day's DTG, with the beat's city local.
+    const city = CITIES.find((c) => c.name === focusCity()) || CITIES[0];
+    clockEl.textContent = `${dtg(t)} · ${localTime(t, city.tz)} ${city.short}`;
+  }
+}
+function focusCity() {
+  if (!loop) return 'Austin';
+  const b = beatOf(loop);
+  return (
+    {
+      0: 'Austin',
+      1: 'Austin',
+      2: 'London',
+      3: 'Washington DC',
+      4: 'Washington DC',
+      5: 'London',
+    }[b] || 'Austin'
+  );
+}
+
+// ------------------------------------------------------------ the walls
+function render() {
+  if (!role) return;
+  const t = simNow();
+  if (role === 'main') {
+    if (!main) return;
+    const v = mainView(main, { at: main.at, beat: beatFromMain() });
+    renderMain(stageIn, v, { prevCounter, strip: timeStrip(main.at) });
+    prevCounter = v.counter;
+    const sc = main.scene;
+    if (scene) {
+      if (sc?.site) scene.site(sc.site);
+      scene.draw(
+        sc
+          ? {
+              entrances: sc.entrance ? [sc.entrance] : [],
+              focusEntrance: sc.entrance?.name,
+              marks: sc.person
+                ? [
+                    {
+                      kind: 'person',
+                      label: sc.callsign,
+                      lat: sc.person.lat,
+                      lon: sc.person.lon,
+                      fresh: 'fresh',
+                    },
+                  ]
+                : [],
+            }
+          : {},
+      );
+    }
+    body.dataset.exPaths = '0';
+  } else if (!loop) return;
+  else if (role === 'verify') renderVerify(stageIn, verifyView(loop));
+  else if (role === 'intel') {
+    const v = intelView(loop);
+    renderIntel(stageIn, v, { prevCounter });
+    prevCounter = v.counter;
+  } else if (role === 'roster') renderRoster(stageIn, rosterView(loop, CITIES));
+  else if (role === 'trips')
+    renderTrips(stageIn, tripsView(loop, geo?.trips || []));
+  else if (role === 'principal') {
+    const v = principalView(loop, geo);
+    const o = principalOverlay(loop, geo, v);
+    const places = v.flat
+      ? [
+          geo?.places?.['pl-westin-dulles'],
+          geo?.places?.['pl-iad'],
+          v.venue && geo?.places?.[v.venue.place_id],
+        ].filter((p, i, a) => p && a.indexOf(p) === i)
+      : [];
+    renderPrincipal(stageIn, v, o, {
+      places,
+      notice: osmNotice(geo?.attribution?.text),
+    });
+    body.classList.toggle('ex-flat-on', v.flat);
+    if (scene) {
+      if (!v.flat) {
+        scene.site(v.site);
+        scene.draw({
+          ...o,
+          focusEntrance: v.rec?.rows.find(([k]) => k === 'TO')?.[1],
+        });
+      } else scene.clear();
+    }
+    body.dataset.exPaths = o.routes.length ? '1' : '0';
+  }
+  if (role !== 'main' && role !== 'principal') body.dataset.exPaths = '0';
+  wait.hidden = true;
+  body.dataset.exSim = new Date(Math.round(ms(t) / 60e3) * 60e3)
+    .toISOString()
+    .replace('.000Z', 'Z');
+}
+function beatFromMain() {
+  // MAIN gets no loop: its beat from the clock (the relay's clock view).
+  if (clock && Number.isFinite(clock.beat)) return clock.beat;
+  return 0;
+}
+
+setInterval(() => {
+  renderHeader();
+  if (dirty) {
+    dirty = false;
+    try {
+      render();
+    } catch (err) {
+      console.error('executive wall', err);
+    }
+  }
+}, 400);
+// The sample clock moves time-based lines (ages, the counter's window).
+setInterval(() => (dirty = true), 5000);
+
+// MAIN's hidden share (EP-51 open item 4): the All-in-one frame's regions
+// this wall hides, by count and by area, measured live (QA hook).
+const REGIONS = [
+  ['top bar', '#tt-wall-head'],
+  ['left column (hotel card)', '#tt-rcol'],
+  ['map bar (chips, scale, compass)', '#tt-mapbar'],
+  ['street photo', '.tt-photo-plate'],
+  ['wall menu (aperture)', '#tt-wst-ap'],
+  ['weather strip', '.tt-wall-wx'],
+  ['incident banner', '.tt-wall-banner'],
+  ['STALE band', '.tt-wall-stale'],
+  ['3D map', '#cesiumContainer'],
+  ['source line', '#tt-sources'],
+  ['wall chip and tags', '.tt-wall-right'],
+];
+function visible(n) {
+  if (!n) return false;
+  const r = n.getBoundingClientRect();
+  if (r.width < 2 || r.height < 2) return false;
+  for (let e = n; e && e !== document.documentElement; e = e.parentElement) {
+    const cs = getComputedStyle(e);
+    if (
+      cs.display === 'none' ||
+      cs.visibility === 'hidden' ||
+      Number(cs.opacity) === 0
+    )
+      return false;
+  }
+  return true;
+}
+function measure() {
+  return REGIONS.map(([name, sel]) => {
+    const n = document.querySelector(sel);
+    const r = n?.getBoundingClientRect();
+    return {
+      name,
+      shown: visible(n),
+      area: r ? Math.round(r.width * r.height) : 0,
+    };
+  });
+}
+globalThis.__exMainShare = () => {
+  const r = body.dataset.exRole;
+  const on = measure();
+  delete body.dataset.exRole;
+  body.classList.add('ex-measure-off');
+  const off = measure();
+  body.dataset.exRole = r;
+  body.classList.remove('ex-measure-off');
+  const school = off.filter((x) => x.shown);
+  const hidden = school.filter(
+    (x) => !on.find((y) => y.name === x.name)?.shown,
+  );
+  const area = (list) => list.reduce((s, x) => s + x.area, 0);
+  return {
+    role: r,
+    regions: school.length,
+    hidden: hidden.length,
+    countShare: school.length ? +(hidden.length / school.length).toFixed(2) : 0,
+    hiddenNames: hidden.map((x) => x.name),
+    shownNames: school.filter((x) => !hidden.includes(x)).map((x) => x.name),
+    areaShare: +(
+      area(hidden.filter((x) => x.name !== '3D map')) /
+      (innerWidth * innerHeight)
+    ).toFixed(2),
+  };
+};
+
+// ------------------------------------------------------------ page.js
+// The tap is in place: now the wall itself (pairing, frame, twin).
+import('../../../page.js').then(() => {
+  document.body.append(root);
+  if (!role && slot) {
+    // Until the relay names the role: the slot's place in the room.
+    slotK.textContent = `S${slot}`;
+  }
+  void watchTime;
+});

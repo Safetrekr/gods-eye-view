@@ -14,6 +14,10 @@ const SAFETREKR_ENTRIES = new Set([
   'src/operations/main.js',
   'src/operations/globe.js',
   'src/operations/tripTwin/page.js',
+  // SafeTrekr Executive (B3, EP-51): twin-executive.html's entry; a wall
+  // taps the relay socket, then imports page.js unchanged.
+  'src/operations/tripTwin/products/executive/entry.js',
+  'src/operations/tripTwin/products/executive/walls/wallsEntry.js',
 ]);
 const entry = (file) =>
   file === 'src/main.js' ||

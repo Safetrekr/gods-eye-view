@@ -28,6 +28,7 @@ import {
   PRESENTER_EVENTS,
 } from '../loop/loopPolicy.js';
 import { beatAt, buildTimeline } from '../timeline.js';
+import { briefOf, geoOf, mainScene } from '../loop/wallData.js';
 import { lz } from '../format.js';
 import {
   CLOSE,
@@ -560,6 +561,9 @@ export function createLoopHost({
   presenterEvent('beat.go', { n: 0, at: beats[0] });
   clock.rate = rateAt(beat0);
 
+  // B3: MAIN's brief and the walls' map data never change during a run.
+  const brief = briefOf(day);
+  const geoJson = JSON.stringify(geoOf(day));
   let loopCache = { key: null, json: null };
   const revKey = () => `${run}:${loop.rev}`;
   /** The loop as other walls, the remote and the monitor get it (no fixture copy). */
@@ -602,9 +606,10 @@ export function createLoopHost({
       const key = revKey();
       if (loopCache.key !== key)
         loopCache = { key, json: JSON.stringify(loopView()) };
-      return `{"t":"${EXEC_MSG.LOOP}","view":"loop","rev":${loop.rev},"run":${run},"clock":${JSON.stringify(clockNow)},"loop":${loopCache.json}}`;
+      return `{"t":"${EXEC_MSG.LOOP}","view":"loop","rev":${loop.rev},"run":${run},"clock":${JSON.stringify(clockNow)},"loop":${loopCache.json},"geo":${geoJson}}`;
     },
-    mainView: () => selectMain(loop),
+    /** MAIN gets selectMain, the brief and where its map goes: never the loop (I3). */
+    mainView: () => ({ ...selectMain(loop), brief, scene: mainScene(loop) }),
     phoneView: (pid) => selectPhone(loop, pid),
     wallRole: (slot) => roleOfSlot(slot, wallRoles),
     get loop() {
@@ -666,6 +671,7 @@ export function executiveRelay({
     const lh = loopHost || createLoopHost({ day, now, tokens });
     const execSockets = new Map(); // ws → {id, kind, participant_id?}
     const sent = new WeakMap(); // ws → {key, at}
+    const rolesSent = new WeakMap(); // ws → `${slot}:${role}` (B3)
     let lastClockAt = -Infinity;
 
     const raw = (ws, text) => {
@@ -694,12 +700,13 @@ export function executiveRelay({
     function targets() {
       const out = [];
       for (const [ws, meta] of sockets) {
-        const role =
+        const slot =
           meta.kind === 'screen'
-            ? lh.wallRole(meta.place ?? host.slotOf?.(meta.id))
+            ? (meta.place ?? host.slotOf?.(meta.id) ?? null)
             : null;
+        const role = meta.kind === 'screen' ? lh.wallRole(slot) : null;
         const view = viewFor({ kind: meta.kind, role });
-        if (view) out.push({ ws, view, role });
+        if (view) out.push({ ws, view, role, slot });
       }
       for (const [ws, meta] of execSockets)
         out.push({
@@ -717,7 +724,13 @@ export function executiveRelay({
       const rev = lh.rev;
       let main = null;
       const phones = new Map();
-      for (const { ws, view, role, pid } of targets()) {
+      for (const { ws, view, role, slot, pid } of targets()) {
+        // B3: a wall hears its executive role when it joins or it changes
+        // (EP-51: the session only knows school roles).
+        if (role && slot != null && rolesSent.get(ws) !== `${slot}:${role}`) {
+          send(ws, { t: EXEC_MSG.ROLE, slot: Number(slot), role });
+          rolesSent.set(ws, `${slot}:${role}`);
+        }
         const key = `${view}:${role ?? ''}:${pid ?? ''}:${rev}`;
         const last = sent.get(ws);
         if (last?.key === key) continue;

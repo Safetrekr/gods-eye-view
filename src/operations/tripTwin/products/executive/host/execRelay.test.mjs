@@ -222,6 +222,34 @@ test('B2: the remote in control may set a wall’s executive role; a wall turned
   );
 });
 
+test('B3: each wall hears its executive role (loop-role) when it joins and when it changes; MAIN’s extras carry no name or intel', () => {
+  const { s1, s2, loopCmd } = room();
+  const roles = (ws) => ws.all('loop-role').map((m) => `${m.slot}:${m.role}`);
+  assert.deepEqual(roles(s1), ['1:main']);
+  assert.deepEqual(roles(s2), ['2:verify']);
+  // The clock moving resends nothing; a role change sends one more.
+  loopCmd({ type: 'beat.go', n: 1 });
+  assert.deepEqual(roles(s2), ['2:verify']);
+  assert.ok(loopCmd({ type: 'wall.role', slot: 2, role: 'intel' }).ok);
+  assert.deepEqual(roles(s2), ['2:verify', '2:intel']);
+  assert.deepEqual(roles(s1), ['1:main']);
+  // MAIN's brief and scene: callsigns, venue and entrance only.
+  assert.ok(loopCmd({ type: 'clock.jump', to: '2026-10-27T16:12:00Z' }).ok);
+  const m = mains(s1).at(-1).main;
+  assert.match(m.brief.header, /^DAILY BRIEF 1200Z · 7 LEGS TODAY$/);
+  assert.equal(m.scene.callsign, 'KESTREL');
+  assert.equal(m.scene.site, 'austin-long-center');
+  assert.equal(m.scene.entrance.name, 'Barton Springs Rd side');
+  const text = JSON.stringify(s1.out);
+  for (const b of BAD)
+    assert.ok(!text.includes(b), `MAIN carries "${b.slice(0, 50)}"`);
+  assert.ok(!/"geo":/.test(text), 'MAIN gets no map data for paths');
+  // The other walls get the map data with the loop.
+  const g = s2.all('loop').at(-1).geo;
+  assert.ok(g.paths.length >= 7);
+  assert.match(g.attribution.text, /OpenStreetMap contributors/);
+});
+
 test('B2 I10: a phone gets only its participant’s pushes; a foreign or forged ack is refused', () => {
   const { sock, loopCmd, phoneCmd, lines } = room();
   const kestrel = sock({

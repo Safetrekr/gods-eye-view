@@ -1,0 +1,71 @@
+/* SafeTrekr Executive: the B2 diagnostic page's look (twin-executive.html without ?view=screen). */
+body.ex-diag {
+  margin: 0;
+  background: #061a23;
+  color: #dfe9ee;
+  font:
+    15px/1.4 ui-monospace,
+    'Intel One Mono',
+    Menlo,
+    monospace;
+}
+.ex-app {
+  padding: 16px;
+  max-width: 1100px;
+}
+.ex-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.ex-chip {
+  background: #f2c14e;
+  color: #061a23;
+  padding: 2px 8px;
+  font-weight: 600;
+}
+.ex-title {
+  font-weight: 600;
+}
+.ex-link {
+  margin-left: auto;
+  opacity: 0.7;
+}
+.ex-sec {
+  border-top: 1px solid #1d3a47;
+  padding: 8px 0;
+}
+.ex-h {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin: 0 0 4px;
+}
+.ex-big {
+  font-size: 20px;
+}
+.ex-row,
+.ex-line,
+.ex-say {
+  padding: 2px 0;
+}
+.ex-dim {
+  opacity: 0.5;
+}
+.ex-btn {
+  margin: 2px 4px 2px 0;
+  background: #12313d;
+  color: inherit;
+  border: 1px solid #2c5566;
+  padding: 6px 10px;
+  font: inherit;
+}
+.ex-a {
+  color: #8fd3ff;
+}
+.ex-code {
+  display: block;
+  word-break: break-all;
+}

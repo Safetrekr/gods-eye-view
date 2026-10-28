@@ -1,0 +1,1236 @@
+/* SafeTrekr Executive (EP-32): Instrument unchanged; the executive walls add
+   a data grammar and five components (.tt-grade .tt-ev .tt-rec .tt-ladder
+   .tt-mark). Loaded only by twin-executive.html (TRIP_TWIN_PRODUCT=executive),
+   so the school build is byte-identical. Every rule is keyed on
+   body[data-ex-role]: until the relay names the wall's executive role,
+   the page is the school wall, unchanged.
+
+   One zoom per wall, as the walls do: --ex-z is the wall's text scale ×
+   the display factor (twinScreen.js setWallScale); MAIN is the room tier,
+   ×2 (EP-38 "type at the room tier"). Sizes below are CSS px before it. */
+
+body[data-ex-role] {
+  --ex-z: var(--wall-scale, 1.5);
+  --ex-bar-h: 44px;
+  --ex-gut: 18px;
+  --tt-posture-routine: var(--tt-text-dim);
+  --tt-posture-elevated: var(--tt-text-2);
+  --tt-posture-high: var(--tt-attention);
+  /* CRITICAL is amber with four bars: red stays for incidents (EP-38 #10). */
+  --tt-posture-critical: var(--tt-attention);
+  --tt-ladder-fill: var(--tt-text);
+  --tt-ladder-empty: var(--tt-hair);
+}
+body[data-ex-role='main'] {
+  --ex-z: calc(var(--wall-disp, 1) * 2);
+}
+
+/* ---------- the school wall steps aside (no edit to its code) ---------- */
+/* The top bar keeps its box (twinScreen.js measures it); its words go. */
+body[data-ex-role] #tt-wall-head > * {
+  visibility: hidden !important;
+}
+body[data-ex-role] #tt-wall-panel,
+body[data-ex-role] .tt-wall-wx,
+body[data-ex-role] #tt-rcol,
+body[data-ex-role] #tt-mapbar,
+body[data-ex-role] #tt-chips,
+body[data-ex-role] #tt-scale,
+body[data-ex-role] .tt-photo-plate,
+body[data-ex-role] #tt-wst-ap,
+body[data-ex-role] .tt-wst,
+body[data-ex-role] #tt-card,
+body[data-ex-role] #tt-incident,
+body[data-ex-role] #tt-rail,
+body[data-ex-role] #tt-toolbar {
+  display: none !important;
+}
+/* Flat walls: no 3D behind them (their session role pauses Cesium). */
+body[data-ex-role='verify'] #cesiumContainer,
+body[data-ex-role='intel'] #cesiumContainer,
+body[data-ex-role='roster'] #cesiumContainer,
+body[data-ex-role='trips'] #cesiumContainer,
+body[data-ex-role].ex-flat-on #cesiumContainer {
+  visibility: hidden;
+}
+body[data-ex-role] #tt-sources {
+  z-index: 30;
+  font-size: 12px;
+}
+body[data-ex-role] #tt-sources > span:first-child {
+  color: var(--tt-text);
+  font-weight: 600;
+}
+
+/* ---------- the executive frame ---------- */
+.ex-root {
+  display: none;
+}
+body[data-ex-role] .ex-root {
+  display: block;
+}
+.ex-wait {
+  position: fixed;
+  inset: 40% 0 auto 0;
+  text-align: center;
+  font: 600 22px var(--tt-mono);
+  color: var(--tt-text-2);
+  z-index: 16;
+}
+.ex-bar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: calc(var(--ex-bar-h) * var(--ex-z));
+  z-index: 22;
+  background: var(--tt-glass-solid, rgba(8, 22, 30, 0.94));
+  border-bottom: 1px solid var(--tt-border);
+}
+.ex-bar-in {
+  zoom: var(--ex-z);
+  height: var(--ex-bar-h);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 14px;
+  padding: 0 var(--ex-gut);
+}
+.ex-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.ex-brand .tt-brand-mark {
+  height: 16px;
+  width: auto;
+}
+.ex-brand .tt-brand-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--tt-border);
+}
+.ex-slot {
+  font: 500 12px var(--tt-mono);
+  letter-spacing: 0.1em;
+  color: var(--tt-text-dim);
+}
+.ex-role {
+  font: 300 19px var(--tt-display);
+  color: var(--tt-text);
+  letter-spacing: 0.01em;
+}
+.ex-bar-mid {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+/* SAMPLE on every wall (privacy review 6): the light plate. */
+.ex-sample,
+body[data-ex-role] .tt-wall-tag.sample {
+  font: 700 12px/1 var(--tt-mono);
+  letter-spacing: 0.12em;
+  padding: 5px 8px;
+  border-radius: 3px;
+  color: var(--tt-field);
+  background: var(--tt-text);
+  white-space: nowrap;
+}
+.ex-bar-right {
+  justify-self: end;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  white-space: nowrap;
+}
+.ex-clock {
+  font: 500 14px var(--tt-mono);
+  color: var(--tt-text);
+  letter-spacing: 0.04em;
+}
+body[data-ex-role='main'] .ex-clock {
+  font-size: 12.5px;
+  letter-spacing: 0;
+}
+body[data-ex-role='main'] .ex-bar-in {
+  grid-template-columns: auto auto minmax(0, 1fr);
+}
+.ex-stage {
+  position: fixed;
+  top: calc(var(--ex-bar-h) * var(--ex-z));
+  bottom: 22px;
+  left: 0;
+  right: 0;
+  z-index: 15;
+  pointer-events: none;
+}
+.ex-stage-in {
+  /* Standard CSS zoom: percentages resolve in the zoomed space already. */
+  zoom: var(--ex-z);
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 14px var(--ex-gut) 10px;
+  position: relative;
+  color: var(--tt-text);
+  font:
+    400 14px/1.35 Inter,
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
+}
+.ex-panel {
+  box-sizing: border-box;
+  background: var(--tt-glass);
+  border: 1px solid var(--tt-border);
+  border-radius: var(--tt-radius-lg, 12px);
+  padding: 12px 14px;
+  overflow: hidden;
+}
+.ex-k,
+.tt-k {
+  font: 600 11px var(--tt-mono);
+  letter-spacing: 0.14em;
+  color: var(--tt-text-dim);
+  text-transform: uppercase;
+  margin: 2px 0 6px;
+}
+.ex-empty {
+  font: 300 30px var(--tt-display);
+  color: var(--tt-text-2);
+  margin: 10px 0;
+}
+.ex-empty.small {
+  font-size: 16px;
+}
+
+/* ---------- components (EP-32 §2) ---------- */
+.tt-grade {
+  display: inline-block;
+  font: 600 12px/1.2 var(--tt-mono);
+  border: 1px solid var(--tt-edge-ctl);
+  border-radius: 4px;
+  padding: 1px 6px;
+  color: var(--tt-text);
+  white-space: nowrap;
+}
+.tt-grade.dashed {
+  border-style: dashed;
+}
+.tt-grade.big {
+  font-size: 18px;
+  padding: 2px 8px;
+}
+.tt-grade-none {
+  color: var(--tt-text-dim);
+}
+.tt-tag {
+  display: inline-block;
+  font: 600 10.5px/1.2 var(--tt-mono);
+  letter-spacing: 0.08em;
+  border: 1px solid var(--tt-edge-ctl);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: var(--tt-text-2);
+  white-space: nowrap;
+}
+.tt-tag.amber {
+  color: var(--tt-attention);
+  border-color: var(--tt-attention);
+}
+.tt-tag.dashed {
+  border-style: dashed;
+}
+.tt-tag.dim {
+  color: var(--tt-text-dim);
+  border-color: var(--tt-hair);
+}
+.tt-tag.plate {
+  color: var(--tt-field);
+  background: var(--tt-text);
+  border-color: var(--tt-text);
+}
+.tt-tag.live {
+  color: var(--tt-text);
+  border-color: var(--tt-text);
+}
+.tt-tag.sample {
+  color: var(--tt-text-dim);
+  border-style: dotted;
+}
+.tt-bars {
+  display: inline-flex;
+  gap: 2px;
+  align-items: flex-end;
+  vertical-align: middle;
+}
+.tt-bars > span {
+  width: 3px;
+  height: 10px;
+  border-radius: 1px;
+  background: var(--tt-hair);
+}
+.tt-bars.p-routine > .on {
+  background: var(--tt-posture-routine);
+}
+.tt-bars.p-elevated > .on {
+  background: var(--tt-posture-elevated);
+}
+.tt-bars.p-high > .on {
+  background: var(--tt-posture-high);
+}
+.tt-bars.p-critical > .on {
+  background: var(--tt-posture-critical);
+}
+.tt-posture {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.tt-posture-word,
+.tt-prot {
+  font: 600 11px var(--tt-mono);
+  letter-spacing: 0.1em;
+  color: var(--tt-text-2);
+}
+.tt-livedot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tt-text);
+  margin-right: 5px;
+  vertical-align: middle;
+}
+.tt-ladder {
+  margin: 8px 0 4px;
+}
+.tt-ladder-who {
+  font: 500 11px var(--tt-mono);
+  color: var(--tt-text-dim);
+  margin-bottom: 3px;
+}
+.tt-ladder-row {
+  display: flex;
+  gap: 6px;
+}
+.tt-rung {
+  flex: 1;
+  min-width: 0;
+}
+.tt-rung .bar {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--tt-ladder-empty);
+}
+.tt-rung.done .bar {
+  background: var(--tt-ladder-fill);
+}
+.tt-rung .word {
+  font: 500 11.5px var(--tt-mono);
+  margin-top: 4px;
+  color: var(--tt-text-dim);
+  white-space: nowrap;
+}
+.tt-rung.done .word {
+  color: var(--tt-text);
+}
+.tt-rung.amber .word,
+.tt-rung.amber.done .word {
+  color: var(--tt-attention);
+}
+.tt-rung.amber.done .bar {
+  background: var(--tt-attention);
+}
+.tt-rung .t {
+  font: 400 11px var(--tt-mono);
+  color: var(--tt-text-dim);
+}
+.tt-ladder-reason {
+  font:
+    400 13px/1.35 Inter,
+    sans-serif;
+  color: var(--tt-text-2);
+  margin-top: 4px;
+}
+.tt-chain {
+  font: 500 12px/1.5 var(--tt-mono);
+  color: var(--tt-text-2);
+  margin-top: 6px;
+}
+.tt-chain.running .head {
+  color: var(--tt-attention);
+}
+.tt-chain .step.next {
+  color: var(--tt-text-dim);
+}
+.tt-retier,
+.tt-countersign {
+  font: 500 12.5px/1.4 var(--tt-mono);
+  color: var(--tt-text);
+  margin-top: 4px;
+}
+.tt-comms.late {
+  font: 600 14px var(--tt-mono);
+  color: var(--tt-attention);
+  border: 1px solid var(--tt-attention);
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+}
+.tt-rec {
+  border-top: 1px solid var(--tt-hair);
+  padding-top: 8px;
+  margin-top: 8px;
+}
+.tt-rec-k {
+  font: 600 11px var(--tt-mono);
+  letter-spacing: 0.14em;
+  color: var(--tt-text-dim);
+}
+.tt-rec-bluf {
+  font: 300 20px/1.25 var(--tt-display);
+  margin: 4px 0 6px;
+}
+.tt-rec-action {
+  display: inline-block;
+  font: 600 12px var(--tt-mono);
+  letter-spacing: 0.08em;
+  border: 1px solid var(--tt-edge-ctl);
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin-bottom: 6px;
+}
+.tt-rec-rows {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 4px 0;
+}
+.tt-rec-rows dt {
+  font: 600 10.5px/1.6 var(--tt-mono);
+  letter-spacing: 0.1em;
+  color: var(--tt-text-dim);
+}
+.tt-rec-rows dd {
+  margin: 0;
+  font:
+    400 13px/1.45 Inter,
+    sans-serif;
+  color: var(--tt-text);
+}
+.tt-sig {
+  font: 400 11px var(--tt-mono);
+  color: var(--tt-text-dim);
+  margin-top: 6px;
+}
+.tt-rec.compact .tt-rec-bluf {
+  font-size: 18px;
+}
+.tt-counter {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 6px 0;
+}
+.tt-counter .n {
+  font: 200 30px/1 var(--tt-display);
+  font-variant-numeric: tabular-nums;
+}
+.tt-counter .k {
+  font: 500 8.5px/1.25 var(--tt-mono);
+  letter-spacing: 0.08em;
+  color: var(--tt-text-dim);
+  margin-top: 4px;
+}
+.tt-counter .fig.tt-changed .n {
+  animation: ex-flash 0.32s ease-out 1;
+}
+@keyframes ex-flash {
+  from {
+    color: var(--tt-attention);
+  }
+  to {
+    color: var(--tt-text);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tt-counter .fig.tt-changed .n {
+    animation: none;
+  }
+}
+
+/* ---------- MAIN (EP-32 §3.1) ---------- */
+body[data-ex-role='main'] .ex-stage-in {
+  padding-top: 10px;
+}
+.ex-main-left {
+  position: absolute;
+  left: var(--ex-gut);
+  top: 10px;
+  width: 350px;
+}
+.tt-watch {
+  font: 500 11px/1.4 var(--tt-mono);
+  color: var(--tt-text-2);
+}
+.tt-lastv {
+  font: 300 19px/1.25 var(--tt-display);
+  margin: 6px 0 4px;
+}
+.tt-queue-line {
+  font: 500 12px var(--tt-mono);
+  color: var(--tt-text-2);
+  margin-bottom: 6px;
+}
+.tt-queue-line.amber {
+  color: var(--tt-attention);
+}
+.ex-main-left .tt-counter .n {
+  font-size: 28px;
+}
+.ex-main-cline {
+  font: 400 10px/1.35 var(--tt-mono);
+  color: var(--tt-text-dim);
+}
+.ex-main-board {
+  position: absolute;
+  right: var(--ex-gut);
+  top: 10px;
+  width: 470px;
+  max-height: calc(100% - 64px);
+}
+.tt-main-row {
+  border: 1px solid var(--tt-edge-ctl);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+.tt-main-row.amber {
+  border-color: var(--tt-attention);
+}
+.tt-main-row .l1 .cs {
+  font: 600 20px var(--tt-mono);
+  margin-right: 10px;
+}
+.tt-main-row .l1 .leg {
+  font: 300 20px var(--tt-display);
+  color: var(--tt-text-2);
+}
+.tt-main-row .l2 {
+  font: 300 24px/1.2 var(--tt-display);
+  margin: 4px 0;
+}
+.tt-main-row .l3 {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  font: 500 14px var(--tt-mono);
+}
+.tt-ladder-word {
+  border: 1px solid var(--tt-text);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font: 600 16px var(--tt-mono);
+}
+.tt-ladder-word.amber {
+  color: var(--tt-attention);
+  border-color: var(--tt-attention);
+}
+.tt-main-row .l3 .next {
+  color: var(--tt-text-2);
+}
+.ex-brief-counts {
+  font: 500 14px var(--tt-mono);
+  margin-bottom: 6px;
+}
+.ex-brief-row,
+.ex-closed-row {
+  font: 400 13.5px/1.6 var(--tt-mono);
+  color: var(--tt-text-2);
+  border-top: 1px solid var(--tt-hair);
+}
+.ex-more {
+  font: 500 13px var(--tt-mono);
+  color: var(--tt-text-2);
+}
+.ex-main-strip {
+  position: absolute;
+  left: var(--ex-gut);
+  right: var(--ex-gut);
+  bottom: 6px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font: 500 12px var(--tt-mono);
+  color: var(--tt-text);
+  background: var(--tt-glass);
+  border: 1px solid var(--tt-border);
+  border-radius: 8px;
+  padding: 5px 10px;
+}
+.ex-main-strip .room {
+  color: var(--tt-text-dim);
+  font-size: 10px;
+  align-self: center;
+}
+
+/* ---------- Verify (EP-32 §3.3) ---------- */
+body[data-ex-role='verify'] .ex-stage-in {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 14px;
+}
+.ex-vq-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  padding: 6px 0;
+  border-top: 1px solid var(--tt-hair);
+}
+.ex-vq-row .cs {
+  font: 600 13px var(--tt-mono);
+  margin-right: 6px;
+}
+.ex-vq-row .why {
+  font: 300 14px/1.3 var(--tt-display);
+}
+.ex-vq-row .age {
+  font: 400 12px var(--tt-mono);
+  color: var(--tt-text-2);
+}
+.ex-vq-row.amber .age {
+  color: var(--tt-attention);
+}
+.ex-vq-row.dim .why {
+  color: var(--tt-text-2);
+  font: 400 11.5px/1.3 var(--tt-mono);
+}
+.ex-vcard {
+  min-width: 0;
+  overflow: hidden;
+}
+.tt-ev {
+  padding: 12px 14px;
+}
+.tt-ev-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.tt-ev-src-cls {
+  font:
+    500 14px Inter,
+    sans-serif;
+}
+.tt-ev-id {
+  margin-left: auto;
+  font: 400 11px var(--tt-mono);
+  color: var(--tt-text-dim);
+}
+.tt-ev-step {
+  font: 500 12px var(--tt-mono);
+  color: var(--tt-text-2);
+  margin-top: 4px;
+}
+.tt-ev-why {
+  font: 300 19px/1.25 var(--tt-display);
+  margin: 6px 0 2px;
+}
+.tt-ev-times {
+  font: 400 12px var(--tt-mono);
+  color: var(--tt-text-2);
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--tt-hair);
+}
+.tt-ev-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  margin-top: 8px;
+}
+.tt-salute .row,
+.tt-ev-check .row {
+  display: grid;
+  grid-template-columns: 16px 110px minmax(0, 1fr);
+  gap: 6px;
+  font: 400 12px/1.5 var(--tt-mono);
+  color: var(--tt-text-dim);
+}
+.tt-salute .row {
+  grid-template-columns: 82px minmax(0, 1fr);
+}
+.tt-salute .row .v {
+  color: var(--tt-text);
+  font-family: Inter, sans-serif;
+}
+.tt-salute {
+  margin-bottom: 8px;
+}
+.tt-ev-check .row.done {
+  color: var(--tt-text);
+}
+.tt-ev-check .row .v {
+  color: var(--tt-text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tt-ev-src {
+  margin-top: 8px;
+}
+.tt-ev-src .row {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  font: 400 12px/1.5 var(--tt-mono);
+  color: var(--tt-text-2);
+  padding: 2px 0;
+}
+.tt-ev-src .row .txt {
+  font-family: Inter, sans-serif;
+  color: var(--tt-text);
+}
+.tt-ev-src .row.related .txt {
+  color: var(--tt-text-2);
+}
+.tt-ev-decision .line {
+  font: 300 19px/1.25 var(--tt-display);
+}
+.tt-ev-decision .note {
+  font: 400 12.5px var(--tt-mono);
+  color: var(--tt-text-2);
+  margin-top: 4px;
+}
+
+/* ---------- Intel feed (EP-32 §3.4) ---------- */
+body[data-ex-role='intel'] .ex-stage-in {
+  display: grid;
+  grid-template-columns: 330px minmax(0, 1fr);
+  gap: 14px;
+}
+.ex-last10 {
+  font: 500 13px var(--tt-mono);
+  margin: 8px 0;
+}
+.ex-note {
+  font:
+    400 13px/1.4 Inter,
+    sans-serif;
+  color: var(--tt-text-2);
+}
+.ex-feed {
+  min-width: 0;
+  overflow: hidden;
+}
+.ex-banner {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font: 500 12.5px var(--tt-mono);
+  border: 1px solid var(--tt-edge-ctl);
+  border-radius: 6px;
+  padding: 5px 9px;
+  margin-bottom: 6px;
+  background: var(--tt-glass);
+}
+.tt-feed-row {
+  display: grid;
+  grid-template-columns: 50px 200px 34px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  padding: 5px 2px;
+  border-top: 1px solid var(--tt-hair);
+}
+.tt-feed-row .at {
+  font: 500 13px var(--tt-mono);
+}
+.tt-feed-row .cls {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+}
+.tt-feed-row .cls .c {
+  font:
+    400 12px Inter,
+    sans-serif;
+  color: var(--tt-text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tt-feed-row .body .t {
+  font:
+    400 14px/1.3 Inter,
+    sans-serif;
+}
+.tt-feed-row .body .line {
+  font: 400 11.5px/1.35 var(--tt-mono);
+  color: var(--tt-text-2);
+}
+.tt-feed-row.dim .body .t {
+  color: var(--tt-text-2);
+}
+.tt-feed-row.dim .body .line {
+  color: var(--tt-text-dim);
+}
+.tt-feed-row.raised .body .line {
+  color: var(--tt-attention);
+}
+.tt-feed-row .x {
+  margin-right: 6px;
+}
+
+/* ---------- Roster map (EP-32 §3.5) ---------- */
+body[data-ex-role='roster'] .ex-stage-in {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 14px;
+}
+.ex-hero .n {
+  font: 200 44px/1 var(--tt-display);
+  margin-right: 8px;
+}
+.ex-hero .k {
+  font:
+    400 13px Inter,
+    sans-serif;
+  color: var(--tt-text-2);
+}
+.ex-prot-line {
+  font: 500 11px var(--tt-mono);
+  color: var(--tt-text-2);
+  margin: 6px 0 8px;
+}
+.ex-posture-row {
+  display: grid;
+  grid-template-columns: 26px 1fr auto;
+  align-items: center;
+  font: 500 12px var(--tt-mono);
+  padding: 3px 0;
+}
+.tt-raised {
+  border: 1px solid var(--tt-attention);
+  border-radius: 6px;
+  padding: 5px 8px;
+  margin: 4px 0;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.18);
+}
+.tt-raised .cs {
+  font: 600 13px var(--tt-mono);
+  display: block;
+}
+.tt-raised .why {
+  font: 300 13px/1.3 var(--tt-display);
+  display: block;
+}
+.tt-raised .age {
+  font: 400 11px var(--tt-mono);
+  color: var(--tt-text-2);
+}
+.ex-roster-map {
+  position: relative;
+  min-width: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+.ex-rmap {
+  position: relative;
+  border: 1px solid var(--tt-hair);
+  border-radius: 12px;
+  background: rgba(4, 12, 18, 0.6);
+  overflow: hidden;
+}
+.ex-rmap-grid {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.ex-rmap-grid .g {
+  stroke: rgba(184, 195, 199, 0.07);
+  stroke-width: 1;
+}
+.ex-rmap-grid .g.major {
+  stroke: rgba(184, 195, 199, 0.14);
+}
+.ex-rmap-grid .lead {
+  stroke: rgba(184, 195, 199, 0.3);
+  stroke-width: 1;
+}
+.ex-rmap-grid .city {
+  fill: var(--tt-text);
+}
+.ex-rmap-grid .city.raised {
+  fill: var(--tt-attention);
+}
+.ex-city {
+  position: absolute;
+  box-sizing: border-box;
+  padding: 5px 7px;
+  background: var(--tt-glass);
+  border: 1px solid var(--tt-border);
+  border-radius: 8px;
+}
+.ex-city.raised {
+  border-color: var(--tt-attention);
+}
+.ex-city-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font: 600 11px var(--tt-mono);
+  letter-spacing: 0.08em;
+  margin-bottom: 3px;
+}
+.ex-city-head .n {
+  color: var(--tt-text-2);
+}
+.ex-city-head .local {
+  margin-left: auto;
+  color: var(--tt-text-2);
+}
+.ex-city-marks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 2px 8px;
+}
+.tt-mark {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.tt-mark .glyph {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1.5px solid var(--tt-text);
+  box-sizing: border-box;
+}
+.tt-mark .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tt-text);
+}
+.tt-mark.prot-detail .glyph {
+  border-radius: 2px;
+  border-width: 1px;
+}
+.tt-mark.prot-remote .glyph {
+  box-shadow: 0 0 0 3px rgba(238, 245, 243, 0.14);
+}
+.tt-mark.prot-monitored .glyph {
+  border-color: transparent;
+}
+.tt-mark.fresh-aging .glyph {
+  border: 1.5px dashed var(--tt-attention);
+}
+.tt-mark.fresh-stale .glyph,
+.tt-mark.fresh-unknown .glyph {
+  border: 1.5px dotted var(--tt-text-dim);
+}
+.tt-mark.fresh-stale .dot,
+.tt-mark.fresh-paused .dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--tt-text-2);
+}
+.tt-mark.fresh-schedule .glyph {
+  border-radius: 2px;
+  border: 1px solid var(--tt-hair);
+  background: repeating-linear-gradient(
+    45deg,
+    var(--tt-attn-tint, rgba(245, 158, 11, 0.12)) 0 2px,
+    transparent 2px 4px
+  );
+}
+.tt-mark.fresh-schedule .dot {
+  display: none;
+}
+.tt-mark.raised .glyph {
+  outline: 1px solid var(--tt-attention);
+  outline-offset: 2px;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.4);
+}
+.tt-mark .cs {
+  font: 600 11px var(--tt-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tt-mark.agent .cs {
+  color: var(--tt-text-2);
+}
+.tt-mark.raised .cs {
+  color: var(--tt-attention);
+}
+.ex-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font: 400 11px var(--tt-mono);
+  color: var(--tt-text-2);
+}
+.ex-legend .item {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+/* ---------- Roster by trip (EP-32 §3.7) ---------- */
+body[data-ex-role='trips'] .ex-stage-in {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+}
+.ex-trips-head {
+  font: 600 12px var(--tt-mono);
+  letter-spacing: 0.14em;
+  color: var(--tt-text-2);
+}
+.ex-trips {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 12px;
+  min-height: 0;
+}
+.ex-trip {
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.ex-trip.raised {
+  border-color: var(--tt-attention);
+}
+.ex-trip .top {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.ex-trip .top .cs {
+  font: 600 15px var(--tt-mono);
+}
+.ex-trip .name {
+  font:
+    400 12.5px Inter,
+    sans-serif;
+  color: var(--tt-text-2);
+  margin-top: 2px;
+}
+.ex-trip .clock .l {
+  font: 200 40px/1.1 var(--tt-display);
+  margin-right: 8px;
+}
+.ex-trip .clock .z {
+  font: 500 12px var(--tt-mono);
+  color: var(--tt-text-2);
+}
+.ex-trip .raised-line {
+  font: 500 11.5px/1.35 var(--tt-mono);
+  color: var(--tt-attention);
+  margin: 2px 0;
+}
+.tt-checkin {
+  font: 500 12px var(--tt-mono);
+  color: var(--tt-text);
+  margin: 2px 0 6px;
+}
+.tt-checkin.amber {
+  color: var(--tt-attention);
+}
+.ex-legrow {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font: 400 11.5px/1.5 var(--tt-mono);
+  color: var(--tt-text-2);
+  border-top: 1px solid var(--tt-hair);
+}
+.ex-legrow .t {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ex-legrow.done {
+  color: var(--tt-text-dim);
+}
+.ex-legrow.now {
+  color: var(--tt-text);
+}
+
+/* ---------- Principal view (EP-32 §3.6) ---------- */
+.ex-principal-left {
+  position: absolute;
+  left: var(--ex-gut);
+  top: 14px;
+  width: 360px;
+  max-height: calc(100% - 50px);
+}
+.tt-sitrep-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.tt-sitrep-head .cs {
+  font: 600 24px var(--tt-mono);
+}
+.ex-leg {
+  font: 300 17px var(--tt-display);
+  margin: 4px 0 6px;
+}
+.tt-sitrep {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 0;
+}
+.tt-sitrep dt {
+  font: 600 10.5px/1.6 var(--tt-mono);
+  letter-spacing: 0.1em;
+  color: var(--tt-text-dim);
+}
+.tt-sitrep dd {
+  margin: 0;
+  font:
+    400 13px/1.45 Inter,
+    sans-serif;
+}
+.tt-detail {
+  border-top: 1px solid var(--tt-hair);
+  margin-top: 8px;
+  padding-top: 6px;
+  font: 500 12px/1.5 var(--tt-mono);
+}
+.ex-closed-rec {
+  border-top: 1px solid var(--tt-hair);
+  margin-top: 8px;
+  padding-top: 6px;
+}
+.ex-closed-rec .bluf {
+  font: 300 16px/1.25 var(--tt-display);
+  color: var(--tt-text-2);
+}
+.ex-map-legend {
+  position: absolute;
+  right: var(--ex-gut);
+  top: 14px;
+  display: flex;
+  gap: 12px;
+  font: 500 11px var(--tt-mono);
+  color: var(--tt-text-2);
+  background: var(--tt-glass);
+  border: 1px solid var(--tt-border);
+  border-radius: 8px;
+  padding: 5px 9px;
+}
+.ex-map-legend .i::before {
+  content: '';
+  display: inline-block;
+  width: 16px;
+  height: 3px;
+  margin-right: 5px;
+  vertical-align: middle;
+  background: var(--tt-path);
+}
+.ex-map-legend .i.planned::before {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--tt-text-2) 0 4px,
+    transparent 4px 7px
+  );
+}
+.ex-map-legend .i.area::before {
+  height: 9px;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(245, 158, 11, 0.5) 0 2px,
+    transparent 2px 4px
+  );
+  border: 1px solid var(--tt-attention);
+}
+.ex-map-legend .i.ent::before {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tt-text);
+}
+.ex-osm {
+  position: absolute;
+  right: var(--ex-gut);
+  bottom: 4px;
+  font: 500 11px var(--tt-mono);
+  color: var(--tt-text);
+  background: var(--tt-glass);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+.ex-flat {
+  position: absolute;
+  left: 400px;
+  right: var(--ex-gut);
+  top: 52px;
+  bottom: 30px;
+  border: 1px solid var(--tt-hair);
+  border-radius: 12px;
+  background: rgba(4, 12, 18, 0.75);
+}
+.ex-flat-note {
+  position: absolute;
+  left: 10px;
+  top: 8px;
+  font: 500 12px var(--tt-mono);
+  color: var(--tt-text-2);
+}
+.ex-flat-svg {
+  width: 100%;
+  height: 100%;
+}
+.ex-flat-svg .g {
+  stroke: rgba(184, 195, 199, 0.08);
+}
+.ex-flat-svg .route {
+  fill: none;
+  stroke: var(--tt-path);
+  stroke-width: 4;
+  stroke-linejoin: round;
+}
+.ex-flat-svg .route.planned {
+  stroke: var(--tt-text-2);
+  stroke-dasharray: 10 8;
+}
+.ex-flat-svg .place {
+  fill: none;
+  stroke: var(--tt-text);
+  stroke-width: 2;
+}
+.ex-flat-svg .mark {
+  fill: var(--tt-text);
+  stroke: var(--tt-field);
+  stroke-width: 2;
+}
+.ex-flat-svg .label {
+  fill: var(--tt-text);
+  font: 600 18px var(--tt-mono);
+}
+.ex-flat-svg .label.cs {
+  font-size: 20px;
+}
+.tt-counter-k {
+  font: 500 9px var(--tt-mono);
+  letter-spacing: 0.08em;
+  color: var(--tt-text-dim);
+  text-transform: uppercase;
+  margin: -2px 0 6px;
+}

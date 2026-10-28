@@ -14,6 +14,8 @@
 //   {t:'welcome', type:'phone'|'monitor', …}        accepted hello
 //   {t:'loop', view:'loop'|'main'|'phone', rev, clock, loop|main|phone}
 //   {t:'loop-clock', clock}                         the clock, every second
+//   {t:'loop-role', slot, role}                     a wall's executive role,
+//                                                   when it joins or changes (B3)
 //   {t:'loop-ack', reqId, ok, code?, error?, ask?, ticket?}
 import { CODE, DENY } from '../../../twinProtocol.js';
 import {
@@ -38,6 +40,7 @@ export const EXEC_MSG = Object.freeze({
   LOOP: 'loop',
   CLOCK: 'loop-clock',
   ACK: 'loop-ack',
+  ROLE: 'loop-role',
 });
 
 /**

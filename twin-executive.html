@@ -4,90 +4,574 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex" />
+    <!-- SafeTrekr favicon (from safetrekr-app-v2) -->
     <link
       rel="icon"
       type="image/png"
       sizes="32x32"
       href="/trip-twin/favicon-32x32.png"
     />
-    <title>SafeTrekr Executive · diagnostic (SAMPLE)</title>
-    <!-- SafeTrekr Executive B2: the diagnostic page; B3 brings the walls. -->
-    <style>
-      body {
-        margin: 0;
-        background: #061a23;
-        color: #dfe9ee;
-        font:
-          15px/1.4 ui-monospace,
-          'Intel One Mono',
-          Menlo,
-          monospace;
-      }
-      .ex-app {
-        padding: 16px;
-        max-width: 1100px;
-      }
-      .ex-head {
-        display: flex;
-        gap: 12px;
-        align-items: center;
-        margin-bottom: 12px;
-      }
-      .ex-chip {
-        background: #f2c14e;
-        color: #061a23;
-        padding: 2px 8px;
-        font-weight: 600;
-      }
-      .ex-title {
-        font-weight: 600;
-      }
-      .ex-link {
-        margin-left: auto;
-        opacity: 0.7;
-      }
-      .ex-sec {
-        border-top: 1px solid #1d3a47;
-        padding: 8px 0;
-      }
-      .ex-h {
-        font-size: 12px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        opacity: 0.6;
-        margin: 0 0 4px;
-      }
-      .ex-big {
-        font-size: 20px;
-      }
-      .ex-row,
-      .ex-line,
-      .ex-say {
-        padding: 2px 0;
-      }
-      .ex-dim {
-        opacity: 0.5;
-      }
-      .ex-btn {
-        margin: 2px 4px 2px 0;
-        background: #12313d;
-        color: inherit;
-        border: 1px solid #2c5566;
-        padding: 6px 10px;
-        font: inherit;
-      }
-      .ex-a {
-        color: #8fd3ff;
-      }
-      .ex-code {
-        display: block;
-        word-break: break-all;
-        opacity: 0.8;
-      }
-    </style>
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="16x16"
+      href="/trip-twin/favicon-16x16.png"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="192x192"
+      href="/trip-twin/android-chrome-192x192.png"
+    />
+    <link
+      rel="apple-touch-icon"
+      sizes="180x180"
+      href="/trip-twin/apple-touch-icon.png"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@200;300;400&family=Intel+One+Mono:wght@400;500;600&display=swap"
+    />
+    <title>SafeTrekr Executive (SAMPLE)</title>
+    <!-- SafeTrekr Executive B3 (EP-51): twin.html's markup, every id kept;
+         the executive entry taps the relay socket, then imports page.js
+         unchanged. ?view=screen is a wall; anything else is the B2
+         diagnostic until the desk (B4). -->
   </head>
-  <body>
-    <main id="ex-app" class="ex-app"></main>
+  <body class="tt-body">
+    <div id="cesiumContainer" aria-label="Trip Twin 3D view">
+      <!-- Map words (upstream's world overlay, review/map-labels L5): inside
+           the 3D view, so wall insets, hiding and dimming carry over. -->
+      <div id="world-overlay-root" aria-hidden="true">
+        <canvas id="world-overlay-canvas"></canvas>
+      </div>
+    </div>
+    <div id="tt-veil" aria-hidden="true"></div>
+
+    <!-- R1: top bar — three zones (shell review, 23 Oct 2026):
+         place (left) · status, always visible (centre) · conditions (right).
+         Every id is kept; page.js writes them on each refresh. -->
+    <header id="tt-bar" class="tt-bar">
+      <div class="tt-bar-place">
+        <!-- SafeTrekr lockup (review/shell D7); the shield alone below 1600 px. -->
+        <span class="tt-brand" aria-label="SafeTrekr Trip Twin">
+          <span class="tt-brand-clip"
+            ><img
+              class="tt-brand-mark"
+              src="/safetrekr-logo.svg"
+              alt="SafeTrekr"
+              width="89"
+              height="16"
+          /></span>
+          <span class="tt-brand-sep" aria-hidden="true"></span>
+          <span class="tt-brand-name">Trip Twin</span>
+        </span>
+        <button
+          id="tt-exit"
+          class="tt-crumb-exit"
+          type="button"
+          title="Exit Trip Twin, back to World View"
+        >
+          ‹ World View
+        </button>
+        <!-- One trail: World View › Trip › Hotel › Floor › Person. The hotel
+             segment becomes the phase-3 site switcher (#tt-site slot). -->
+        <nav class="tt-crumbs" aria-label="Location">
+          <span class="tt-crumb-sep" aria-hidden="true">›</span>
+          <span id="tt-crumb-trip" class="tt-crumb-trip">Trip</span>
+          <span class="tt-crumb-sep" aria-hidden="true">›</span>
+          <button
+            id="tt-hotel"
+            class="tt-bar-hotel"
+            type="button"
+            title="Sites on this trip (S)"
+          >
+            —
+          </button>
+          <span id="tt-site" class="tt-site" hidden></span>
+          <span id="tt-crumb-focus" class="tt-crumb-focus"></span>
+        </nav>
+      </div>
+      <div class="tt-bar-status" aria-label="Status">
+        <div
+          id="tt-appmode"
+          class="tt-appmode"
+          role="group"
+          aria-label="Live or advance planning"
+        >
+          <button type="button" data-mode="live" aria-pressed="true">
+            Live
+          </button>
+          <button type="button" data-mode="advance" aria-pressed="false">
+            Advance
+          </button>
+        </div>
+        <span id="tt-mode" class="tt-mode" role="status">—</span>
+        <span id="tt-edit-chip" class="tt-edit-chip">EDITING PATH</span>
+        <button id="tt-live-alert" class="tt-live-alert" type="button" hidden>
+          INCIDENT · switch to Live
+        </button>
+        <!-- Another trip on watch has a reported incident (shell X1). -->
+        <button
+          id="tt-other-alert"
+          class="tt-other-alert"
+          type="button"
+          title="Another trip on watch has a reported incident · open 06 Trips on watch"
+          hidden
+        >
+          INCIDENT · OTHER TRIP › 06
+        </button>
+        <span class="tt-bar-read">
+          <span
+            id="tt-age"
+            class="tt-age num"
+            title="Age of the traveler data"
+          ></span>
+          <span id="tt-clock" class="tt-clock num"></span>
+        </span>
+      </div>
+      <div class="tt-bar-cond">
+        <span
+          id="tt-wx"
+          class="tt-wx"
+          title="Weather at the site · click or T: weather layers and timeline"
+        ></span>
+        <button
+          id="tt-more-btn"
+          class="tt-btn icon tt-more-btn"
+          type="button"
+          aria-expanded="false"
+          aria-controls="tt-more"
+          aria-label="More: prototype controls and keyboard shortcuts"
+          title="Prototype controls (`) · Keyboard shortcuts (?)"
+        >
+          <span aria-hidden="true">⋯</span>
+        </button>
+      </div>
+    </header>
+    <div
+      id="tt-more"
+      class="tt-pop tt-panel tt-more"
+      role="menu"
+      aria-label="More"
+      hidden
+    >
+      <button
+        id="tt-proto-btn"
+        class="tt-more-item"
+        type="button"
+        role="menuitem"
+        aria-expanded="false"
+        aria-controls="tt-proto"
+        title="Prototype controls (`)"
+      >
+        Prototype <span class="caret" aria-hidden="true">▾</span>
+      </button>
+      <button
+        id="tt-help-btn"
+        class="tt-more-item"
+        type="button"
+        role="menuitem"
+        aria-label="Keyboard shortcuts"
+        title="Keyboard shortcuts (?)"
+      >
+        Keyboard shortcuts<span class="kbd">?</span>
+      </button>
+    </div>
+
+    <!-- R2: rail (left) -->
+    <aside
+      id="tt-rail"
+      class="tt-rail tt-panel"
+      aria-label="Group status"
+    ></aside>
+
+    <!-- Phase 3: advance (planning) panel, in the rail's place -->
+    <aside
+      id="tt-advance"
+      class="tt-rail tt-panel tt-advance"
+      aria-label="Advance planning"
+      hidden
+    ></aside>
+
+    <!-- R-col: incident + selection, one stack so nothing overlaps -->
+    <div id="tt-rcol" class="tt-rcol">
+      <!-- Phase 4: path editor (operator-drawn paths) -->
+      <section
+        id="tt-editor"
+        class="tt-editor tt-panel"
+        aria-label="Path editor"
+        hidden
+      ></section>
+      <section
+        id="tt-incident"
+        class="tt-incident tt-panel"
+        aria-label="Reported incident"
+        hidden
+      ></section>
+      <aside
+        id="tt-card"
+        class="tt-card tt-panel"
+        aria-label="Selection"
+        hidden
+      ></aside>
+    </div>
+
+    <!-- R3 safe-area furniture -->
+    <div id="tt-chips" class="tt-chips" aria-label="Outside this view"></div>
+    <div id="tt-edit-banner" class="tt-edit-banner" role="status" hidden></div>
+    <div id="tt-status" class="tt-status" role="status" aria-live="polite">
+      Starting…
+    </div>
+    <!-- Scale sits at the top right of the map, left of the compass
+         (Jesse, 23 Oct); the dock keeps Layers, Ways out, Display, Report. -->
+    <div id="tt-scale" class="tt-scale">
+      <div class="tt-seg" role="group" aria-label="Scale">
+        <button
+          class="tt-tb"
+          data-scale="building"
+          type="button"
+          title="Building (1)"
+        >
+          Building
+        </button>
+        <button
+          class="tt-tb on"
+          data-scale="neighborhood"
+          type="button"
+          title="Neighborhood (2)"
+        >
+          Neighborhood
+        </button>
+        <button class="tt-tb" data-scale="city" type="button" title="City (3)">
+          City
+        </button>
+      </div>
+    </div>
+    <nav id="tt-toolbar" class="tt-toolbar" aria-label="View">
+      <button
+        class="tt-tb"
+        id="tt-layers-btn"
+        type="button"
+        aria-expanded="false"
+        aria-controls="tt-layers"
+        title="Layers (L)"
+      >
+        Layers <span class="caret" aria-hidden="true">▾</span>
+      </button>
+      <button
+        class="tt-tb"
+        id="tt-waysout-btn"
+        type="button"
+        aria-pressed="false"
+        title="Ways out view (W): streets, walkways, entrances, places and paths stand out · W or Esc returns"
+      >
+        Ways out
+      </button>
+      <button
+        class="tt-tb"
+        id="tt-display-btn"
+        type="button"
+        aria-expanded="false"
+        aria-controls="tt-display"
+        title="Display (D)"
+      >
+        Display <span class="caret" aria-hidden="true">▾</span>
+      </button>
+
+      <span class="tt-sep"></span>
+      <button
+        class="tt-tb accent"
+        id="tt-report-btn"
+        type="button"
+        aria-expanded="false"
+        aria-controls="tt-report"
+      >
+        Add reported floor
+      </button>
+    </nav>
+
+    <!-- R9 popovers -->
+    <section
+      id="tt-layers"
+      class="tt-pop tt-panel"
+      aria-label="Layers"
+      hidden
+    ></section>
+    <section
+      id="tt-sites"
+      class="tt-pop tt-panel tt-sites"
+      aria-label="Sites on this trip"
+      hidden
+    ></section>
+    <section
+      id="tt-display"
+      class="tt-pop tt-panel"
+      aria-label="Display"
+      hidden
+    >
+      <div class="tt-kicker tt-pop-group">UNITS</div>
+      <label class="tt-row"
+        >Distances
+        <select id="tt-units">
+          <option value="m">Meters and kilometers (m, km)</option>
+          <option value="ft">Feet and miles (ft, mi)</option>
+          <option value="yd">Yards and miles (yd, mi)</option>
+        </select>
+      </label>
+      <label class="tt-row"
+        >Temperature
+        <select id="tt-temp">
+          <option value="F">Fahrenheit (°F)</option>
+          <option value="C">Celsius (°C)</option>
+        </select>
+      </label>
+      <p class="tt-note">
+        Every distance and temperature on screen, and in copied text. Sensor
+        resolutions (e.g. 375 m pixel) stay as published. Grid spacing and
+        contour interval: Layers › Site. Saved in this browser.
+      </p>
+      <div class="tt-kicker tt-pop-group">MOTION</div>
+      <label class="tt-check"
+        ><input type="checkbox" id="tt-motion-live" /> Live
+        <span class="tt-dim"
+          >· live dot, fix ages, the snapshot sweep</span
+        ></label
+      >
+      <label class="tt-check"
+        ><input type="checkbox" id="tt-motion-event" /> Event
+        <span class="tt-dim"
+          >· number swaps, echoes, a band entering</span
+        ></label
+      >
+      <label class="tt-check"
+        ><input type="checkbox" id="tt-motion-cine" /> Cinematic
+        <span class="tt-dim"
+          >· fog-in panels, idle drift on a Site wall</span
+        ></label
+      >
+      <label class="tt-check"
+        ><input type="checkbox" id="tt-reduce-motion" /> Reduce motion
+        <span class="tt-dim">· overrides all three</span></label
+      >
+      <div class="tt-pop-foot">
+        <button class="tt-link" type="button" id="tt-help-link">
+          Keyboard shortcuts (?)
+        </button>
+      </div>
+    </section>
+    <section
+      id="tt-report"
+      class="tt-pop tt-panel"
+      aria-label="Report a floor"
+      hidden
+    >
+      <div class="tt-kicker">REPORTED FLOOR</div>
+      <form id="tt-report-form" class="tt-report">
+        <label class="tt-row"
+          >Floor (as the hotel numbers it)
+          <input
+            id="tt-report-floor"
+            type="number"
+            min="-3"
+            max="200"
+            inputmode="numeric"
+          />
+        </label>
+        <label class="tt-row"
+          >What was reported
+          <select id="tt-report-kind">
+            <option value="smoke">Smoke</option>
+            <option value="fire">Fire</option>
+            <option value="alarm">Alarm</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+        <p
+          id="tt-report-pending"
+          class="tt-report-pending"
+          role="status"
+          hidden
+        ></p>
+        <div class="tt-actions">
+          <button class="tt-btn primary" type="submit">Show on twin</button>
+          <button class="tt-btn" type="button" id="tt-report-cancel">
+            Cancel
+          </button>
+        </div>
+        <p class="tt-note">
+          Session only · not sent to anyone · marks the floor and lists who may
+          be at or above it.
+        </p>
+      </form>
+    </section>
+    <section
+      id="tt-proto"
+      class="tt-pop tt-panel tt-proto"
+      aria-label="Prototype controls"
+      hidden
+    >
+      <div class="tt-kicker">PROTOTYPE · NOT OPERATOR CONTROLS</div>
+      <label class="tt-row"
+        >Scenario
+        <select id="tt-scenario">
+          <option value="baseline">Evening at the hotel</option>
+          <option value="a">Hotel fire alarm (Demo A)</option>
+        </select>
+      </label>
+      <label class="tt-row"
+        >City
+        <select id="tt-city">
+          <option value="austin">Austin</option>
+          <option value="dc">Washington DC</option>
+          <option value="london">London</option>
+        </select>
+      </label>
+      <label class="tt-row"
+        >Selection glow
+        <select id="tt-glow"></select
+      ></label>
+      <label class="tt-check"
+        ><input type="checkbox" id="tt-simfire" /> Simulated heat
+        detections</label
+      >
+      <label class="tt-check"
+        ><input type="checkbox" id="tt-simlightning" /> Simulated
+        lightning</label
+      >
+      <label class="tt-check"
+        ><input type="checkbox" id="tt-simrain" /> Simulated rain</label
+      >
+      <label class="tt-check"
+        ><input type="checkbox" id="tt-simsnow" /> Simulated snow</label
+      >
+      <label class="tt-check"
+        ><input type="checkbox" id="tt-simstorm" /> Simulated storm approaching
+        (radar, track, lightning, warning)</label
+      >
+      <label class="tt-check"
+        ><input type="checkbox" id="tt-simfirebound" /> Simulated fire boundary
+        nearby (NIFC-style, with heat detections)</label
+      >
+      <label class="tt-check"
+        ><input type="checkbox" id="tt-simcyclone" /> Simulated hurricane cone
+        over the hotel (NHC-style)</label
+      >
+      <label class="tt-check"
+        ><input type="checkbox" id="tt-osmids" /> Show OpenStreetMap ids</label
+      >
+      <p class="tt-note" id="tt-proto-note"></p>
+    </section>
+    <section
+      id="tt-help"
+      class="tt-help tt-panel"
+      aria-label="Keyboard shortcuts"
+      hidden
+    >
+      <div class="tt-kicker">KEYBOARD</div>
+      <h3 class="tt-keys-h">View</h3>
+      <dl class="tt-keys">
+        <dt>F / Z</dt>
+        <dd>
+          Frame the selected person, building or floor (paths: Frame path on the
+          path card)
+        </dd>
+        <dt>, · .</dt>
+        <dd>Turn the view 90° left / right (compass)</dd>
+        <dt>N</dt>
+        <dd>North up (view from the south side, looking north)</dd>
+        <dt>1 · 2 · 3</dt>
+        <dd>
+          Building · Neighborhood · City (City shows the wider area: plain
+          buildings and main streets, no details on click)
+        </dd>
+        <dt>W</dt>
+        <dd>
+          Ways out view: streets, walkways, mapped entrances, places, suggested
+          and saved paths stand out; floors and hazards stay · W or Esc (after
+          cards and selection) returns
+        </dd>
+        <dt>T</dt>
+        <dd>
+          Weather timeline (Live, while a weather layer is on): ← → step, Play,
+          Esc or Back to now returns to now · otherwise opens Layers › Weather
+        </dd>
+      </dl>
+      <h3 class="tt-keys-h">Find</h3>
+      <dl class="tt-keys">
+        <dt>A</dt>
+        <dd>Go to the first item that needs attention</dd>
+        <dt>[ · ]</dt>
+        <dd>Previous / next item that needs attention</dd>
+        <dt>/</dt>
+        <dd>Find a person</dd>
+        <dt>S</dt>
+        <dd>Sites on this trip (hotel and venues)</dd>
+        <dt>H</dt>
+        <dd>
+          The site on screen and its Floors · type a number in Go to floor
+        </dd>
+        <dt>↑ · ↓ · Enter</dt>
+        <dd>Move between floors · open a floor card</dd>
+        <dt>Click a path, or Layers (L) › Paths › Suggested · drawn now</dt>
+        <dd>
+          Its card: Edit a copy of this path · Frame path · Copy path summary
+        </dd>
+      </dl>
+      <h3 class="tt-keys-h">Panels</h3>
+      <dl class="tt-keys">
+        <dt>⌥1 – ⌥6</dt>
+        <dd>
+          Stations: Site · People · Incident &amp; attention · Weather &amp;
+          alerts · Day plan · Trips on watch
+        </dd>
+        <dt>⌥0</dt>
+        <dd>Open or close the stations rail</dd>
+        <dt>L</dt>
+        <dd>Layers</dd>
+        <dt>D</dt>
+        <dd>Display (distance and temperature units, motion)</dd>
+        <dt>G</dt>
+        <dd>Scale grid on / off (spacing: Layers › Site)</dd>
+        <dt>E</dt>
+        <dd>Elevation contours on / off (interval: Layers › Site)</dd>
+        <dt>R</dt>
+        <dd>Add reported floor</dd>
+        <dt>V</dt>
+        <dd>Live / Advance (planning)</dd>
+        <dt>`</dt>
+        <dd>Prototype controls</dd>
+        <dt>K · ?</dt>
+        <dd>This help</dd>
+      </dl>
+      <h3 class="tt-keys-h">Edit & exit</h3>
+      <dl class="tt-keys">
+        <dt>X</dt>
+        <dd>While editing a path: place an avoid-area</dd>
+        <dt>Esc</dt>
+        <dd>
+          Close panel, then weather back to now, then the path card (back to the
+          card it came from), then the path, then step back (place or person ›
+          floor card › site), then clear the selection, then end Ways out (never
+          exits)
+        </dd>
+      </dl>
+      <p class="tt-note">No key sends a message or dismisses a report.</p>
+      <button class="tt-btn" type="button" id="tt-help-close">Close</button>
+    </section>
+
+    <!-- R7: source line (credits sit inside, right) -->
+    <footer id="tt-sources" class="tt-sources">
+      <span>SAMPLE · fictional Halden family enterprise</span>
+      <span>Map data © OpenStreetMap contributors (ODbL)</span>
+      <span>Terrain: Re:Earth (CC BY 4.0)</span>
+      <span id="tt-wx-credit">Weather: MET Norway (CC BY 4.0)</span>
+      <span id="tt-osm-source"></span>
+      <span id="tt-ground-line"></span>
+      <span id="tt-credits-slot" class="tt-credits-slot"></span>
+    </footer>
     <script
       type="module"
       src="/src/operations/tripTwin/products/executive/entry.js"
