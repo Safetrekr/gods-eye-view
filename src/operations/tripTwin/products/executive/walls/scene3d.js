@@ -85,6 +85,16 @@ export function createScene({ cityKey = 'austin' } = {}) {
     if (!v) return;
     for (let i = 0; i < v.dataSources.length; i++) {
       const d = v.dataSources.get(i);
+      // The school's "no walking" street suffix is for a school group on
+      // foot, not a family office (R12 S2-12): the street name only.
+      if (d.name === 'trip-twin-street-names')
+        for (const e of d.entities.values) {
+          const t = e.mapLabel?.title;
+          if (typeof t === 'string' && t.endsWith(' · no walking')) {
+            e.mapLabel.title = t.slice(0, -' · no walking'.length);
+            v.scene.requestRender?.();
+          }
+        }
       if (d.name === 'trip-twin-site-beacons' && d.show) {
         d.show = false;
         v.scene.requestRender?.();
@@ -187,6 +197,8 @@ export function createScene({ cityKey = 'austin' } = {}) {
       verticalOrigin: Cs.VerticalOrigin.BOTTOM,
       disableDepthTestDistance: Number.POSITIVE_INFINITY,
     });
+    // An area is hatched with a hairline edge, never a filled disc, and in
+    // the neutral steel, not a posture colour (EP-32 §2.5, §3.6; B7 #13).
     for (const a of o.areas || [])
       d.entities.add({
         position: P(a.lat, a.lon),
@@ -194,11 +206,16 @@ export function createScene({ cityKey = 'austin' } = {}) {
           semiMajorAxis: a.r,
           semiMinorAxis: a.r,
           height: h,
-          material: col('#f59e0b', 0.16),
+          stRotation: Cs.Math.toRadians(45),
+          material: new Cs.StripeMaterialProperty({
+            evenColor: col('#b8c3c7', 0.08),
+            oddColor: col('#b8c3c7', 0),
+            repeat: Math.max(6, Math.round(a.r / 14)),
+          }),
           outline: true,
-          outlineColor: col('#f59e0b', 0.8),
+          outlineColor: col('#b8c3c7', 0.7),
         },
-        label: label(a.label, { color: '#f59e0b', dy: 0 }),
+        label: label(a.label, { color: '#b8c3c7', size: 13, dy: 0 }),
       });
     for (const r of o.routes || []) {
       if (r.coords.length < 2) continue;
@@ -235,16 +252,20 @@ export function createScene({ cityKey = 'austin' } = {}) {
     }
     for (const e of o.entrances || []) {
       const named = o.focusEntrance && e.name === o.focusEntrance;
+      // The watch's rejected entrance stays, greyed, as superseded.
       d.entities.add({
         position: P(e.lat, e.lon, 1),
         point: {
           pixelSize: named ? 14 : 10,
-          color: col(named ? '#eef5f3' : '#b8c3c7'),
+          color: col(named ? '#eef5f3' : '#b8c3c7', e.superseded ? 0.45 : 1),
           outlineColor: col(FIELD),
           outlineWidth: 2,
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },
-        label: label(e.name, { size: named ? 18 : 15 }),
+        label: label(e.superseded ? `${e.name} (superseded)` : e.name, {
+          size: named ? 18 : e.superseded ? 13 : 15,
+          color: e.superseded ? '#8a979c' : TEXT,
+        }),
       });
     }
     for (const p of o.posts || [])

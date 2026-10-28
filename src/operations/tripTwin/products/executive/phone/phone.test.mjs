@@ -163,7 +163,30 @@ test('B5 beat 2: ATLAS 6 the recommendation with four answers; ATLAS 3 the SALUT
   assert.equal(a.kind, 'recommendation');
   assert.equal(a.header, 'UNCONFIRMED · F3 · SAMPLE');
   assert.equal(a.priority, 'P1');
-  assert.equal(a.severity, 'critical');
+  // B7 #6: amber, and the kicker from the item, never CRITICAL.
+  assert.equal(a.severity, 'warning');
+  assert.equal(a.kicker, 'UNCONFIRMED · F3 · RECOMMENDATION · SAMPLE');
+  assert.doesNotMatch(a.kicker, /CRITICAL/);
+  // B7 #8: a recommendation, the leader's decision: no ACTION, no ACK.
+  assert.equal(a.kindLine, 'Recommendation · your decision');
+  assert.equal(
+    a.rows.some((r) => r.k === 'ACTION'),
+    false,
+  );
+  assert.equal(
+    a.rows.find((r) => r.k === 'REPLY').v,
+    'Concur / Non-concur / Executing / Request support',
+  );
+  assert.equal(
+    a.card.some((l) => /Action:|HOLD \+ REROUTE|ACK/.test(l)),
+    false,
+  );
+  // B7 #7: no answer before ATLAS 3's SALUTE (filed 1812Z).
+  assert.equal(a.awaitsSalute, true);
+  assert.equal(
+    view(at('2026-10-27T18:12:30Z'), 'p-atlas6').alerts[0].awaitsSalute,
+    false,
+  );
   assert.equal(a.title, 'Watch recommendation · Keynote 1930L');
   assert.deepEqual(a.buttons, [
     'Concur',
@@ -217,6 +240,7 @@ test('B5 beat 3: WREN’s privacy first, then the sharing request she may accept
   loop = at('2026-10-27T22:29:30Z');
   w = view(loop, 'p-wren');
   assert.equal(w.alerts[0].title, 'Kennedy Center · 1930L');
+  assert.equal(w.alerts[0].kicker, 'INSTRUCTION · REROUTE · SAMPLE');
   assert.deepEqual(w.alerts[0].buttons, ['Accept', 'Reply']);
   assert.equal(w.alerts[0].rung, 'delivered');
   assert.equal(w.calls.length, 2, 'two calls to WREN; not the lead’s');
@@ -230,7 +254,7 @@ test('B5 beat 3: WREN’s privacy first, then the sharing request she may accept
 });
 
 test('B5 beat 4: SWIFT 1 and 2 the advisory; no move asked; check in', () => {
-  const loop = at('2026-10-28T00:36:30Z');
+  const loop = at('2026-10-27T23:58:30Z'); // B7 #15: pushed 2357Z, read 2358Z
   for (const pid of ['p-swift1', 'p-swift2']) {
     const a = view(loop, pid).alerts[0];
     assert.equal(a.title, 'Advisory · Hotel → IAD 2030L');
@@ -405,8 +429,8 @@ test('B5 taps answer early on every storyboard phone; each pre-empts its scripte
   for (const id of ['e-0074', 'e-0075', 'e-0076', 'e-0077'])
     assert.ok(h.preempted[id], `${id} pre-empted`);
 
-  // Beat 4: SWIFT 1 checks in with status before 0038Z.
-  jump('2026-10-28T00:37:30Z');
+  // Beat 4: SWIFT 1 checks in with status before 0000Z (B7 #15 retime).
+  jump('2026-10-27T23:59:30Z');
   const st = hint('p-swift1', 'checkin.respond');
   assert.equal(st.status, 'status');
   ok(send('p-swift1', st), 'SWIFT 1 status');

@@ -12,7 +12,7 @@ import {
   mainRow as formatMainRow,
   watchTime,
 } from '../format.js';
-import { legWindow } from './match.js';
+import { AUTHORITY } from './loopPolicy.js';
 
 const ms = (t) => (typeof t === 'number' ? t : Date.parse(t));
 const now = (loop) => ms(loop.clock.simNow);
@@ -65,8 +65,10 @@ export function selectQueue(loop) {
     )
       awaiting = 'countersign';
     if (!awaiting) continue;
-    const leg = loop.legs[s.leg_id];
-    const [ws] = leg ? legWindow(leg) : [Infinity];
+    // B7 (review R11 S2-7): overdue is the tier's verify target after the
+    // raise (EP-37: DETAIL 5, REMOTE 10, MONITORED 30 min), not the leg's
+    // window, so nothing reads OVERDUE the moment it is raised.
+    const sla = AUTHORITY[s.tier]?.pushSlaMin ?? 10;
     items.push({
       sit_id: s.sit_id,
       callsign: s.callsign,
@@ -77,7 +79,8 @@ export function selectQueue(loop) {
       time_to_exposure_s: s.exposure_at
         ? Math.max(0, Math.round((ms(s.exposure_at) - t) / 1000))
         : null,
-      overdue: awaiting === 'verification' && ws <= t,
+      overdue: awaiting === 'verification' && t - ms(s.raised_at) > sla * 60e3,
+      sla_min: sla,
       age_min: Math.floor((t - ms(s.raised_at)) / 60e3),
     });
   }
@@ -193,11 +196,13 @@ function ladderChip(parts) {
 
 /**
  * One MAIN row for a situation, or a refusal (I3): only a verified
- * situation in a MAIN state, and a DETAIL item once its leader answers.
- * The row reads as the storyboard (EP-20): line 1 callsign · leg (Z);
- * line 2 the decision (a DETAIL row: the leader's own short line, not the
- * watch's BLUF; otherwise the BLUF); line 3 the ladder word and the next
- * update. Nothing else: no name, grade, intel, note or DL reason.
+ * situation in a MAIN state. The row reads as the storyboard (EP-20):
+ * line 1 callsign · leg (Z); line 2 the decision (a DETAIL row: the
+ * leader's own short line once he answers, and until then the push's short
+ * line, never the watch's BLUF; otherwise the BLUF); line 3 the ladder word
+ * (a DETAIL push shows PUSHED / DELIVERED / READ until the leader answers,
+ * B7 fix list #3) and the next update. Nothing else: no name, grade,
+ * intel, note or DL reason.
  */
 export function mainRowFor(loop, sitId) {
   const s = loop.situations[sitId];
@@ -208,14 +213,13 @@ export function mainRowFor(loop, sitId) {
     return { refused: { code: 'I3_NOT_ON_MAIN' } };
   const dlRec =
     push.tier === 'DETAIL' ? push.recipients[push.order[0]]?.dl : null;
-  if (push.tier === 'DETAIL' && !dlRec)
-    return { refused: { code: 'I3_NOT_ON_MAIN' } };
+  const awaitingDl = push.tier === 'DETAIL' && !dlRec;
   const rec = loop.recommendations[push.recommendation_id];
   const leg = loop.legs[s.leg_id];
   const parts = {
     callsign: s.callsign,
     leg: legShort(leg),
-    short: rec?.main_short ?? null,
+    short: rec?.main_short ?? (awaitingDl ? 'Recommendation to DL' : null),
     tz: leg?.tz,
     nextUpdateAt: s.next_update_at,
     ...(dlRec
@@ -236,7 +240,11 @@ export function mainRowFor(loop, sitId) {
       leg: parts.leg,
       leg_z: leg?.start ? watchTime(leg.start) : null,
       bluf: rec?.bluf ?? null,
-      line: dlRec ? (dlRec.plan ?? null) : (rec?.bluf ?? null),
+      line: dlRec
+        ? (dlRec.plan ?? null)
+        : awaitingDl
+          ? parts.short
+          : (rec?.bluf ?? null),
       // `ladder` keeps its B1 value (the rung, `calling`, `DL: <answer>`);
       // `word` is what MAIN shows, in capitals.
       ladder: dlRec
@@ -272,7 +280,9 @@ export function selectMain(loop) {
     .filter((s) => s.state === 'CLOSED' && s.verification_id)
     .map((s) => {
       const signer = loop.sitreps[s.sitrep_id]?.signed_by ?? null;
-      const at = s.decided_at || s.closed_at;
+      // B7 (fix list #1): the close instant, as the record, desk and print
+      // write it; `decided_at` (the drafted decision) never reaches MAIN.
+      const at = s.closed_at || s.decided_at;
       return {
         callsign: s.callsign,
         closed_at: at,
@@ -454,4 +464,24 @@ export function selectFeed(loop, { limit = 50 } = {}) {
 export function selectTimeStrip(loop, cities) {
   const t = loop.clock.simNow;
   return `${cities.map(([name, tz]) => `${name.toUpperCase()} ${localTime(t, tz)}`).join(' · ')} · ${watchTime(t)}`;
+}
+
+/**
+ * B7 (fix list #14): the client viewer's opens of a record, oldest first:
+ * `[{id, at, by, callsign, record, sit_id, sitrep_id, surface}]`. A
+ * situation's own opens with `sitId`; the daily record's with 'daily'.
+ */
+export function selectViews(loop, sitId = null) {
+  return (loop.views || [])
+    .filter((v) =>
+      sitId == null
+        ? true
+        : sitId === 'daily'
+          ? v.record === 'daily'
+          : v.sit_id === sitId,
+    )
+    .map((v) => ({
+      ...v,
+      callsign: loop.people?.[v.by]?.callsign ?? v.by,
+    }));
 }

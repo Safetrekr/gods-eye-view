@@ -154,7 +154,7 @@ test('I2 the countersign must be another person; the analyst may not countersign
   no(loop, { ...ev('e-0028'), version: 2 }, 'STALE');
 });
 
-test('I3 MAIN only sees verified situations, and a DETAIL item once its leader answers', () => {
+test('I3 MAIN only sees verified situations; a DETAIL push shows its rung until the leader answers, then his word (B7 #3)', () => {
   const raised = upTo('2026-10-27T15:56:00Z');
   assert.equal(
     mainRowFor(raised, 's-kestrel-01').refused.code,
@@ -163,7 +163,10 @@ test('I3 MAIN only sees verified situations, and a DETAIL item once its leader a
   assert.deepEqual(selectMain(raised).rows, []);
   const pushed = upTo('2026-10-27T18:10:00Z'); // ATLAS pushed 1808Z, DL not yet answered
   assert.equal(pushed.situations['s-atlas-01'].state, 'PUSHED');
-  assert.equal(mainRowFor(pushed, 's-atlas-01').refused.code, 'I3_NOT_ON_MAIN');
+  const early = mainRowFor(pushed, 's-atlas-01').row;
+  assert.equal(early.word, 'READ');
+  assert.equal(early.line, 'Recommendation to DL');
+  assert.notEqual(early.line, early.bluf, 'never the watch BLUF for DETAIL');
   const answered = upTo('2026-10-27T18:14:00Z');
   assert.equal(mainRowFor(answered, 's-atlas-01').row.ladder, 'DL: nonconcur');
   assert.ok(CODES.I3_NOT_ON_MAIN);
@@ -615,4 +618,83 @@ test('unknown and malformed events are refused with a code', () => {
   );
   no(loop, { at: '2026-10-27T01:00:00Z' }, 'BAD_EVENT');
   no(loop, { type: 'intel.dismiss', at: 'yesterday', by: 'VALE' }, 'BAD_EVENT');
+});
+
+// ------------------------------------------------------------- B7 (F1)
+
+test('B7 #5: “last verified by a human” moves on approve, push, notify, re-tier, SITREP sign and close too', () => {
+  const at = (id) => {
+    const i = TL.findIndex((e) => e.ev.id === id);
+    return fold(day, TL.slice(0, i + 1)).loop.lastHuman;
+  };
+  for (const [id, by, type] of [
+    ['e-0014', 'VALE', 'recommendation.approve'],
+    ['e-0015', 'VALE', 'push.send'],
+    ['e-0029', 'VALE', 'notify.send'],
+    ['e-0064', 'ORTEGA', 'posture.retier'],
+    ['e-0072', 'VALE', 'callback.step'],
+    ['e-0025', 'VALE', 'sitrep.sign'],
+    ['e-0026', 'VALE', 'situation.close'],
+  ]) {
+    const h = at(id);
+    assert.equal(h.type, type, id);
+    assert.equal(h.by, by, id);
+    assert.equal(h.at, ev(id).at, id);
+  }
+  // At each beat's last checkpoint end, the latest signature is the line.
+  for (const [t, line] of [
+    ['2026-10-27T17:17:00Z', '1716Z · VALE'],
+    ['2026-10-27T21:10:00Z', '2109Z · VALE'],
+    ['2026-10-27T23:11:00Z', '2310Z · VALE'],
+    ['2026-10-28T00:51:00Z', '0050Z · VALE'],
+    ['2026-10-28T01:01:00Z', '0100Z · VALE'],
+  ])
+    assert.equal(
+      selectMain(upTo(t)).verifiedLine,
+      `Last verified by a human ${line}`,
+      t,
+    );
+});
+
+test('B7 R13 S2-5: ORTEGA countersigns the watch reply with his own event; never the sender, never twice', () => {
+  const cs = day.events.find((e) => e.id === 'e-0037-cs');
+  assert.equal(cs.type, 'message.countersign');
+  assert.equal(cs.by, 'ORTEGA');
+  assert.equal(cs.message_id, 'e-0037');
+  assert.equal(cs.at, ev('e-0037').at);
+  const loop = before('e-0037-cs');
+  no(loop, { ...cs, by: 'VALE' }, 'ROLE');
+  const signed = ok(applyLoopEvent(loop, cs));
+  const m = signed.messages.find((x) => x.id === 'e-0037');
+  assert.equal(m.countersigned_by, 'ORTEGA');
+  assert.equal(m.countersigned_at, '2026-10-27T18:15:00Z');
+  assert.equal(signed.lastHuman.by, 'ORTEGA');
+  no(signed, { ...cs, id: 'x' }, 'ALREADY');
+  no(loop, { ...cs, message_id: 'nope' }, 'NOT_FOUND');
+});
+
+test('B7 #14: the client viewer’s opens are record.view events; anyone else is refused', () => {
+  const views = day.events.filter((e) => e.type === 'record.view');
+  assert.equal(views.length, 7);
+  assert.ok(views.every((v) => v.by === 'p-016'));
+  const atlas = views.find((v) => v.sit_id === 's-atlas-01');
+  assert.equal(atlas.at, '2026-10-27T18:04:00Z', 'a minute after the raise');
+  const loop = before(atlas.id);
+  no(loop, { ...atlas, by: 'p-kestrel' }, 'NOT_VIEWER');
+  no(loop, { ...atlas, by: 'VALE' }, 'ROLE');
+  no(loop, { ...atlas, sit_id: 's-nope' }, 'NOT_FOUND');
+  const next = ok(applyLoopEvent(loop, atlas));
+  assert.deepEqual(next.views.at(-1), {
+    id: atlas.id,
+    at: '2026-10-27T18:04:00Z',
+    by: 'p-016',
+    record: 'situation',
+    sit_id: 's-atlas-01',
+    sitrep_id: null,
+    surface: 'client viewer screen',
+  });
+  assert.equal(next.lastHuman, loop.lastHuman, 'a view is not a decision');
+  const end = upTo('2026-10-28T01:01:00Z');
+  assert.equal(end.views.at(-1).record, 'daily');
+  assert.equal(end.views.at(-1).sitrep_id, 'sr-daily-27oct');
 });

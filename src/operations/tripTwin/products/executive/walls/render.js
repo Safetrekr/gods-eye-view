@@ -74,7 +74,16 @@ export function renderVerify(stage, v) {
   if (v.card) {
     right.append(kicker(`EVIDENCE · ${v.cardWhy}`));
     right.append(evidenceCard(v.card));
-  } else right.append(div('ex-empty', 'Nothing raised today'));
+  } else
+    right.append(
+      // Never "nothing raised" beside a list of decided items (R12 S2-8).
+      div(
+        'ex-empty',
+        v.decided.length
+          ? `No one awaiting · ${v.decided.length} decided today`
+          : 'Nothing raised today',
+      ),
+    );
   stage.replaceChildren(left, right);
 }
 

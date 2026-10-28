@@ -104,7 +104,7 @@ test('day.json: the EP-36 §4 length caps hold on every capped field', () => {
   assert.deepEqual(over, []);
 });
 
-test('day.json: times are ISO UTC, events in time order, the beats at EP-35 §5’s anchors', () => {
+test('day.json: times are ISO UTC, events in time order, the beats at their anchors (EP-35 §5, B7 pacing and SWIFT retime)', () => {
   const iso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
   for (const e of day.events) assert.match(e.at, iso, e.id);
   for (let i = 1; i < day.events.length; i += 1)
@@ -113,10 +113,10 @@ test('day.json: times are ISO UTC, events in time order, the beats at EP-35 §5�
     assert.match(b.ingested_at, iso, b.bundle_id);
   assert.deepEqual(day.beats, {
     0: '2026-10-27T14:30:00Z',
-    1: '2026-10-27T15:30:00Z',
+    1: '2026-10-27T15:54:00Z',
     2: '2026-10-27T18:00:00Z',
-    3: '2026-10-27T22:00:00Z',
-    4: '2026-10-28T00:30:00Z',
+    3: '2026-10-27T22:04:00Z',
+    4: '2026-10-27T23:50:00Z',
     5: '2026-10-28T01:00:00Z',
   });
 });

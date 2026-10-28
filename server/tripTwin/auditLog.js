@@ -631,6 +631,9 @@ export const LOOP_EVENT_NAMES = Object.freeze([
   'recommendation.approve',
   'push.send',
   'message.send',
+  // B7: the supervisor's countersign of a watch reply; the client viewer's open.
+  'message.countersign',
+  'record.view',
   'callback.step',
   'posture.retier',
   'sitrep.sign',
@@ -670,6 +673,10 @@ export const PRESENTER_CMD_NAMES = Object.freeze([
 ]);
 const LOOP_TYPES = [...LOOP_EVENT_NAMES, ...PRESENTER_CMD_NAMES];
 const LOOP_FROM = ['phone', 'desk', 'presenter', 'host'];
+const LOOP_VIA = ['touch', 'keyboard', 'phone', 'presenter', 'voice'];
+/** B7: the analyst desk's own device id (it has no host device ref). */
+const deskDevice = (v) =>
+  typeof v === 'string' && /^[A-Za-z0-9_.:-]{1,40}$/.test(v) ? v : undefined;
 /** Who acted: the system, the presenter, a watch callsign or a participant id. */
 const loopBy = (v) =>
   ['generator', 'presenter', 'VALE', 'ORTEGA'].includes(v) ? v : id(v);
@@ -699,11 +706,24 @@ export const LOOP_AUDIT_EVENTS = Object.freeze({
       // one it pre-empts (EP-33 §3, EP-31 §3).
       reverses: id,
       preempts: id,
+      // B7 (review R13 S2-3/S2-4): how it was sent, and from which desk.
+      via: oneOf(LOOP_VIA),
+      device: deskDevice,
     },
   },
   'loop.refused': {
     peer: false,
-    data: { type: oneOf(LOOP_TYPES), code: loopCode, from: oneOf(LOOP_FROM) },
+    data: {
+      type: oneOf(LOOP_TYPES),
+      code: loopCode,
+      from: oneOf(LOOP_FROM),
+      device: deskDevice,
+    },
+  },
+  // B7 (review R13 S2-3): one keyboard switched between VALE and ORTEGA.
+  'desk.as': {
+    peer: false,
+    data: { device: deskDevice, from: loopBy, to: loopBy, run: int },
   },
   // A rewind is on record too (EP-33 §7).
   'presenter.beat': {

@@ -186,7 +186,7 @@ test('B4 EP-33 §7: Previous keeps the live actions before its target and their 
   P(h, { type: 'beat.go', n: 2 });
   const r = asked(h, { type: 'previous' });
   assert.ok(r.ok, JSON.stringify(r));
-  assert.equal(h.clock.simNow, '2026-10-27T17:12:00Z');
+  assert.equal(h.clock.simNow, '2026-10-27T17:13:00Z');
   assert.equal(
     h.preempted['e-0015'],
     h.live.find((e) => e.type === 'push.send').id,
@@ -673,4 +673,198 @@ test('B4 the ORTEGA shortcuts on the relay: only the remote in control; refused 
     relay.exec.loopHost.loop.verifications['v-atlas-01'].countersigned_by,
     'ORTEGA',
   );
+});
+
+// ------------------------------------------------------------- B7 (F1)
+
+test('B7 #4: Previous from beat 1 lands at the beat 0 anchor (1430Z), not 1200Z, at the rate that holds there', () => {
+  const { h } = host();
+  assert.ok(P(h, { type: 'next' }).ok);
+  assert.equal(h.clock.simNow, '2026-10-27T15:54:00Z');
+  const r = asked(h, { type: 'previous' });
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.equal(r.beat.to, '2026-10-27T14:30:00Z');
+  assert.equal(h.clock.simNow, '2026-10-27T14:30:00Z');
+  assert.deepEqual(C(selectCounter(h.loop)), [186, 7, 2, 0, 2]);
+  assert.equal(h.clock.paused, true);
+  assert.equal(h.clock.held, null);
+  assert.equal(h.clock.rate, 10, 'the next checkpoint’s rate');
+});
+
+test('B7 R19 S2-3: clock.jump takes the rate of where it lands and clears a hold', () => {
+  const { h, clock } = host();
+  assert.ok(P(h, { type: 'next' }).ok);
+  for (let i = 0; i < 420; i++) h.tick(clock.advance(250));
+  assert.equal(h.clock.held, 'checkpoint');
+  P(h, { type: 'clock.rate', rate: 60 });
+  jump(h, '2026-10-27T20:05:00Z');
+  assert.equal(h.clock.rate, 20, 'beat 2’s comms-check checkpoint runs ×20');
+  assert.equal(h.clock.held, null);
+});
+
+test('B7: the presenter sees held phone replies and the next scripted act (ids only)', () => {
+  const { h } = host();
+  P(h, { type: 'beat.go', n: 1 });
+  let c = h.clockView();
+  assert.equal(c.heldReplies, 0);
+  assert.equal(c.nextScript.by, 'VALE');
+  assert.equal(c.nextScript.type, 'verification.decide');
+  assert.equal(c.nextScript.sit_id, 's-kestrel-01');
+  assert.equal(c.nextScript.at, '2026-10-27T16:04:00Z');
+  assert.equal(JSON.stringify(c.nextScript).includes('KESTREL'), false);
+  P(h, { type: 'phones.mode', mode: 'live' });
+  jump(h, '2026-10-27T16:08:00Z');
+  c = h.clockView();
+  assert.ok(c.heldReplies > 0, 'KESTREL’s scripted read and accept wait');
+});
+
+test('B7 R13 S2-2: the welfare-check step needs a countersign from another supervisor', () => {
+  const { h } = host();
+  P(h, { type: 'beat.go', n: 3 });
+  jump(h, '2026-10-27T22:29:30Z');
+  const step = (fields, as = 'VALE') =>
+    D(h, { type: 'callback.step', push_id: 'push-wren-01', ...fields }, as);
+  const bare = step({ step: 4, outcome: 'call placed' });
+  assert.equal(bare.code, 'CALLBACK_NEEDS_COUNTERSIGN');
+  const self = step(
+    { step: 4, outcome: 'call placed', countersigned_by: 'ORTEGA' },
+    'ORTEGA',
+  );
+  assert.equal(self.code, 'CALLBACK_NEEDS_COUNTERSIGN');
+  const two = step({
+    step: 4,
+    outcome: 'call placed',
+    countersigned_by: 'ORTEGA',
+  });
+  assert.ok(two.ok, JSON.stringify(two));
+  const last = h.loop.callbacks['push-wren-01'].steps.at(-1);
+  assert.equal(last.step, 4);
+  assert.equal(last.countersigned_by, 'ORTEGA');
+  assert.equal(h.loop.lastHuman.type, 'callback.step');
+});
+
+test('B7 R13 S2-3/S2-4: the desk’s VALE/ORTEGA switch and the presenter’s ORTEGA are on the audit; MAIN and phones get a lean clock', () => {
+  const { relay, sock, setup, loopCmd, deskSay, lines } = room();
+  const remote = sock({
+    t: 'hello',
+    id: 'R',
+    kind: 'remote',
+    setup,
+    name: 'iPad',
+  });
+  relay.exec.tick();
+  const desk = sock({ t: 'hello', id: 'desk-1', kind: 'desk' });
+  loopCmd(remote, { type: 'beat.go', n: 2 });
+  loopCmd(remote, { type: 'clock.jump', to: '2026-10-27T18:05:30Z' });
+  relay.exec.tick();
+  assert.ok(
+    deskSay(desk, { type: 'intel.watch', bundle_id: 'b-m-046', reason: 'x' })
+      .ok,
+  );
+  const cs = deskSay(
+    desk,
+    { type: 'verification.countersign', sit_id: 's-atlas-01' },
+    'ORTEGA',
+  );
+  assert.ok(cs.ok, JSON.stringify(cs));
+  const sw = lines.filter((l) => l.type === 'desk.as');
+  assert.equal(sw.length, 1);
+  assert.deepEqual(sw[0].data, {
+    device: 'desk-1',
+    from: 'VALE',
+    to: 'ORTEGA',
+    run: 1,
+  });
+  const ev = lines.find(
+    (l) =>
+      l.type === 'loop.event' && l.data.type === 'verification.countersign',
+  );
+  assert.equal(ev.data.device, 'desk-1');
+  assert.equal(ev.data.via, 'touch');
+});
+
+test('B7: MAIN and the phones get the clock without the presenter’s extras; the iPad gets them', () => {
+  const { relay, sock, setup, loopCmd, s1 } = room();
+  const remote = sock({
+    t: 'hello',
+    id: 'R',
+    kind: 'remote',
+    setup,
+    name: 'iPad',
+  });
+  relay.exec.tick();
+  assert.ok(loopCmd(remote, { type: 'wall.role', slot: 1, role: 'main' }).ok);
+  loopCmd(remote, { type: 'beat.go', n: 1 });
+  relay.exec.tick();
+  const clocks = (ws) =>
+    [...ws.all('loop'), ...ws.all('loop-clock')]
+      .map((m) => m.clock)
+      .filter(Boolean);
+  const main = clocks(s1);
+  assert.ok(main.length > 0);
+  for (const c of main) {
+    assert.equal(c.nextScript, undefined);
+    assert.equal(c.heldReplies, undefined);
+  }
+  assert.ok(clocks(remote).some((c) => c.nextScript?.by === 'VALE'));
+});
+
+test('B7 R13 S2-4: an ORTEGA shortcut from the iPad is on the day’s record as from the presenter', () => {
+  const { h } = host();
+  P(h, { type: 'beat.go', n: 2 });
+  jump(h, '2026-10-27T18:05:30Z');
+  const r = asked(h, { type: 'ortega.countersign' });
+  assert.ok(r.ok, JSON.stringify(r));
+  const v = h.loop.verifications['v-atlas-01'];
+  assert.equal(v.countersigned_by, 'ORTEGA');
+  assert.equal(v.countersigned_via, 'presenter');
+  assert.equal(h.loop.lastHuman.via, 'presenter');
+});
+
+test('B7 #12 / F2 S2: MAIN’s scene carries the storm band, the route and the hotel at beat 4, and the doors and posts after the NON-CONCUR; geometry and callsigns only', () => {
+  const { h } = host();
+  const names = [
+    ...Object.values(day.people).map((p) => p.name),
+    ...day.watch.staff.map((s) => s.name),
+  ];
+  const intel = Object.values(day.bundles)
+    .flatMap((b) => [b.title, b.short_summary])
+    .filter((x) => x?.length >= 12);
+  const clean = (sc) => {
+    const text = JSON.stringify(sc);
+    for (const n of [...names, ...intel])
+      assert.ok(!text.includes(n), `MAIN's scene carries "${n}"`);
+  };
+  P(h, { type: 'beat.go', n: 2 });
+  jump(h, '2026-10-27T19:10:00Z');
+  let sc = h.mainView().scene;
+  assert.deepEqual(
+    sc.entrances.map((e) => [e.name, e.side]),
+    [
+      ['Belvedere Rd entrance', 'E'],
+      ['north door', 'N'],
+    ],
+  );
+  assert.deepEqual(
+    sc.posts.map((p) => p.label),
+    ['ATLAS 3 · advance', 'ATLAS 4 · +1 post'],
+  );
+  clean(sc);
+  jump(h, '2026-10-27T20:45:00Z');
+  assert.deepEqual(
+    h.mainView().scene.posts.map((p) => p.label),
+    ['ATLAS 3 · advance'],
+    'the +1 post is stood down at 2040Z',
+  );
+  P(h, { type: 'beat.go', n: 4 });
+  jump(h, '2026-10-27T23:58:30Z');
+  sc = h.mainView().scene;
+  assert.equal(sc.site, null);
+  assert.equal(sc.origin.name, 'Westin Washington Dulles');
+  assert.ok(sc.route.length > 2);
+  assert.deepEqual(
+    sc.areas.map((a) => [a.kind, a.label, a.polygon.length > 2]),
+    [['weather', 'Storm line', true]],
+  );
+  clean(sc);
 });

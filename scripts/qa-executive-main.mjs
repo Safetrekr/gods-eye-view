@@ -34,7 +34,8 @@ const must = (cond, msg) => {
   if (!cond) throw new Error(msg);
 };
 
-const PORT = 4198;
+// --port (B7: one isolated port for every capture), else the default.
+const PORT = Number(arg('port', 4198));
 const OUT = path.resolve(
   arg('out') ||
     path.join(ROOT, '..', 'plans', 'trip-twin', 'executive', 'review', 'b4'),
@@ -61,7 +62,8 @@ const MAIN_WORDS = {
   2: [/ATLAS/, /DL: NON-CONCUR/, /original plan, \+1 post north door/],
   3: [/WREN/, /NO READ 10 MIN · CALLING/],
   4: [/SWIFT 1–2/, /No change/, /READ/, /no 3D site twin/],
-  5: [/CLOSED TODAY · 6/, /214/, /Last verified by a human 0058Z · VALE/],
+  // B7 #5 (F1): the daily SITREP signature moves the stamp to 0100Z.
+  5: [/CLOSED TODAY · 6/, /214/, /Last verified by a human 0100Z · VALE/],
 };
 
 const FLAGS = [

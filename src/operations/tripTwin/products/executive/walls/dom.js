@@ -60,8 +60,10 @@ export function ladder(l, { big = false } = {}) {
   if (gone && l.note) box.append(div('tt-push-note', l.note));
   const row = div('tt-ladder-row');
   for (const r of l.rungs) {
+    // A long word (NON-CONCUR, SUPPORT REQUESTED) takes a wider rung, so
+    // it never runs into DONE (R12 S2-5).
     const seg = div(
-      `tt-rung${r.done ? ' done' : ''}${r.current ? ' current' : ''}${r.tone ? ` ${r.tone}` : ''}`,
+      `tt-rung${r.done ? ' done' : ''}${r.current ? ' current' : ''}${r.tone ? ` ${r.tone}` : ''}${String(r.word).length > 8 ? ' wide' : ''}`,
     );
     seg.append(div('bar'));
     const w = div('word', r.word);
@@ -88,9 +90,20 @@ export function recCard(r, { compact = false } = {}) {
   const box = div(
     `tt-rec${compact ? ' compact' : ''}${r.expired ? ' expired' : ''}`,
   );
-  box.append(div('tt-rec-k', 'RECOMMENDATION'));
+  // The authority's instruction sits above ours, once (EP-33 §5).
+  for (const o of r.official || []) {
+    const off = div('tt-rec-official');
+    off.append(span('k', 'OFFICIAL'), span('v', o));
+    box.append(off);
+  }
+  box.append(div('tt-rec-k', r.kicker || 'RECOMMENDATION'));
   box.append(div('tt-rec-bluf', r.bluf));
-  box.append(div('tt-rec-action', r.action.toUpperCase()));
+  if (r.action || r.subordinate) {
+    const a = div('tt-rec-acts');
+    if (r.action) a.append(span('tt-rec-action', r.action.toUpperCase()));
+    if (r.subordinate) a.append(span('tt-rec-sub', 'subordinate'));
+    box.append(a);
+  }
   if (!compact) {
     const dl = el('dl', 'tt-rec-rows');
     for (const [k, v] of r.rows)
@@ -116,16 +129,6 @@ export function evidenceCard(c) {
   box.append(div('tt-ev-times', c.times));
   const cols = div('tt-ev-cols');
   const left = div('tt-ev-left');
-  if (c.salute) {
-    const sal = div('tt-salute');
-    sal.append(div('tt-k', 'SALUTE · HUMAN'));
-    for (const [k, v] of c.salute) {
-      const r = div('row');
-      r.append(span('k', k), span('v', v));
-      sal.append(r);
-    }
-    left.append(sal);
-  }
   const chk = div('tt-ev-check');
   chk.append(div('tt-k', 'CHECKLIST'));
   for (const x of c.checklist) {
@@ -153,6 +156,17 @@ export function evidenceCard(c) {
     src.append(r);
   }
   left.append(src);
+  // The field report, attached under the item it answers (EP-37 §8).
+  if (c.salute) {
+    const sal = div('tt-salute');
+    sal.append(div('tt-k', 'SALUTE · HUMAN'));
+    for (const [k, v] of c.salute) {
+      const r = div('row');
+      r.append(span('k', k), span('v', v));
+      sal.append(r);
+    }
+    left.append(sal);
+  }
   const right = div('tt-ev-right');
   const dec = div('tt-ev-decision');
   dec.append(div('line', c.decision));
@@ -160,32 +174,42 @@ export function evidenceCard(c) {
   for (const n of c.notified) dec.append(div('note', n));
   if (c.retier) dec.append(div('tt-retier', c.retier));
   right.append(dec);
-  if (c.rec) right.append(recCard(c.rec));
+  if (c.rec) {
+    const rc = recCard(c.rec);
+    // The watch's acknowledgement under the leader's answer (R11 S2-4).
+    if (c.answers?.length) {
+      const sig = rc.querySelector('.tt-sig');
+      for (const a of c.answers) rc.insertBefore(div('tt-watch-ack', a), sig);
+    }
+    right.append(rc);
+  }
   cols.append(left, right);
   box.append(cols);
   return box;
 }
 
-/** `.tt-counter`: five figures (EP-32 §6); a changed figure flashes once. */
+/**
+ * `.tt-counter`: five figures (EP-32 §6) in MAIN's layout (B7 #11): IN
+ * wider, a clear gap between figures, its sub-label under its own figure
+ * only, so `186` and `7` never read as `1867`. A changed figure flashes.
+ */
 export function counterStrip(c, prev = null) {
   const box = div('tt-counter');
   const figs = [
-    ['in', 'IN'],
+    ['in', 'IN', 'INTAKE + PARTNER FEEDS'],
     ['matched', 'MATCHED'],
     ['raised', 'RAISED'],
     ['pushed', 'PUSHED'],
     ['closed', 'CLOSED'],
   ];
-  for (const [k, label] of figs) {
-    const f = div(`fig${prev && prev[k] !== c[k] ? ' tt-changed' : ''}`);
-    f.append(
-      div('n', k === 'closed' && !c[k] ? '—' : String(c[k])),
-      div('k', label),
-    );
+  for (const [k, label, sub] of figs) {
+    const f = div(`fig f-${k}${prev && prev[k] !== c[k] ? ' tt-changed' : ''}`);
+    const kk = div('k', label);
+    if (sub) kk.append(span('sub', sub));
+    f.append(div('n', k === 'closed' && !c[k] ? '—' : String(c[k])), kk);
     box.append(f);
   }
-  const all = div('tt-counter-k', '(intake + partner feeds)');
-  return [box, all];
+  return [box];
 }
 
 /** A protection kicker: mono, never a colour. */

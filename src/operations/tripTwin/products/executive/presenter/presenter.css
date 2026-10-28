@@ -100,8 +100,68 @@
 .pr-clock {
   grid-column: 1 / -1;
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 18px;
+  gap: 6px 18px;
+}
+/* B7: what fires next, and the words to say (EP-20). */
+.pr-next {
+  flex: 1 0 100%;
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  font: 500 15px var(--pr-mono);
+  color: var(--pr-text);
+}
+.pr-warn {
+  flex: 1 0 100%;
+  font: 600 14px var(--pr-mono);
+  color: var(--pr-amber);
+}
+.pr-say {
+  grid-column: 1 / -1;
+}
+.pr-say p {
+  margin: 4px 0 6px;
+  font: 300 19px/1.4 var(--pr-display);
+  color: var(--pr-text);
+  -webkit-user-select: text;
+  user-select: text;
+}
+.pr-links {
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.pr-link {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--pr-border);
+  border-radius: 10px;
+}
+.pr-link-txt {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+.pr-link-txt .pr-mono {
+  font: 500 12px var(--pr-mono);
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.pr-link-txt em {
+  font: 400 12px var(--pr-mono);
+  color: var(--pr-dim);
+  font-style: normal;
+}
+.pr-link img {
+  border-radius: 6px;
+  flex: none;
 }
 .pr-beat {
   font: 500 13px var(--pr-mono);

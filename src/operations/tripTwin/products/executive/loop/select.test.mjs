@@ -16,6 +16,7 @@ import {
   selectPhone,
   selectQueue,
   selectTimeStrip,
+  selectViews,
 } from './select.js';
 import { plainBreach } from '../words.js';
 import { buildTimeline, fold, foldTo, foldToBeat } from '../timeline.js';
@@ -124,7 +125,7 @@ test('MAIN reproduces every row loop.json writes, at the moment it writes it', (
       rows += 1;
     },
   });
-  assert.equal(rows, 18);
+  assert.equal(rows, 20);
 });
 
 test('MAIN lines at the beats: counter, queue, last verified by a human, closed rows', () => {
@@ -141,7 +142,8 @@ test('MAIN lines at the beats: counter, queue, last verified by a human, closed 
     b5.counterLine,
     '214 in (intake + partner feeds) · 11 matched · 6 raised · 4 pushed · 6 closed',
   );
-  assert.equal(b5.verifiedLine, 'Last verified by a human 0058Z · VALE');
+  // B7 (R13 S1-1): the daily SITREP's signature moves it too.
+  assert.equal(b5.verifiedLine, 'Last verified by a human 0100Z · VALE');
   const daily = day.events.find((e) => e.id === 'e-0106').closed_rows;
   assert.deepEqual(
     b5.closed.map((c) => c.text),
@@ -155,12 +157,14 @@ test('the queue: a raised item waits for verification; a DETAIL item for its cou
   assert.equal(q.length, 1);
   assert.equal(q[0].sit_id, 's-atlas-01');
   assert.equal(q[0].awaiting, 'verification');
-  assert.equal(
-    q[0].overdue,
-    true,
-    'the keynote window is open and the item is unverified',
-  );
-  assert.equal(queueLine(q), 'Queue: 1 awaiting · oldest 1 min · 1 overdue');
+  // B7 (R11 S2-7): overdue is the tier's target after the raise (DETAIL
+  // 5 min), not the leg window: one minute after the raise it is not.
+  assert.equal(q[0].overdue, false, 'raised 1803Z, DETAIL target 5 min');
+  assert.equal(q[0].sla_min, 5);
+  assert.equal(queueLine(q), 'Queue: 1 awaiting · oldest 1 min');
+  const k = selectQueue(foldTo(day, '2026-10-27T15:56:00Z', TL).loop);
+  assert.equal(k[0].sit_id, 's-kestrel-01');
+  assert.equal(k[0].overdue, false, 'KESTREL is not overdue when raised');
   const cs = selectQueue(foldTo(day, '2026-10-27T18:05:30Z', TL).loop);
   assert.equal(cs[0].awaiting, 'countersign');
   assert.equal(
@@ -386,11 +390,64 @@ test('B4a MAIN rows read as the storyboard: DETAIL shows the DL answer and the D
   const r3 = selectMain(upTo('2026-10-27T22:24:00Z')).rows[0];
   assert.match(r3.word, /^NO READ 10 MIN · CALLING WREN$/);
   assert.equal(r3.tone, 'amber');
-  const r4 = selectMain(upTo('2026-10-28T00:36:00Z')).rows[0];
+  const r4 = selectMain(upTo('2026-10-27T23:58:30Z')).rows[0];
   assert.equal(r4.word, 'READ');
   assert.equal(r4.callsign, 'SWIFT 1–2');
   for (const r of [r1, r2, r3, r4]) {
     assert.equal(r.word, r.word.toUpperCase());
     assert.equal(plainBreach(r.line, { main: true }), null, r.line);
   }
+});
+
+// ------------------------------------------------------------- B7 (F1)
+
+test('B7 #1: every MAIN closed row is the situation’s close instant (closed_at), as the record writes it', () => {
+  const end = upTo('2026-10-28T01:01:00Z');
+  const m = selectMain(end);
+  assert.equal(m.closed.length, 6);
+  for (const row of m.closed) {
+    const s = Object.values(end.situations).find(
+      (x) => x.callsign === row.callsign && x.closed_at === row.closed_at,
+    );
+    assert.ok(s, `${row.text} is a closed_at`);
+    assert.notEqual(row.closed_at, s.decided_at);
+  }
+  assert.deepEqual(m.closed.map((c) => c.text).slice(0, 2), [
+    'KESTREL · CLOSED 1325Z · SITREP VALE',
+    'ATLAS · CLOSED 1358Z · SITREP VALE',
+  ]);
+});
+
+test('B7 #3: a DETAIL push is on MAIN from the push: PUSHED → DELIVERED → READ with the short line, then DL: NON-CONCUR', () => {
+  const at = (t) =>
+    selectMain(upTo(t)).rows.find((r) => r.callsign === 'ATLAS');
+  const seq = [
+    ['2026-10-27T18:08:00Z', 'PUSHED'],
+    ['2026-10-27T18:08:30Z', 'DELIVERED'],
+    ['2026-10-27T18:09:30Z', 'READ'],
+    ['2026-10-27T18:14:00Z', 'DL: NON-CONCUR'],
+  ];
+  for (const [t, word] of seq) {
+    const r = at(t);
+    assert.ok(r, `ATLAS on MAIN at ${t}`);
+    assert.equal(r.word, word, t);
+    assert.notEqual(r.line, r.bluf, `${t}: never the watch BLUF`);
+  }
+  assert.equal(at('2026-10-27T18:09:30Z').line, 'Recommendation to DL');
+  assert.equal(
+    at('2026-10-27T18:09:30Z').text,
+    'ATLAS · Keynote 1930L · Recommendation to DL · READ · next update 1915L',
+  );
+});
+
+test('B7 #14: selectViews lists the client viewer’s opens, per situation or the daily record', () => {
+  const end = upTo('2026-10-28T01:01:00Z');
+  const atlas = selectViews(end, 's-atlas-01');
+  assert.equal(atlas.length, 1);
+  assert.equal(atlas[0].callsign, 'OSPREY');
+  assert.equal(atlas[0].at, '2026-10-27T18:04:00Z');
+  assert.equal(selectViews(end, 'daily').length, 1);
+  assert.equal(selectViews(end).length, 7);
+  const wren = selectViews(end, 's-wren-01')[0];
+  assert.equal(wren.at, '2026-10-27T22:19:00Z', 'one opened late');
 });

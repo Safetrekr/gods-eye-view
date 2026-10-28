@@ -85,6 +85,31 @@ export function timeStrip(at) {
   return `${parts.join(' · ')} · ${watchTime(at)}`;
 }
 
+/**
+ * B7 (reviews R11 S2-6, R12 #7, R18 #3): one way to count the people on
+ * watch, for MAIN's brief and the roster alike. A detail's leader and
+ * agents are counted beside the protectees they cover, never as more
+ * DETAIL protectees: `DETAIL 2 (+5 AGENTS) · REMOTE 1 · MONITORED 32 ·
+ * 40 ON WATCH`. → {total, detail, agents, remote, monitored, line}
+ */
+export function postureCounts(people = {}, details = {}) {
+  const crew = new Set();
+  for (const d of Object.values(details || {}))
+    for (const id of [d.leader, ...(d.agents || [])]) if (id) crew.add(id);
+  const all = Object.values(people || {});
+  const n = (k) =>
+    all.filter((p) => p.protection === k && !crew.has(p.id)).length;
+  const out = {
+    total: all.length,
+    detail: n('DETAIL'),
+    agents: all.filter((p) => crew.has(p.id)).length,
+    remote: n('REMOTE'),
+    monitored: n('MONITORED'),
+  };
+  out.line = `DETAIL ${out.detail}${out.agents ? ` (+${out.agents} AGENTS)` : ''} · REMOTE ${out.remote} · MONITORED ${out.monitored} · ${out.total} ON WATCH`;
+  return out;
+}
+
 /** MAIN's beat-0 brief (EP-36 §2.2): callsign, protection, city, leg. */
 export function briefOf(day) {
   const b = day?.brief;
@@ -107,12 +132,20 @@ export function briefOf(day) {
     );
   }
   const prot = b.protection || {};
+  const c = postureCounts(day.people, day.details);
+  // The roster's own brief counts protectees; the people agree with it.
+  const agrees = ['DETAIL', 'REMOTE', 'MONITORED'].every(
+    (k) => (prot[k] ?? 0) === c[k.toLowerCase()],
+  );
   return {
     sample: true,
     header: `DAILY BRIEF ${watchTime(b.at)} · ${b.legs_today} LEGS TODAY`,
-    counts: ['DETAIL', 'REMOTE', 'MONITORED']
-      .map((k) => `${k} ${prot[k] ?? 0}`)
-      .join(' · '),
+    counts: agrees
+      ? c.line
+      : ['DETAIL', 'REMOTE', 'MONITORED']
+          .map((k) => `${k} ${prot[k] ?? 0}`)
+          .join(' · '),
+    posture: c,
     rows,
   };
 }
@@ -178,11 +211,55 @@ function activeOnMain(loop) {
     .sort(byExposure(loop));
 }
 
+/** A hazard area's label on MAIN: a fixed word, never the intel's text. */
+const AREA_LABEL = (b) =>
+  /storm|thunder/.test(String(b?.event_type || ''))
+    ? 'Storm line'
+    : b?.category === 'weather'
+      ? 'Weather area'
+      : 'Hazard area';
+
+/**
+ * The posts on a situation, geometry and callsigns only (B7, F2 S2): the
+ * advance where its SALUTE was filed, and a post a detail member took up
+ * (ATLAS 4's +1 post) until he stands it down.
+ */
+function postsOf(loop, s) {
+  const out = [];
+  for (const id of s.salute_ids || []) {
+    const sal = loop.salutes[id];
+    const at = sal?.location;
+    if (at?.lat != null)
+      out.push({
+        label: `${loop.people[sal.person_id]?.callsign ?? ''} · advance`,
+        lat: at.lat,
+        lon: at.lon,
+      });
+  }
+  const held = new Map();
+  for (const c of loop.checkins || []) {
+    if (c.sit_id !== s.sit_id) continue;
+    if (c.post?.lat != null) held.set(c.person_id, c.post);
+    else if (c.status === 'post_released') held.delete(c.person_id);
+  }
+  for (const [pid, at] of held)
+    out.push({
+      label: `${loop.people[pid]?.callsign ?? ''} · +1 post`,
+      lat: at.lat,
+      lon: at.lon,
+    });
+  return out;
+}
+
 /**
  * Where MAIN's map goes (EP-31 §2: "the map follows the top row's site:
  * the leg, the named entrance, the person"). Null when nothing is active.
+ * B7 (fix list #12, F2 S2): with `geo` (geoOf), the leg's origin and the
+ * route driven on it, the situation's hazard polygon, the venue's
+ * entrances and the posts. Geometry, place names and callsigns only:
+ * never a person's name or the intel's text.
  */
-export function mainScene(loop) {
+export function mainScene(loop, geo = null) {
   const s = activeOnMain(loop)[0];
   if (!s) return null;
   const leg = loop.legs[s.leg_id];
@@ -207,6 +284,29 @@ export function mainScene(loop) {
       fix && fix.precision === 'point'
         ? { lat: fix.lat, lon: fix.lon, at: fix.at }
         : null,
+    origin:
+      leg?.origin?.lat != null
+        ? { name: leg.origin.name, lat: leg.origin.lat, lon: leg.origin.lon }
+        : null,
+    route:
+      (geo?.paths || []).find((p) => p.leg_id === s.leg_id && !p.planned)
+        ?.coords ?? null,
+    areas: (s.intel_ids || [])
+      .map((id) => loop.intel[id])
+      .filter((b) => b?.hazard_area && b.geo?.polygon?.length > 2)
+      .map((b) => ({
+        kind: 'weather',
+        name: AREA_LABEL(b),
+        label: AREA_LABEL(b),
+        polygon: b.geo.polygon,
+      })),
+    entrances: (pl?.entrances || []).map((e) => ({
+      name: e.name,
+      side: e.side ?? null,
+      lat: e.lat,
+      lon: e.lon,
+    })),
+    posts: postsOf(loop, s),
   };
 }
 

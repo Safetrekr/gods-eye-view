@@ -100,7 +100,7 @@ export function sitrepNode(s, { body = true } = {}) {
     h(
       'div',
       `rc-sitrep-sig${cur.signedAt ? '' : ' amber'}`,
-      `${cur.signed}${cur.drafted ? ` · ${cur.drafted}` : ''}`,
+      `${cur.drafted ? `${cur.drafted} · ` : ''}${cur.signed}`,
     ),
   );
 }
@@ -219,21 +219,35 @@ export function situationNode(s, record, { variant = 'desk' } = {}) {
         'RECOMMENDATION',
         rec
           ? [
+              // The authority's instruction first, ours subordinate (B7 #10).
+              rec.subordinate
+                ? h(
+                    'div',
+                    'rc-line rc-official',
+                    h('span', 'rc-mono', 'OFFICIAL '),
+                    `${rec.official} · our recommendation is subordinate`,
+                  )
+                : null,
+              rec.detail ? h('div', 'rc-line rc-dim', rec.kicker) : null,
               h('div', 'rc-bluf', rec.bluf),
+              // A DETAIL push: no ACTION, no ACK (B7 #8).
               h(
                 'div',
                 'rc-line rc-mono',
-                `${rec.action} · BY ${rec.by} · VALID UNTIL ${rec.validUntil}`,
+                `${rec.action ? `${rec.action} · ` : ''}BY ${rec.by} · VALID UNTIL ${rec.validUntil}`,
               ),
               h('div', 'rc-line', `TO ${rec.to}`),
               rec.request
                 ? h('div', 'rc-line', `REQUEST ${rec.request}`)
                 : null,
+              rec.detail && rec.reply
+                ? h('div', 'rc-line', `REPLY ${rec.reply}`)
+                : null,
               variant !== 'wall'
                 ? h(
                     'div',
                     'rc-line rc-dim',
-                    `v${rec.version} · drafted by ${rec.draftedBy}${rec.approved ? ` · approved ${rec.approved}` : ''} · official instruction: ${rec.official}`,
+                    `v${rec.version} · draft ${rec.draftedBy === 'system' ? 'by the system' : `by ${rec.draftedBy}`}${rec.approved ? ` · approved ${rec.approved}` : ''}${rec.subordinate ? '' : ` · ${rec.official.replace(/^No official/, 'no official')}`}`,
                   )
                 : null,
             ]
@@ -399,13 +413,15 @@ export function situationNode(s, record, { variant = 'desk' } = {}) {
       h(
         'div',
         'rc-cols',
-        h('div', 'rc-col', groups.raised, groups.followed[2]),
-        h('div', 'rc-col', groups.decided),
+        // One slot order on every surface (R14 S2-5): raised → decided →
+        // followed → CLOSED → SEEN BY, read down the three columns.
+        h('div', 'rc-col', groups.raised, groups.decided.slice(0, 2)),
+        h('div', 'rc-col', groups.decided.slice(2), groups.followed[0]),
         h(
           'div',
           'rc-col',
-          groups.followed.slice(0, 2),
-          accessNode(s, record, { compact: true }),
+          groups.followed.slice(1),
+          slot('SEEN BY', accessNode(s, record, { compact: true }), 'rc-seen'),
         ),
       ),
     );
@@ -442,7 +458,10 @@ export function timelineNode(s) {
 }
 
 /** The day summary: the counter, counted from the record, reconciled. */
-export function summaryNode(record, { compact = false } = {}) {
+export function summaryNode(
+  record,
+  { compact = false, reconcile = true } = {},
+) {
   const c = record.summary.counter;
   const k = record.summary.counted;
   const figs = [
@@ -467,13 +486,15 @@ export function summaryNode(record, { compact = false } = {}) {
         ),
       ),
     ),
-    h(
-      'div',
-      `rc-line rc-mono${record.summary.reconciled ? '' : ' amber'}`,
-      record.summary.reconciled
-        ? `Counted from this record: ${k.in} · ${k.matched} · ${k.raised} · ${k.pushed} · ${k.closed}. Matches the close counter.`
-        : `Does not match the close counter: ${record.summary.mismatches.join(', ')}`,
-    ),
+    !reconcile && record.summary.reconciled
+      ? null
+      : h(
+          'div',
+          `rc-line rc-mono${record.summary.reconciled ? '' : ' amber'}`,
+          record.summary.reconciled
+            ? `Counted from this record: ${k.in} · ${k.matched} · ${k.raised} · ${k.pushed} · ${k.closed}. Matches the close counter.`
+            : `Does not match the close counter: ${record.summary.mismatches.join(', ')}`,
+        ),
     compact
       ? null
       : h(

@@ -32,7 +32,8 @@ const must = (cond, msg) => {
   if (!cond) throw new Error(msg);
 };
 
-const PORT = 4196;
+// --port (B7: one isolated port for every capture), else the default.
+const PORT = Number(arg('port', 4196));
 const OUT = path.resolve(
   arg('out') ||
     path.join(ROOT, '..', 'plans', 'trip-twin', 'executive', 'review', 'b5'),
@@ -193,7 +194,11 @@ async function main() {
     }
 
     let n = 0;
-    async function shot(pid, name, { screen = null, contains = [] } = {}) {
+    async function shot(
+      pid,
+      name,
+      { screen = null, contains = [], lacks = [] } = {},
+    ) {
       const { page } = pages[pid];
       await page.bringToFront();
       if (screen)
@@ -219,6 +224,7 @@ async function main() {
         sample: /SAMPLE/.test(text),
         leaks: bad,
         missing: contains.filter((c) => !text.includes(c)),
+        present: lacks.filter((c) => text.includes(c)),
       };
       checks.push(row);
       must(row.sample, `${label}: no SAMPLE on screen`);
@@ -228,6 +234,7 @@ async function main() {
         `${label}: screen ${got}, expected ${screen}`,
       );
       must(!row.missing.length, `${label}: missing ${row.missing.join(' | ')}`);
+      must(!row.present.length, `${label}: shows ${row.present.join(' | ')}`);
       shots.push({ name: label, file });
       console.log(`  ${label} · ${got}`);
     }
@@ -289,10 +296,12 @@ async function main() {
     await jump('2026-10-27T18:08:20Z');
     await shot('p-atlas6', 'atlas6-takeover', {
       screen: 'takeover',
+      // B7 #6: the kicker from the item, amber, never CRITICAL.
       contains: [
-        'UNCONFIRMED · F3 · SAMPLE',
+        'UNCONFIRMED · F3 · RECOMMENDATION · SAMPLE',
         'Watch recommendation · Keynote 1930L',
       ],
+      lacks: ['CRITICAL'],
     });
     await click('p-atlas6', 'open-push-atlas-01');
     await settle(
@@ -304,6 +313,9 @@ async function main() {
       contains: [
         'Recommend delay departure 20 min',
         'REQUEST',
+        // B7 #7 and #8: no answer before the SALUTE; no ACTION line.
+        "Your advance's SALUTE is not filed yet",
+        'Recommendation · your decision',
         'Concur',
         'Non-concur',
         'Executing',
@@ -394,7 +406,17 @@ async function main() {
 
     // ---------------------------------------------- beat 4 · SWIFT
     await loop({ type: 'beat.go', n: 4 });
-    await jump('2026-10-28T00:35:30Z');
+    await jump(
+      new Date(
+        Date.parse(
+          day.events.find(
+            (e) => e.type === 'push.send' && e.push_id === 'push-swift-01',
+          ).at,
+        ) + 30e3,
+      )
+        .toISOString()
+        .replace('.000Z', 'Z'),
+    );
     await shot('p-swift1', 'swift-push', {
       screen: 'lock',
       contains: ['Advisory · Hotel → IAD 2030L'],

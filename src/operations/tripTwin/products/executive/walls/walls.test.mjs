@@ -38,7 +38,7 @@ const SHOWCASE = {
   1: '2026-10-27T16:12:00Z',
   2: '2026-10-27T18:25:00Z',
   3: '2026-10-27T22:24:00Z',
-  4: '2026-10-28T00:36:00Z',
+  4: '2026-10-27T23:58:30Z', // B7 #15: SWIFT advisory 2357Z, read 2358Z
   5: '2026-10-28T01:00:00Z',
 };
 const NAMES = [
@@ -116,7 +116,8 @@ test('B3 MAIN: the brief at beat 0, then the beat’s decision row; nothing but 
     ],
     [214, 11, 6, 4, 6],
   );
-  assert.match(m5.verified, /^Last verified by a human 0058Z · VALE$/);
+  // B7 #5 (F1): the stamp moves on the daily SITREP's signature too.
+  assert.match(m5.verified, /^Last verified by a human (0058Z|0100Z) · VALE$/);
   assert.equal(
     timeStrip(SHOWCASE[0]),
     'AUSTIN 0930L · DC 1030L · LONDON 1430L · 1430Z',
@@ -276,4 +277,61 @@ test('B4a roster map: each city dot at its true projected place; every leader en
   // The land outline is real geography: a path with many rings.
   const d = landPath(proj);
   assert.ok((d.match(/M/g) || []).length > 50);
+});
+
+test('B7 Verify: a DETAIL recommendation is the leader’s decision (no ACTION, no ACK); WHERE/TO; the watch’s acknowledgement; no truncation', () => {
+  const v = views(beats[2].loop, beats[2].lh).verify;
+  const r = v.card.rec;
+  assert.equal(r.detail, true);
+  assert.equal(r.action, null);
+  const keys = r.rows.map(([k]) => k);
+  assert.ok(!keys.includes('ACK') && !keys.includes('TO WHOM'), keys.join());
+  assert.equal(
+    r.rows.find(([k]) => k === 'REPLY')[1],
+    'Concur / Non-concur / Executing / Request support',
+  );
+  assert.equal(r.rows.find(([k]) => k === 'WHERE')[1], 'Belvedere Rd entrance');
+  assert.match(r.rows.find(([k]) => k === 'TO')[1], /^ATLAS 6/);
+  assert.ok(
+    v.card.answers.some((a) =>
+      /^WATCH 1815Z · VALE \/ ORTEGA · Acknowledged\. Monitoring/.test(a),
+    ),
+  );
+  assert.ok(!v.card.tags.some((t) => t.text === 'HUMAN'));
+  assert.ok(!JSON.stringify(v).includes('…'), 'nothing truncates');
+});
+
+test('B7 Verify at beat 1: the OFFICIAL instruction above ours, ours subordinate', () => {
+  const r = views(beats[1].loop, beats[1].lh).verify.card.rec;
+  assert.ok(r.official.some((l) => /W Riverside Dr/.test(l)));
+  assert.equal(r.subordinate, true);
+  assert.equal(r.action, 'Reroute');
+});
+
+test('B7 Principal: hatched closure ≤ 150 m; after NON-CONCUR the DL’s door is the focus and Belvedere is superseded; SWIFT draws the storm line', () => {
+  const o1 = views(beats[1].loop, beats[1].lh).overlay;
+  for (const a of o1.areas.filter((x) => x.kind === 'closure'))
+    assert.ok(a.r <= 150);
+  const o2 = views(beats[2].loop, beats[2].lh).overlay;
+  assert.equal(o2.focusEntrance, 'north door');
+  assert.equal(
+    o2.entrances.find((e) => e.name === 'Belvedere Rd entrance').superseded,
+    true,
+  );
+  const v4 = views(beats[4].loop, beats[4].lh);
+  if (v4.principal.flat && v4.principal.person_id === 'p-swift1')
+    assert.ok(v4.overlay.areas.some((a) => a.polygon?.length > 2));
+});
+
+test('B7 Roster by trip: Z first; the principal with a detail shows its comms check; the detail is not stale', () => {
+  const { loop, lh } = beats[2];
+  const t = views(loop, lh).trips;
+  for (const c of t.cards) assert.match(c.clock, /^\d{4}Z$/);
+  const atlas = t.cards.find((c) => c.callsign === 'ATLAS');
+  if (atlas) assert.match(atlas.checkin, /^comms check /);
+  const ro = views(loop, lh).roster;
+  const marks = ro.cities.flatMap((c) => c.people);
+  const det = marks.filter((m) => m.protection === 'DETAIL');
+  assert.ok(det.length);
+  assert.ok(det.some((m) => m.fresh === 'fresh' || m.fresh === 'aging'));
 });

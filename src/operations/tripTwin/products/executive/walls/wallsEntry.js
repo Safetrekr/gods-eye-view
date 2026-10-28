@@ -145,8 +145,10 @@ installTap(onMessage);
 // ------------------------------------------------------------ the header
 function renderHeader() {
   const t = simNow();
-  const paused = clock?.paused;
-  const rest = `· ACCELERATED${paused ? ' · PAUSED' : ''}`;
+  // On stage the chip says the clock is sample and how fast it runs; PAUSED
+  // is for the presenter and the desk only (R15 S2-4).
+  const rate = Number(clock?.rate);
+  const rest = `· ACCELERATED${rate > 1 ? ` ×${rate}` : ''}`;
   if (role === 'main') {
     // MAIN reads SAMPLE from the back of the room (EP-52: 10 m tier).
     if (chip.dataset.k !== rest) {
@@ -207,9 +209,20 @@ function render() {
     if (scene) {
       if (v.map.mode === '3d') {
         scene.site(v.map.site);
+        const dl = v.map.dl;
         scene.draw({
-          entrances: sc.entrance ? [sc.entrance] : [],
-          focusEntrance: sc.entrance?.name,
+          // After a DL NON-CONCUR: his door and the posts, the watch's
+          // entrance greyed as superseded (F2 S2).
+          entrances: dl
+            ? [
+                ...(dl.door ? [dl.door] : []),
+                ...(sc.entrance ? [{ ...sc.entrance, superseded: true }] : []),
+              ]
+            : sc.entrance
+              ? [sc.entrance]
+              : [],
+          posts: dl && Array.isArray(sc.posts) ? sc.posts : [],
+          focusEntrance: dl ? dl.door?.name : sc.entrance?.name,
           // The person only when near the venue (a fix in another city is
           // not this site's: depth-test-free marks would show through).
           marks:
@@ -232,14 +245,19 @@ function render() {
     }
     body.dataset.exPaths = '0';
   } else if (!loop) return;
-  else if (role === 'verify') renderVerify(stageIn, verifyView(loop));
-  else if (role === 'intel') {
+  else if (role === 'verify') {
+    const vv = verifyView(loop);
+    renderVerify(stageIn, vv);
+    // A wall showing the record is labelled Record (R14 S2-8).
+    roleN.textContent = vv.record ? 'Record' : ROLE_NAMES.verify;
+  } else if (role === 'intel') {
     const v = intelView(loop);
     renderIntel(stageIn, v, { prevCounter });
     prevCounter = v.counter;
-  } else if (role === 'roster') renderRoster(stageIn, rosterView(loop, CITIES));
+  } else if (role === 'roster')
+    renderRoster(stageIn, rosterView(loop, CITIES, { at: t }));
   else if (role === 'trips')
-    renderTrips(stageIn, tripsView(loop, geo?.trips || []));
+    renderTrips(stageIn, tripsView(loop, geo?.trips || [], { at: t }));
   else if (role === 'principal') {
     const v = principalView(loop, geo);
     const o = principalOverlay(loop, geo, v);
@@ -260,7 +278,8 @@ function render() {
         scene.site(v.site);
         scene.draw({
           ...o,
-          focusEntrance: v.rec?.rows.find(([k]) => k === 'TO')?.[1],
+          focusEntrance:
+            o.focusEntrance ?? v.rec?.rows.find(([k]) => k === 'WHERE')?.[1],
         });
       } else scene.clear();
     }

@@ -937,8 +937,45 @@ export function buildDay(texts) {
       .find((parts) => parts.length >= 4 && !parts[2].startsWith('DL:'));
     if (row) d.main_short = row[2];
   }
+  // B7 (review R13 S2-5): a watch reply signed `VALE / ORTEGA` carries
+  // ORTEGA's own countersign event, at the same instant, right after it.
+  const withCountersigns = loopEvents.flatMap((e) =>
+    e.type === 'message.send' && e.countersigned_by
+      ? [
+          e,
+          {
+            id: `${e.id}-cs`,
+            sample: true,
+            at: e.at,
+            tz: e.tz,
+            beat: e.beat,
+            by: byOf(e.countersigned_by),
+            via: 'script',
+            type: 'message.countersign',
+            sit_id: e.sit_id,
+            message_id: e.id,
+          },
+        ]
+      : [e],
+  );
+  // B7 (fix list #14): the client viewer's opens are events, not derived.
+  const views = (L.record_views || []).map((v) =>
+    compact({
+      id: `e-view-${v.id.replace(/^rv-/, '')}`,
+      sample: true,
+      at: isoZ(v.at),
+      by: v.who,
+      via: 'script',
+      type: 'record.view',
+      record: v.record,
+      sit_id: v.sit_id || undefined,
+      sitrep_id: v.sitrep_id || undefined,
+      surface: v.via,
+    }),
+  );
   const events = [
-    ...loopEvents,
+    ...withCountersigns,
+    ...views,
     ...morning,
     ...decisionEvents(M, mirrored),
     ...movementEvents(V, superseded),

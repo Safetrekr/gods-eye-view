@@ -147,14 +147,14 @@
   font-size: 13px;
 }
 .pr-cover {
-  padding: 8mm 0 4mm;
+  padding: 3mm 0 2mm;
 }
 .pr-h1 {
   font:
     200 40px/1.1 Manrope,
     Inter,
     sans-serif;
-  margin: 10mm 0 2mm;
+  margin: 5mm 0 2mm;
 }
 .pr-h2 {
   font:
@@ -174,7 +174,7 @@
 }
 .pr-brief-row {
   display: grid;
-  grid-template-columns: 32px 74px 108px 104px minmax(0, 1fr) 130px;
+  grid-template-columns: 32px 74px 108px 104px minmax(0, 1fr) 150px;
   gap: 6px;
   align-items: baseline;
   padding: 3px 0;
@@ -206,9 +206,9 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 4mm 0 5mm;
+  padding: 3mm 0 4mm;
   border-bottom: 2px solid #000;
-  margin-bottom: 8mm;
+  margin-bottom: 5mm;
 }
 .wl-mark {
   width: 22mm;
@@ -247,8 +247,8 @@
 .wl-blocks {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 7mm 10mm;
-  margin-top: 7mm;
+  gap: 4mm 10mm;
+  margin-top: 4mm;
 }
 .wl-block {
   border-top: 1px solid #000;
@@ -260,7 +260,7 @@
 }
 .wl-item {
   font:
-    400 13px/1.45 Inter,
+    400 12px/1.4 Inter,
     sans-serif;
   margin: 0 0 2mm;
 }
@@ -309,4 +309,43 @@
 }
 .rc-print .rc-seen .rc-access .rc-k {
   break-after: avoid;
+}
+
+/* B7 #16: the ask on the cover and the white-label page; the pilot. */
+.pr-ask {
+  border: 1.5px solid #000;
+  padding: 3mm 4mm;
+  margin: 2mm 0 5mm;
+}
+.pr-ask-line {
+  font:
+    300 16px/1.35 Manrope,
+    Inter,
+    sans-serif;
+  margin: 1mm 0 2mm;
+}
+.pr-ask-contact {
+  font-size: 12px;
+  font-weight: 600;
+}
+.pr-pilot {
+  border-top: 2px solid #000;
+  padding-top: 3mm;
+  margin-top: 5mm;
+}
+.pr-pilot-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6mm;
+  margin: 2mm 0 3mm;
+}
+.pr-pilot-k {
+  font:
+    600 12px/1.4 Inter,
+    sans-serif;
+  margin-bottom: 1mm;
+}
+.pr-pilot .rc-line {
+  font-size: 11.5px;
+  line-height: 1.4;
 }

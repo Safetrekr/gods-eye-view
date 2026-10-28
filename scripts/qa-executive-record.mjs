@@ -35,7 +35,8 @@ const must = (cond, msg) => {
   if (!cond) throw new Error(msg);
 };
 
-const PORT = 4194;
+// --port (B7: one isolated port for every capture), else the default.
+const PORT = Number(arg('port', 4194));
 const OUT = path.resolve(
   arg('out') ||
     path.join(ROOT, '..', 'plans', 'trip-twin', 'executive', 'review', 'b6'),
@@ -180,6 +181,12 @@ async function main() {
       callsignsOnly: NAMES.every((n) => !wt.includes(n)),
       noOverclaim: !/no one else/i.test(wt),
       fits: wallFit,
+      // B7: the wall says Record; the lead is labelled, not "opened".
+      recordLabel: await wall.evaluate(
+        () => document.querySelector('.ex-role')?.textContent === 'Record',
+      ),
+      viewerLabel: /OSPREY · viewing/.test(wt) && !/OSPREY · opened/.test(wt),
+      seenBy: /SEEN BY/.test(wt),
     });
 
     // 2. The desk: the Record card (K) on ATLAS, then the day (K, none).
@@ -207,6 +214,11 @@ async function main() {
         'CLOSED',
       ].every((k) => dt.includes(k)),
       accessLog: /ACCESS LOG/.test(dt),
+      // B7 #14, #8: the lead labelled; the DETAIL recommendation, no ACTION.
+      viewer: /OSPREY \(your security lead\) · viewing/.test(dt),
+      dlReply:
+        /REPLY Concur \/ Non-concur \/ Executing \/ Request support/.test(dt),
+      noHoldOrder: !/HOLD \+ REROUTE/.test(dt),
       timeline: /TIMELINE · Z first, local beside/.test(dt),
       noOverclaim: !/no one else/i.test(dt),
     });
@@ -258,6 +270,12 @@ async function main() {
         reconciled: document.body.dataset.recordReconciled === 'true',
       }));
       const text = await visibleText(pr);
+      const cover = await pr.evaluate(
+        () => document.querySelector('section.pg')?.textContent || '',
+      );
+      const white = await pr.evaluate(
+        () => document.querySelector('section.pg-white')?.textContent || '',
+      );
       const file = path.join(
         OUT,
         paper === 'a4' ? 'leave-behind.pdf' : 'leave-behind-letter.pdf',
@@ -285,6 +303,26 @@ async function main() {
           ),
           noOverclaim: !/no one else/i.test(text),
           zFirst: /1803Z \(1803L\)/.test(text),
+          // B7 #16 and #10.
+          askOnCover:
+            cover.includes("We'd like a conversation") &&
+            cover.includes('mike@safetrekr.com · 903.805.9225'),
+          askOnWhiteLabel:
+            white.includes("We'd like a conversation") &&
+            white.includes('mike@safetrekr.com · 903.805.9225'),
+          pilot: /THE TWO-WEEK PILOT/.test(white),
+          noBuildNotes:
+            !/Counted from this record/.test(cover) &&
+            !/from the live loop/.test(cover),
+          noPlaceholders:
+            !/\[price\]|\[contact name\]|\[number\]|\[your SafeTrekr contact\]|\[INSERT\]/i.test(
+              text,
+            ),
+          noPrice: !/\bprice\b|pricing/i.test(text),
+          officialText:
+            !/oi-austin-road-closure-01/.test(text) &&
+            /OFFICIAL Road closure · W Riverside Dr/.test(text),
+          noDraftedSystem: !/drafted system|drafted by system/.test(text),
         },
         { pages, overflow: facts.overflow },
       );

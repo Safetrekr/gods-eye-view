@@ -318,6 +318,9 @@ body[data-ex-role='main'] .ex-bar-in {
   flex: 1;
   min-width: 0;
 }
+.tt-rung.wide {
+  flex: 1.7;
+}
 .tt-rung .bar {
   height: 3px;
   border-radius: 2px;
@@ -392,6 +395,39 @@ body[data-ex-role='main'] .ex-bar-in {
   font: 300 20px/1.25 var(--tt-display);
   margin: 4px 0 6px;
 }
+.tt-rec-official {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font:
+    400 13px/1.4 Inter,
+    sans-serif;
+  color: var(--tt-text);
+  border: 1px solid var(--tt-edge-ctl);
+  border-radius: 4px;
+  padding: 4px 8px;
+  margin: 2px 0 8px;
+}
+.tt-rec-official .k {
+  font: 600 11px var(--tt-mono);
+  letter-spacing: 0.14em;
+  flex: none;
+}
+.tt-rec-acts {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.tt-rec-sub {
+  font: 500 11px var(--tt-mono);
+  letter-spacing: 0.08em;
+  color: var(--tt-text-dim);
+}
+.tt-watch-ack {
+  font: 500 12px/1.35 var(--tt-mono);
+  color: var(--tt-text-2);
+  margin-top: 6px;
+}
 .tt-rec-action {
   display: inline-block;
   font: 600 12px var(--tt-mono);
@@ -408,14 +444,14 @@ body[data-ex-role='main'] .ex-bar-in {
   margin: 4px 0;
 }
 .tt-rec-rows dt {
-  font: 600 10.5px/1.6 var(--tt-mono);
+  font: 600 10.5px/1.45 var(--tt-mono);
   letter-spacing: 0.1em;
   color: var(--tt-text-dim);
 }
 .tt-rec-rows dd {
   margin: 0;
   font:
-    400 13px/1.45 Inter,
+    400 13px/1.32 Inter,
     sans-serif;
   color: var(--tt-text);
 }
@@ -429,9 +465,16 @@ body[data-ex-role='main'] .ex-bar-in {
 }
 .tt-counter {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
+  /* MAIN's counter layout (B7 #11): IN wider, a full figure gap. */
+  grid-template-columns: minmax(0, 1.7fr) repeat(4, minmax(0, 1fr));
+  column-gap: 18px;
   margin: 6px 0;
+}
+.tt-counter .k .sub {
+  display: block;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  margin-top: 2px;
 }
 .tt-counter .n {
   font: 200 30px/1 var(--tt-display);
@@ -696,6 +739,34 @@ body[data-ex-role='main'] .ex-clock {
 .exm-venue .label.place-l {
   font: 300 34px var(--tt-display);
 }
+.exm-venue .route,
+.ex-flat-svg .route {
+  fill: none;
+  stroke: var(--tt-path);
+  stroke-width: 6;
+  stroke-linejoin: round;
+}
+.ex-flat-svg .route {
+  stroke-width: 4;
+}
+/* A hazard area: hatched, hairline edge, neutral steel (EP-32 §2.5). */
+.exm-venue .area,
+.ex-flat-svg .area {
+  stroke: rgba(184, 195, 199, 0.7);
+  stroke-width: 1.5;
+}
+.exm-venue .hatch,
+.ex-flat-svg .hatch {
+  stroke: rgba(184, 195, 199, 0.32);
+  stroke-width: 2;
+}
+.exm-venue .label.area-l,
+.ex-flat-svg .label.area-l {
+  fill: var(--tt-text-2);
+}
+.exm-venue .label.area-l {
+  font: 500 24px var(--tt-mono);
+}
 .exm-world {
   position: absolute;
   inset: 0;
@@ -922,10 +993,10 @@ body[data-ex-role='verify'] .ex-stage-in {
   color: var(--tt-text);
 }
 .tt-ev-check .row .v {
+  /* Nothing truncates on a wall (EP-36 §4): the value wraps. */
   color: var(--tt-text-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .tt-ev-src {
   margin-top: 8px;
@@ -1008,9 +1079,7 @@ body[data-ex-role='intel'] .ex-stage-in {
     400 12px Inter,
     sans-serif;
   color: var(--tt-text-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
 }
 .tt-feed-row .body .t {
   font:
@@ -1202,9 +1271,14 @@ body[data-ex-role='roster'] .ex-stage-in {
   border-radius: 50%;
   background: var(--tt-text);
 }
+/* DETAIL: a square plate, whatever its freshness ring (R12 S2-7). */
 .tt-mark.prot-detail .glyph {
   border-radius: 2px;
   border-width: 1px;
+  background: rgba(238, 245, 243, 0.16);
+}
+.tt-mark.prot-detail .dot {
+  border-radius: 1px;
 }
 .tt-mark.prot-remote .glyph {
   box-shadow: 0 0 0 3px rgba(238, 245, 243, 0.14);
@@ -1243,8 +1317,7 @@ body[data-ex-role='roster'] .ex-stage-in {
 }
 .tt-mark .cs {
   font: 600 11px var(--tt-mono);
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .tt-mark.agent .cs {
   color: var(--tt-text-2);
@@ -1337,9 +1410,8 @@ body[data-ex-role='trips'] .ex-stage-in {
   border-top: 1px solid var(--tt-hair);
 }
 .ex-legrow .t {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  min-width: 0;
 }
 .ex-legrow.done {
   color: var(--tt-text-dim);

@@ -480,6 +480,10 @@ export function createLoopHost({
         const to = ms(cmd.to);
         if (to < sim) return no(EXEC_CODE.I12_TIME);
         advance(Math.min(to, endMs), true);
+        // B7 (review R19 S2-3): the jump takes the rate of where it lands
+        // and clears a checkpoint hold, as beat.go does.
+        clock.rate = rateAt(Math.min(to, endMs));
+        clock.held = null;
         anchor(Math.min(to, endMs), real);
         return done({
           events: ['clock.jump'],
@@ -535,22 +539,27 @@ export function createLoopHost({
             }
         if (pi < 0) return no(EXEC_CODE.NO_CHECKPOINT);
         const c = cps[pi];
+        // B7 (review R19 S1-1): never before the beat's anchor (beat 0's
+        // checkpoint folds from 1200Z; Previous lands at the brief, 1430Z),
+        // and the rate is the one that holds there.
+        const a = beats[c.beat] != null ? ms(beats[c.beat]) : -Infinity;
+        const target = Math.max(c.f, a);
         if (!confirmed)
           return askFor(
             cmd,
             by,
-            `Back to beat ${c.beat}, ${lz(c.f, tzOfBeat(c.beat))}? Live desk actions after it are set aside.`,
+            `Back to beat ${c.beat}, ${lz(target, tzOfBeat(c.beat))}? Live desk actions after it are set aside.`,
             real,
           );
-        rederive(c.f);
-        jump(c.f);
-        clock.rate = c.rate;
+        rederive(target);
+        jump(target);
+        clock.rate = rateAt(target);
         clock.paused = true;
         clock.held = null;
-        anchor(c.f, real);
+        anchor(target, real);
         return done({
           events: ['reset', 'clock.jump'],
-          beat: { from: iso(sim), to: iso(c.f), how: 'previous' },
+          beat: { from: iso(sim), to: iso(target), how: 'previous' },
         });
       }
       case 'reset': {
@@ -751,6 +760,21 @@ export function createLoopHost({
    */
   function applyLive(fields, { by, via, device = null, from, real = now() }) {
     tick(real);
+    // B7 (fix list #7, review R16 S1-1): when the push asks the detail for
+    // its advance's report, the leader's NON-CONCUR waits for that SALUTE,
+    // so the record never carries an answer older than its evidence.
+    if (from === 'phone' && fields.type === 'dl.respond') {
+      const p = loop.pushes[fields.push_id];
+      const rec = p && loop.recommendations[p.recommendation_id];
+      const sit = p && loop.situations[p.sit_id];
+      if (
+        fields.answer === 'nonconcur' &&
+        rec?.request &&
+        sit &&
+        !(sit.salute_ids || []).length
+      )
+        return { ok: false, code: EXEC_CODE.SALUTE_FIRST };
+    }
     const cp =
       from === 'phone' && PHONE_EVENTS.includes(fields.type)
         ? counterpart(fields)
@@ -962,6 +986,8 @@ export function createLoopHost({
           m.fields.step = intent.step ?? (last ? last + 1 : cb.step);
           m.fields.outcome = intent.outcome ?? 'call placed';
         } else if (intent.outcome) m.fields.outcome = intent.outcome;
+        if (intent.countersigned_by)
+          m.fields.countersigned_by = intent.countersigned_by;
         return one(m.fields, { preempts: m.preempts });
       }
       case 'sitrep.sign': {
@@ -1167,7 +1193,8 @@ export function createLoopHost({
 
   // B3: MAIN's brief and the walls' map data never change during a run.
   const brief = briefOf(day);
-  const geoJson = JSON.stringify(geoOf(day));
+  const geo = geoOf(day);
+  const geoJson = JSON.stringify(geo);
   let loopCache = { key: null, json: null };
   const revKey = () => `${run}:${loop.rev}`;
   /** The loop as other walls, the remote and the monitor get it (no fixture copy). */
@@ -1201,6 +1228,35 @@ export function createLoopHost({
         [1, 2, 3, 4, 5, 6].map((n) => [n, roleOfSlot(n, wallRoles)]),
       ),
       setAside: setAside.length,
+      // B7 (review R19 S2-2): scripted phone replies held this run while
+      // the phones are live; > 0 means a scripted close will refuse (I7).
+      heldReplies: held.filter((x) => x.run === run).length,
+      // B7 (review R11 S2-9): what the script does next (no names, no text).
+      nextScript: nextScript(),
+    };
+  }
+  /**
+   * The next scripted human act still to come, ids only (the clock goes to
+   * every socket, phones and MAIN included): {at, beat, type, by, role,
+   * sit_id}. `by` is a watch callsign, else null with role 'person'; the
+   * presenter names the situation from the loop it already has.
+   */
+  function nextScript() {
+    const e = pendingEntry(
+      (x) =>
+        x.ev.by !== 'generator' &&
+        (Boolean(loop.watch[x.ev.by]) ||
+          (PHONE_EVENTS.includes(x.ev.type) && Boolean(x.ev.sit_id))),
+    );
+    if (!e) return null;
+    const watch = Boolean(loop.watch[e.ev.by]);
+    return {
+      at: e.at,
+      beat: e.beat,
+      type: e.ev.type,
+      by: watch ? e.ev.by : null,
+      role: watch ? loop.watch[e.ev.by].role : 'person',
+      sit_id: e.ev.sit_id ?? null,
     };
   }
   /** Each ORTEGA shortcut: null outside its beat or once done; else when, and ready. */
@@ -1338,7 +1394,11 @@ export function createLoopHost({
       return `{"t":"${EXEC_MSG.LOOP}","view":"loop","rev":${loop.rev},"run":${run},"clock":${JSON.stringify(clockNow)},"loop":${loopCache.json},"geo":${geoJson}}`;
     },
     /** MAIN gets selectMain, the brief and where its map goes: never the loop (I3). */
-    mainView: () => ({ ...selectMain(loop), brief, scene: mainScene(loop) }),
+    mainView: () => ({
+      ...selectMain(loop),
+      brief,
+      scene: mainScene(loop, geo),
+    }),
     phoneView: (pid) =>
       phoneViewModel(loop, pid, {
         script: scriptFor(pid),
@@ -1470,10 +1530,23 @@ export function executiveRelay({
       return out;
     }
 
+    /**
+     * B7: the presenter's and the desk's extras (the next scripted act, the
+     * held-reply count) stay off MAIN and the phones.
+     */
+    const leanClock = (c) => {
+      const { nextScript: _n, heldReplies: _h, ...rest } = c;
+      void _n;
+      void _h;
+      return rest;
+    };
+    const LEAN_VIEWS = new Set(['main', 'phone']);
+
     /** Send each socket its view when it changed (a full loop at most once a second). */
     function publish({ force = false } = {}) {
       const t = now();
-      const clock = lh.clockView(t);
+      const full = lh.clockView(t);
+      const lean = leanClock(full);
       const rev = lh.rev;
       let main = null;
       const phones = new Map();
@@ -1490,6 +1563,7 @@ export function executiveRelay({
         if (view === 'loop' && !force && last && t - last.at < LOOP_EVERY_MS)
           continue;
         let text;
+        const clock = LEAN_VIEWS.has(view) ? lean : full;
         if (view === 'loop') text = lh.loopText(clock);
         else if (view === 'desk') text = lh.deskText(clock, id, t);
         else if (view === 'main') {
@@ -1525,17 +1599,21 @@ export function executiveRelay({
       const t = now();
       if (!force && t - lastClockAt < CLOCK_EVERY_MS) return;
       lastClockAt = t;
-      const text = JSON.stringify({
+      const full = lh.clockView(t);
+      const text = JSON.stringify({ t: EXEC_MSG.CLOCK, clock: full });
+      const leanText = JSON.stringify({
         t: EXEC_MSG.CLOCK,
-        clock: lh.clockView(t),
+        clock: leanClock(full),
       });
-      for (const { ws } of targets()) raw(ws, text);
+      for (const { ws, view } of targets())
+        raw(ws, LEAN_VIEWS.has(view) ? leanText : text);
     }
 
-    const loopAudit = (ev, from, actor = null) =>
+    const loopAudit = (ev, from, actor = null, extra = {}) =>
       record('loop.event', {
         actor,
         data: {
+          ...extra,
           type: ev.type,
           by: ev.by,
           sit_id: ev.sit_id,
@@ -1546,10 +1624,15 @@ export function executiveRelay({
           run: lh.run,
           reverses: ev.reverses,
           preempts: ev.preempts,
+          ...(ev.via && ev.via !== 'script' ? { via: ev.via } : {}),
         },
       });
-    const refusedAudit = (type, code, from, actor = null) =>
-      record('loop.refused', { actor, data: { type, code, from } });
+    /** B7 (review R13 S2-3): which watch member each desk device last acted as. */
+    const deskAs = new Map();
+    /** The desk device on the executive lines (it has no host device ref). */
+    const deskOf = (em) => ({ device: em.id });
+    const refusedAudit = (type, code, from, actor = null, extra = {}) =>
+      record('loop.refused', { actor, data: { ...extra, type, code, from } });
 
     function hello(ws, m, conn) {
       conn.hellos += 1;
@@ -1652,7 +1735,7 @@ export function executiveRelay({
         participant_id: r.participant_id,
         callsign: lh.callsignOf(r.participant_id),
         token: r.token,
-        clock: lh.clockView(now()),
+        clock: leanClock(lh.clockView(now())),
       });
       publish({ force: true });
     }
@@ -1709,17 +1792,27 @@ export function executiveRelay({
       }
       const p = deskCmd(m.cmd, m.as);
       if (p.code) {
-        refusedAudit(m.cmd?.type, p.code, 'desk');
+        refusedAudit(m.cmd?.type, p.code, 'desk', null, deskOf(em));
         ack(ws, m, { ok: false, code: p.code });
         return;
       }
+      // One keyboard may act as VALE and as ORTEGA: the switch is on the
+      // relay audit, with the device, before the act it precedes.
+      const was = deskAs.get(em.id);
+      if (m.as && was !== m.as) {
+        if (was)
+          record('desk.as', {
+            data: { ...deskOf(em), from: was, to: m.as, run: lh.run },
+          });
+        deskAs.set(em.id, m.as);
+      }
       const r = lh.desk(p.cmd, { by: m.as, device: em.id, real: now() });
       if (!r.ok) {
-        refusedAudit(p.cmd.type, r.code, 'desk');
+        refusedAudit(p.cmd.type, r.code, 'desk', null, deskOf(em));
         ack(ws, m, r);
         return;
       }
-      for (const ev of r.evs) loopAudit(ev, 'desk');
+      for (const ev of r.evs) loopAudit(ev, 'desk', null, deskOf(em));
       ack(ws, m, { ok: true, events: true, evs: r.evs });
       publish({ force: true });
     }
@@ -1817,6 +1910,7 @@ export function executiveRelay({
             by: r.shortcut.by,
             sit_id: r.shortcut.sit_id,
             from: 'presenter',
+            via: 'presenter',
             preempts: r.shortcut.preempts,
             run: lh.run,
           },

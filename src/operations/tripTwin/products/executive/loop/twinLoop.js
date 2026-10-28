@@ -83,6 +83,9 @@ export const CODES = Object.freeze({
     'Two fixes inside the place are needed for done by position',
   CALLBACK_ORDER: 'Call-back steps follow the escalation chain in order',
   CALLBACK_RESOLVED: 'The call-back chain is resolved',
+  CALLBACK_NEEDS_COUNTERSIGN:
+    'This call-back step needs a countersign from another supervisor',
+  NOT_VIEWER: 'Only the client viewer opens the record this way',
   SALUTE_IMMUTABLE: 'A SALUTE is never edited',
   // EP-33 §3, the reversals (B4).
   REVERSES_MISMATCH: 'A reversal names an event of another kind or record',
@@ -131,6 +134,8 @@ export function createLoop({ fixtures, t0 = fixtures?.t0 } = {}) {
     details: clone(f.details || {}),
     watch,
     beats: { ...(f.beats || {}) },
+    // B7 (fix list #14): the client's security lead, read-only (record.view).
+    client_viewer: f.watch?.client_viewer?.ref ?? null,
   };
   return fresh(base, iso(t0), 0, f.sample !== false);
 }
@@ -169,6 +174,9 @@ function fresh(base, t0, rev, sample) {
     checkinRequests: {},
     positions: {},
     lastHuman: null,
+    // B7 (fix list #14): the client viewer's opens of a record, in order.
+    clientViewer: base.client_viewer ?? null,
+    views: [],
     log: [],
     base: clone(base),
   };
@@ -374,8 +382,19 @@ function tick(cx, at) {
 
 // ------------------------------------------------------------------ helpers
 
+/**
+ * "Last verified by a human" (EP-33): every decision a named watch member
+ * signs moves it (B7, review R13 S1-1: approve, push, notify, call-back,
+ * re-tier, SITREP sign and close too). `via: 'presenter'` when the act was
+ * sent from the presenter's iPad on the member's behalf (EP-38 #8).
+ */
 const human = (cx, ev, at) =>
-  cx.put('lastHuman', { by: ev.by, at: iso(at), type: ev.type });
+  cx.put('lastHuman', {
+    by: ev.by,
+    at: iso(at),
+    type: ev.type,
+    ...(ev.via === 'presenter' ? { via: 'presenter' } : {}),
+  });
 
 function computeWhy(loop, bundle, m) {
   const leg = loop.legs[m.leg_id];
@@ -873,6 +892,8 @@ const HANDLERS = {
     cx.patch('verifications', v.id, {
       countersigned_by: ev.by,
       countersigned_at: iso(at),
+      // B7 (review R13 S2-4): on the record as sent from the presenter.
+      countersigned_via: ev.via === 'presenter' ? 'presenter' : null,
     });
     human(cx, ev, at);
     return null;
@@ -893,6 +914,7 @@ const HANDLERS = {
     };
     cx.patch('verifications', v.id, { notified: [...v.notified, note] });
     cx.append('notifications', { sit_id: sit.sit_id, ...note });
+    human(cx, ev, at);
     return null;
   },
 
@@ -969,6 +991,7 @@ const HANDLERS = {
       approved_at: iso(at),
       verification_id: v.id,
     });
+    human(cx, ev, at);
     return null;
   },
 
@@ -1063,6 +1086,7 @@ const HANDLERS = {
       expired_at: null,
       next_update_at: rec.next_update_at ?? null,
     });
+    human(cx, ev, at);
     return null;
   },
 
@@ -1242,6 +1266,16 @@ const HANDLERS = {
       link.participant_id !== ev.contact_ref
     )
       return 'CALLBACK_ORDER';
+    // B7 (review R13 S2-2): a step the chain marks `needs: countersign`
+    // (the police welfare check) is placed only with a second person's
+    // countersign; logging it as not taken needs none.
+    const needs = link.needs ?? ev.needs ?? null;
+    const cs = ev.countersigned_by ?? null;
+    if (needs === 'countersign' && ev.outcome !== 'not taken') {
+      const role = cs ? cx.next.watch?.[cs]?.role : null;
+      if (!cs || cs === ev.by || role !== 'supervisor')
+        return 'CALLBACK_NEEDS_COUNTERSIGN';
+    }
     cx.patch('callbacks', ev.push_id, {
       step,
       steps: [
@@ -1252,12 +1286,15 @@ const HANDLERS = {
           role: link.role,
           contact_ref: link.participant_id ?? null,
           outcome: ev.outcome ?? null,
-          needs: link.needs ?? ev.needs ?? null,
+          needs,
+          countersigned_by:
+            needs === 'countersign' && ev.outcome !== 'not taken' ? cs : null,
           at: iso(at),
           by: ev.by,
         },
       ],
     });
+    human(cx, ev, at);
     return null;
   },
 
@@ -1300,6 +1337,8 @@ const HANDLERS = {
       effects,
       proposed_by: ev.proposed_by ?? null,
       ...(ev.reverses ? { reverses: ev.reverses } : {}),
+      // B7 (review R13 S2-4): sent from the presenter's iPad (EP-38 #8).
+      ...(ev.via === 'presenter' ? { via: 'presenter' } : {}),
     });
     for (const s of Object.values(cx.next.situations))
       if (s.person_id === p.id && !CLOSED_STATES.has(s.state)) {
@@ -1315,6 +1354,7 @@ const HANDLERS = {
       )
       .map((l) => l.id);
     rematchLegs(cx, at, legIds);
+    human(cx, ev, at);
     return null;
   },
 
@@ -1340,6 +1380,8 @@ const HANDLERS = {
       text: ev.text ?? null,
       push_id: ev.push_id ?? null,
       sit_id: ev.sit_id ?? null,
+      // B7: a post taken up (ATLAS 4's +1 post at the north door).
+      ...(ev.post ? { post: clone(ev.post) } : {}),
     });
     cx.patch('people', p.id, {
       last_checkin_at: iso(at),
@@ -1428,6 +1470,7 @@ const HANDLERS = {
       signed_at: iso(at),
       signed: ev.signed ?? null,
     });
+    human(cx, ev, at);
     return null;
   },
 
@@ -1445,6 +1488,44 @@ const HANDLERS = {
       closed_by: ev.by,
       close_reason: ev.reason,
       decided_at: ev.decided_at ? iso(ev.decided_at) : undefined,
+    });
+    human(cx, ev, at);
+    return null;
+  },
+
+  /**
+   * B7 (review R13 S2-5): the supervisor countersigns a watch message
+   * (`VALE / ORTEGA` on a DETAIL reply) with an event of his own.
+   */
+  'message.countersign'(cx, ev, at) {
+    const i = cx.next.messages.findIndex((m) => m.id === ev.message_id);
+    if (i < 0) return 'NOT_FOUND';
+    const m = cx.next.messages[i];
+    if (m.by === ev.by) return 'I2_SAME_PERSON';
+    if (m.countersigned_by) return 'ALREADY';
+    const list = cx.coll('messages');
+    list[i] = { ...m, countersigned_by: ev.by, countersigned_at: iso(at) };
+    human(cx, ev, at);
+    return null;
+  },
+
+  /**
+   * B7 (fix list #14): the client's security lead opens a record on the
+   * client viewer screen. Read-only: it changes nothing but the access log.
+   */
+  'record.view'(cx, ev, at) {
+    if (!cx.next.clientViewer || ev.by !== cx.next.clientViewer)
+      return 'NOT_VIEWER';
+    if (ev.sit_id && !cx.get('situations', ev.sit_id)) return 'NOT_FOUND';
+    if (ev.sitrep_id && !cx.get('sitreps', ev.sitrep_id)) return 'NOT_FOUND';
+    cx.append('views', {
+      id: ev.id ?? null,
+      at: iso(at),
+      by: ev.by,
+      record: ev.record ?? (ev.sit_id ? 'situation' : 'daily'),
+      sit_id: ev.sit_id ?? null,
+      sitrep_id: ev.sitrep_id ?? null,
+      surface: ev.surface ?? 'client viewer screen',
     });
     return null;
   },

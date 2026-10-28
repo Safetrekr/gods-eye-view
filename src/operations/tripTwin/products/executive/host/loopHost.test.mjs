@@ -97,18 +97,18 @@ test('on its own: auto run cuts checkpoint to checkpoint and reaches every ancho
 test('without auto the clock holds at a checkpoint’s end; Next cuts to the next one at its rate', () => {
   const { h, clock } = host();
   P(h, { type: 'next' });
-  assert.equal(h.clock.simNow, '2026-10-27T15:30:00Z');
+  assert.equal(h.clock.simNow, '2026-10-27T15:54:00Z');
   assert.equal(h.clock.rate, 10);
   assert.equal(h.clock.paused, false);
   assert.deepEqual(C(selectCounter(h.loop)), G(1));
-  // 42 sim min at ×10 = 252 s, plus a little.
-  for (let i = 0; i < 1100; i++) h.tick(clock.advance(250));
+  // B7 pacing: 16 sim min at ×10 = 96 s, plus a little.
+  for (let i = 0; i < 420; i++) h.tick(clock.advance(250));
   assert.equal(h.clock.paused, true);
   assert.equal(h.clock.held, 'checkpoint');
-  assert.equal(h.clock.simNow, '2026-10-27T16:12:00Z');
+  assert.equal(h.clock.simNow, '2026-10-27T16:10:00Z');
   P(h, { type: 'next' });
-  assert.equal(h.clock.simNow, '2026-10-27T17:12:00Z');
-  assert.equal(h.clock.rate, 1);
+  assert.equal(h.clock.simNow, '2026-10-27T17:13:00Z');
+  assert.equal(h.clock.rate, 10);
 });
 
 test('beat.go forward folds up to the anchor in one pass; the counters match the golden file', () => {
@@ -257,7 +257,7 @@ test('Previous and a backward beat ask first; live events before the target are 
   assert.deepEqual(C(selectCounter(h.loop)), G(2));
   const prev = asked(h, { type: 'previous' });
   assert.ok(prev.ok);
-  assert.equal(h.clock.simNow, '2026-10-27T17:12:00Z');
+  assert.equal(h.clock.simNow, '2026-10-27T17:13:00Z');
 });
 
 test('the desk’s way in takes only a watch member and only desk events', () => {

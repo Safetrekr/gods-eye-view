@@ -109,9 +109,14 @@ function mapRegion(v, { cities = [] } = {}) {
   const m = div(`exm-map mode-${v.map.mode}`);
   if (v.map.mode === 'flat' && v.scene) {
     const sc = v.scene;
-    const places = sc.venue
-      ? [{ name: sc.venue.name, lat: sc.venue.lat, lon: sc.venue.lon }]
-      : [];
+    const places = [
+      sc.venue && { name: sc.venue.name, lat: sc.venue.lat, lon: sc.venue.lon },
+      sc.origin && {
+        name: sc.origin.name,
+        lat: sc.origin.lat,
+        lon: sc.origin.lon,
+      },
+    ].filter(Boolean);
     const marks = sc.person
       ? [
           {
@@ -122,7 +127,14 @@ function mapRegion(v, { cities = [] } = {}) {
           },
         ]
       : [];
-    m.append(venueField({ places, marks }));
+    m.append(
+      venueField({
+        places,
+        marks,
+        route: Array.isArray(sc.route) ? sc.route : null,
+        areas: Array.isArray(sc.areas) ? sc.areas : [],
+      }),
+    );
   } else if (v.map.mode === 'field') {
     m.append(worldField(cities));
     m.append(div('exm-map-credit', 'Land: Natural Earth'));

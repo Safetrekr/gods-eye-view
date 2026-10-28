@@ -99,12 +99,28 @@ const END = '2026-10-28T01:00:00Z';
  * Each beat's showcase moment (sim time, paused): the beat's decision is
  * on the walls (EP-20). Beat 0 is its anchor; the others a few minutes in.
  */
+/**
+ * SWIFT's showcase follows the day (B7 #15 moves the storm line earlier):
+ * a minute after the advisory's push, when SWIFT 1 has read it.
+ */
+export function swiftShowcase(day) {
+  const p = (day?.events || []).find(
+    (e) => e.type === 'push.send' && e.push_id === 'push-swift-01',
+  );
+  return p
+    ? new Date(Date.parse(p.at) + 60e3).toISOString().replace('.000Z', 'Z')
+    : '2026-10-28T00:36:00Z';
+}
+const DAY_FILE = path.join(
+  ROOT,
+  'src/operations/tripTwin/products/executive/data/day.json',
+);
 export const SHOWCASE = Object.freeze({
   0: '2026-10-27T14:30:00Z', // quiet, the brief, noise handled
   1: '2026-10-27T16:12:00Z', // KESTREL reroute ACCEPTED
   2: '2026-10-27T18:25:00Z', // ATLAS: DL NON-CONCUR after the SALUTE
   3: '2026-10-27T22:24:00Z', // WREN: no read 10 min, the call-back chain
-  4: '2026-10-28T00:36:00Z', // SWIFT advisory, read
+  4: swiftShowcase(JSON.parse(fs.readFileSync(DAY_FILE, 'utf8'))), // SWIFT advisory, read
   5: '2026-10-28T01:00:00Z', // close: six SITREPs, the counter
 });
 
@@ -554,7 +570,7 @@ async function deskAndPresenter(browser, base, room) {
     const df = path.join(B4, `beat${n}-desk.png`);
     const pf = path.join(B4, `beat${n}-presenter.png`);
     await deskPage.screenshot({ path: df });
-    await ipad.screenshot({ path: pf });
+    await ipad.screenshot({ path: pf, fullPage: true });
     const deskText = await wallText(deskPage);
     const ipadText = await wallText(ipad);
     const sel = await deskPage.evaluate(() => window.__exDesk?.selected);
@@ -563,7 +579,11 @@ async function deskAndPresenter(browser, base, room) {
         (b) => `${b.dataset.short}:${b.disabled ? 'off' : 'ready'}`,
       ),
     );
+    // B7: the presenter shows what fires next and the words to say.
+    const cue =
+      /NEXT ON THE SCRIPT/.test(ipadText) && /SAY · BEAT/.test(ipadText);
     const ok =
+      cue &&
       /\bSAMPLE\b/.test(deskText) &&
       /\bSAMPLE\b/.test(ipadText) &&
       Boolean(sel) &&

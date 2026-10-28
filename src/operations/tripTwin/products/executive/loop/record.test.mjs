@@ -113,7 +113,7 @@ test('B6 the record reconciles at every beat (the counter is never stored)', () 
     '2026-10-27T16:12:00Z',
     '2026-10-27T18:25:00Z',
     '2026-10-27T22:24:00Z',
-    '2026-10-28T00:36:00Z',
+    '2026-10-27T23:58:30Z',
     END,
   ]) {
     const loop = upTo(t);
@@ -151,8 +151,12 @@ test('B6 the record matches the SITREPs: each signed version, and the daily SITR
   assert.equal(atlas.sitreps[0].signed, 'Signed VALE 272109Z OCT 26');
   assert.equal(r.daily.signed, 'Signed VALE 280100Z OCT 26');
   const body = r.daily.body.join(' ');
-  assert.equal(Number(/Pushes (\d+)/.exec(body)[1]), r.summary.pushes.total);
-  assert.match(body, /six raised, none open/);
+  // B7 #9 (F1): the daily SITREP's own words.
+  assert.equal(Number(/Pushed (\d+)/.exec(body)[1]), r.summary.pushes.total);
+  assert.match(
+    body,
+    /Six situations raised, four pushed, six closed, none open/,
+  );
   assert.equal(r.summary.counter.raised, 6);
 });
 
@@ -208,12 +212,17 @@ test('B6 privacy 2: an access log and disclosures per situation, retention by cl
   assert.deepEqual(
     atlas.access.log.map((a) => `${a.time} ${a.who} ${a.action}`),
     [
-      '1803Z OSPREY opened',
+      '1804Z OSPREY viewing',
       '1805Z VALE assessed',
       '1806Z ORTEGA countersigned',
       '1808Z VALE pushed',
       '2109Z VALE signed SITREP v1',
     ],
+  );
+  // B7 #14: labelled, never "opened" at the raise instant.
+  assert.match(
+    atlas.access.log[0].line,
+    /^1804Z · OSPREY \(your security lead\) · viewing$/,
   );
   const external = atlas.access.disclosures.filter((d) => d.external);
   assert.deepEqual(
@@ -441,4 +450,23 @@ test('B6 a reopened situation: the SITREP keeps v1 and gains an unsigned v2; clo
   assert.equal(r.summary.reconciled, true);
   assert.equal(r.summary.counter.closed, selectCounter(loop).closed);
   assert.ok(r.summary.open.includes('ATLAS'));
+});
+
+test('B7 #10 and #8: the official instruction prints as text, never its id; a DETAIL recommendation has no ACTION and the leader’s four answers', () => {
+  const loop = upTo(END);
+  const r = assembleRecord(loop, { audience: 'office' });
+  const k = r.situations.find((s) => s.sit_id === 's-kestrel-01');
+  assert.doesNotMatch(k.recommendation.official, /^oi-/);
+  assert.match(k.recommendation.official, /Road closure · W Riverside Dr/);
+  assert.equal(k.recommendation.subordinate, true);
+  assert.equal(k.recommendation.action, 'REROUTE');
+  const a = r.situations.find((s) => s.sit_id === 's-atlas-01');
+  assert.equal(a.recommendation.detail, true);
+  assert.equal(a.recommendation.action, null);
+  assert.equal(
+    a.recommendation.reply,
+    'Concur / Non-concur / Executing / Request support',
+  );
+  assert.equal(JSON.stringify(r).includes('oi-austin-road-closure-01'), false);
+  assert.equal(/drafted system/.test(JSON.stringify(r)), false);
 });

@@ -108,5 +108,5 @@ test('B6 beat 5: the record of ATLAS opens on Verify, with the day reconciled; c
   const text = JSON.stringify({ record: v.record, day: v.day });
   for (const n of NAMES) assert.ok(!text.includes(n), n);
   assert.doesNotMatch(text, /no one else/i);
-  assert.equal(verifyView(upTo('2026-10-28T00:36:00Z')).record, null);
+  assert.equal(verifyView(upTo('2026-10-27T23:58:30Z')).record, null);
 });

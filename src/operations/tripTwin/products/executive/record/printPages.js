@@ -25,6 +25,32 @@ export const BRAND = Object.freeze({
 export const ASK =
   "We'd like a conversation with your head of security, or your head of office if you don't have one, to run this for one travel day, five people, two weeks.";
 
+/** The printed record is itself sensitive (R17 S2-6): its handling line. */
+export const HANDLING =
+  'Restricted: the family office’s security lead and principal.';
+
+/** Who to call (Jesse, 28 Oct 2026). No person's name was given; none is invented. */
+export const CONTACT = 'Contact: mike@safetrekr.com · 903.805.9225';
+
+/**
+ * The two-week pilot (B7 #16, R17 S1-3): what we need, what we do, how
+ * the data is handled (the record's SAMPLE policy wording). No price.
+ */
+export const PILOT = Object.freeze([
+  [
+    'What we need from you',
+    'Five people you choose, each with their consent. The itinerary for at least one travel day each within the two weeks. Your head of security, or your head of office, as the lead in the read-only seat.',
+  ],
+  [
+    'What we do',
+    'The SafeTrekr Watch Floor watches those five through their travel days for two weeks, around the clock: every item read against every leg, a named analyst verifies, pushes and closes, a supervisor countersigns. Your lead sees what we see. You get each day’s record, and we review it together at the end.',
+  ],
+  [
+    'How the data is handled',
+    'Every record carries its access log and what was shared outside it. Location sharing is each person’s own choice: the watch can ask, never switch it on. Retention: positions 30 days · situations, SITREPs and archived posts per agreement, legal hold on request (SAMPLE policy).',
+  ],
+]);
+
 /** The white-label sheet's five blocks (EP-36 §7B). */
 export const WHITE_LABEL = Object.freeze([
   [
@@ -59,8 +85,40 @@ export const WHITE_LABEL = Object.freeze([
       'Everything the watch sees, as it sees it: the queue, the evidence, the decisions, the record.',
     ],
   ],
-  ['Next', [ASK, 'Name: [your SafeTrekr contact] · Number: [number]']],
+  ['Next', [ASK, CONTACT]],
 ]);
+
+/** The ask and the contact, as a block (the cover and the white-label page). */
+function askNode() {
+  return h(
+    'div',
+    'pr-ask',
+    h('div', 'rc-k', 'NEXT'),
+    h('div', 'pr-ask-line', ASK),
+    h('div', 'pr-ask-contact rc-mono', CONTACT),
+  );
+}
+
+/** The two-week pilot, three short paragraphs and the contact. */
+function pilotNode() {
+  return h(
+    'div',
+    'pr-pilot',
+    h('div', 'rc-k', 'THE TWO-WEEK PILOT'),
+    h(
+      'div',
+      'pr-pilot-grid',
+      PILOT.map(([k, v]) =>
+        h(
+          'div',
+          'pr-pilot-item',
+          h('div', 'pr-pilot-k', k),
+          h('div', 'rc-line', v),
+        ),
+      ),
+    ),
+  );
+}
 
 function lockup({ name = BRAND.product, small = false } = {}) {
   const img = document.createElement('img');
@@ -91,7 +149,7 @@ function page(n, total, title, record, ...body) {
     h(
       'footer',
       'pg-foot',
-      h('span', null, record.footer),
+      h('span', null, `${record.footer} ${HANDLING}`),
       h('span', 'rc-mono', `${record.id} · ${n} / ${total}`),
     ),
   );
@@ -118,8 +176,10 @@ export function printPages(record, { source = null } = {}) {
         ? h('div', 'rc-line rc-mono', record.watch.lastHuman)
         : null,
     ),
+    // The ask on the cover (B7 #16): the room's next step, and who to call.
+    askNode(),
     h('div', 'rc-k', 'THE CLOSE · 0100Z COUNTER'),
-    summaryNode(record, { compact: true }),
+    summaryNode(record, { compact: true, reconcile: false }),
     h('div', 'rc-k', `PEOPLE RAISED TODAY · ${sits.length} SITUATIONS`),
     h(
       'div',
@@ -154,12 +214,14 @@ export function printPages(record, { source = null } = {}) {
     h('div', 'rc-k', 'ACCESS AND RETENTION'),
     h('div', 'rc-line', record.access.line),
     h('div', 'rc-line', record.access.retention),
+    // No build notes on page 1 (B7 #16): what the page is, in one line.
     h(
       'div',
       'rc-line rc-dim',
-      `${record.generated}${source ? ` · ${source}` : ''}. Times Z first, local beside. Callsigns throughout; names in each page's header.`,
+      `${record.generated} · times Z first, local beside · callsigns throughout, names in each page's header.`,
     ),
   );
+  void source;
   const pages = sits.map((s, i) =>
     page(
       i + 2,
@@ -233,11 +295,12 @@ export function printPages(record, { source = null } = {}) {
           ),
         ),
       ),
+      pilotNode(),
     ),
     h(
       'footer',
       'pg-foot',
-      h('span', null, record.footer),
+      h('span', null, `${record.footer} ${HANDLING}`),
       h('span', 'rc-mono', `${record.id} · ${total} / ${total}`),
     ),
   );

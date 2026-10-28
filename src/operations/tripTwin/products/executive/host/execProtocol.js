@@ -89,6 +89,8 @@ export const EXEC_CODE = Object.freeze({
   UNDO_EXPIRED: 'UNDO_EXPIRED',
   NOT_UNDOABLE: 'NOT_UNDOABLE',
   BAD_MODE: 'BAD_MODE',
+  // B7 (fix list #7): a NON-CONCUR waits for the advance's SALUTE.
+  SALUTE_FIRST: 'SALUTE_FIRST',
   // Shared with the school protocol (same words, same meaning).
   VALIDATION_COMMAND: CODE.VALIDATION_COMMAND,
   RATE_LIMITED: CODE.RATE_LIMITED,
@@ -467,7 +469,14 @@ export const DESK_FIELDS = Object.freeze({
   'push.send': { recommendation_id: kinds.id, supersede: kinds.bool },
   'push.recall': { push_id: kinds.id, reason: kinds.text },
   'message.send': { sit_id: kinds.id, to: kinds.id, text: kinds.text },
-  'callback.step': { push_id: kinds.id, step, outcome: kinds.word },
+  // B7 (review R13 S2-2): a step that needs a countersign names the
+  // supervisor who gave it (the reducer refuses it otherwise).
+  'callback.step': {
+    push_id: kinds.id,
+    step,
+    outcome: kinds.word,
+    countersigned_by: kinds.oneOf(DESK_AS),
+  },
   'posture.retier': {
     person_id: kinds.id,
     to: kinds.oneOf(PROTECTIONS),

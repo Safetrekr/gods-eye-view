@@ -20,7 +20,13 @@ import {
   selectFeed,
   selectQueue,
 } from '../loop/select.js';
-import { beatOf, focusOf, legAt, SITE_OF_PLACE } from '../loop/wallData.js';
+import {
+  beatOf,
+  focusOf,
+  legAt,
+  postureCounts,
+  SITE_OF_PLACE,
+} from '../loop/wallData.js';
 import { assembleRecord } from '../loop/record.js';
 
 const ms = (t) => (typeof t === 'number' ? t : Date.parse(t));
@@ -173,6 +179,39 @@ export function chainOf(loop, push) {
   };
 }
 
+/** The four answers of a detail leader, in his words (B7 #8). */
+export const DL_REPLY = 'Concur / Non-concur / Executing / Request support';
+
+/**
+ * The official instructions a situation sits under (EP-33 §5, EP-38 #5):
+ * the leg's, else any leg's with the recommendation's id; each `line` as
+ * the authority wrote it. Ours is subordinate to them.
+ */
+export function officialsOf(loop, s, rec) {
+  const own = loop.legs[s?.leg_id]?.official_instructions || [];
+  const id = rec?.official_instruction;
+  const out = [...own];
+  if (id && !out.some((o) => o.id === id))
+    for (const l of Object.values(loop.legs || {}))
+      for (const o of l.official_instructions || [])
+        if (o.id === id && !out.some((x) => x.id === id)) out.push(o);
+  return out.map((o) => ({
+    id: o.id,
+    // The kicker says OFFICIAL once; the line need not repeat it.
+    line: scrub(
+      loop,
+      String(o.line || '').replace(/^OFFICIAL · /, '') ||
+        [
+          o.kind === 'road_closure' ? 'Road closure' : 'Official',
+          o.place?.name,
+          o.authority_class,
+        ]
+          .filter(Boolean)
+          .join(' · '),
+    ),
+  }));
+}
+
 /** The recommendation card (EP-32 §2.3): every slot, every time. */
 export function recOf(loop, s) {
   const push = s.push_id ? loop.pushes[s.push_id] : null;
@@ -181,19 +220,36 @@ export function recOf(loop, s) {
   const leg = loop.legs[s.leg_id];
   const tz = leg?.tz || 'UTC';
   const v = s.verification_id ? loop.verifications[s.verification_id] : null;
+  // A DETAIL push is a recommendation, the detail leader's decision (B7
+  // #8): no ACTION chip, no ACK line; his four answers as the reply.
+  const detail = (push?.tier || s.tier) === 'DETAIL';
   const recips = (rec.recipients || []).map(
     (r) =>
       `${callsignOf(loop, r.participant_id)}${r.role && r.role !== 'person' ? ` (${r.role})` : ''}`,
   );
+  const officials = officialsOf(loop, s, rec);
   return {
+    detail,
+    kicker: detail
+      ? "RECOMMENDATION · THE DETAIL LEADER'S DECISION"
+      : 'RECOMMENDATION',
     bluf: scrub(loop, rec.bluf),
-    action: rec.action_display || ACTION_WORD[rec.action] || rec.action,
+    action: detail
+      ? null
+      : rec.action_display || ACTION_WORD[rec.action] || rec.action,
+    official: officials.map((o) => o.line),
+    subordinate: officials.length > 0,
     rows: [
       ['BY', rec.by_when ? lz(rec.by_when, tz) : '—'],
-      ['TO', rec.destination?.name ?? '—'],
-      ['TO WHOM', recips.join(' · ') || '—'],
+      ['WHERE', rec.destination?.name ?? '—'],
+      ['TO', recips.join(' · ') || '—'],
       ['VALID UNTIL', rec.valid_until ? lz(rec.valid_until, tz) : '—'],
-      ['ACK', rec.requires_ack ? 'required' : 'read only'],
+      [
+        'REPLY',
+        detail
+          ? DL_REPLY
+          : rec.reply || (rec.requires_ack ? 'required' : 'read only'),
+      ],
       ...(rec.request ? [['REQUEST', scrub(loop, rec.request)]] : []),
       ['KNOWN', scrub(loop, rec.known) || '—'],
       ['NOT KNOWN', scrub(loop, rec.unknown) || '—'],
@@ -292,7 +348,8 @@ export function evidenceOf(loop, s) {
     });
   if (bundles.some((b) => b.partner_feed))
     tags.push({ text: 'PARTNER FEED', tone: 'dim' });
-  if ((s.salute_ids || []).length) tags.push({ text: 'HUMAN', tone: 'plate' });
+  // HUMAN belongs to the SALUTE block (headed `SALUTE · HUMAN`), not to
+  // the bundle's head, which is the social post (R16 S2-8, R18 S3-7).
   const sal = (s.salute_ids || []).map((id) => loop.salutes[id]).find(Boolean);
   const evidence = head?.evidence || {};
   const grade = gradeToken(v?.grade || s.grade);
@@ -322,7 +379,7 @@ export function evidenceOf(loop, s) {
   const countersign =
     s.tier === 'DETAIL' && v
       ? cs
-        ? `raised ${watchTime(raised)} → countersigned ${v.countersigned_by} ${watchTime(cs)} · +${Math.round((ms(cs) - ms(raised)) / 60e3)} min`
+        ? `raised ${watchTime(raised)} → countersigned ${v.countersigned_by} ${watchTime(cs)} · +${Math.round((ms(cs) - ms(raised)) / 60e3)} min${v.countersigned_via === 'presenter' ? " · from the presenter's iPad" : ''}`
         : `raised ${watchTime(raised)} · awaiting ORTEGA · ${Math.max(0, Math.floor((t - ms(raised)) / 60e3))} min`
       : null;
   const retier = loop.retiers.find((r) => r.person_id === s.person_id);
@@ -362,21 +419,33 @@ export function evidenceOf(loop, s) {
         : '—',
     countersign,
     notified: (v?.notified || []).map((n) => scrub(loop, n.text)),
+    // The watch's own answers on the item (R11 S2-4, R13 S3): signed as sent.
+    answers: (loop.messages || [])
+      .filter(
+        (m) => m.sit_id === s.sit_id && m.kind === 'watch_ack' && ms(m.at) <= t,
+      )
+      .map(
+        (m) =>
+          `WATCH ${watchTime(m.at)} · ${m.signature || callsignOf(loop, m.by)} · ${scrub(loop, m.text)}`,
+      ),
     retier: retier
-      ? `RE-TIER · ${retier.from} → ${retier.to} · ${retier.by} ${watchTime(retier.at)} · reason: ${scrub(loop, retier.reason)}`
+      ? `RE-TIER · ${retier.from} → ${retier.to} · ${retier.by} ${watchTime(retier.at)}${retier.via === 'presenter' ? " · from the presenter's iPad" : ''} · reason: ${scrub(loop, retier.reason)}`
       : null,
     rec: recOf(loop, s),
   };
 }
 
-/** A one- or few-word result from an evidence note (the checklist column). */
-function shortWord(text) {
+/**
+ * A short result from an evidence note (the checklist column): its first
+ * clause, whole. Nothing truncates on a wall (EP-36 §4); the column wraps.
+ */
+export function shortWord(text) {
   if (!text) return '—';
   const s = String(text)
     .replace(/\b[lpbsv]-[a-z0-9-]+\b\s*/g, '')
     .split(/[;(]/)[0]
     .trim();
-  return s.length > 34 ? `${s.slice(0, 33).trimEnd()}…` : s;
+  return s || '—';
 }
 
 /** The situation a wall shows when nothing waits: the active one, else the latest today. */
@@ -534,6 +603,23 @@ export function freshnessOf(loop, pid) {
   const p = loop.people[pid];
   const fix = loop.positions[pid];
   if (p?.sharing === 'paused') return 'paused';
+  // A detail checks in on its comms check (every 30 min): an answered
+  // check is its freshness, so the detail is not "stale" all day (R12 S2-7).
+  const d = p?.detail_id ? loop.details?.[p.detail_id] : null;
+  if (d) {
+    const t = now(loop);
+    const every = (d.comms_check?.interval_min || 30) * 60e3;
+    const last = Object.values(loop.commsChecks || {})
+      .filter(
+        (c) => c.detail_id === d.id && c.answered_at && ms(c.answered_at) <= t,
+      )
+      .reduce((m, c) => Math.max(m, ms(c.answered_at)), 0);
+    if (last && t - last <= every + 5 * 60e3) return 'fresh';
+    if (last && t - last <= 2 * every) return 'aging';
+    // No check on file yet (off shift, or before the day's first): the
+    // detail is where its schedule puts it, said so, never "stale".
+    if (!last && (!fix || t - ms(fix.at) > 600e3)) return 'schedule';
+  }
   if (!fix) return p?.position_source === 'schedule' ? 'schedule' : 'unknown';
   const age = (now(loop) - ms(fix.at)) / 1000;
   if (fix.precision === 'area' && p?.position_source === 'schedule')
@@ -552,7 +638,9 @@ function raisedNow(loop) {
 }
 
 /** The roster map (EP-32 §3.5): seven cities, ~40 people, callsigns only. */
-export function rosterView(loop, cities) {
+export function rosterView(loop, cities, { at = null } = {}) {
+  // The city clocks read the wall's extrapolated clock (R19 S3-1), display only.
+  const shown = at ?? loop.clock.simNow;
   const raised = raisedNow(loop);
   const people = Object.values(loop.people).filter((p) => p.callsign);
   const byCity = new Map(cities.map((c) => [c.name, []]));
@@ -573,7 +661,7 @@ export function rosterView(loop, cities) {
       raised: raised.has(p.id),
       fresh: freshnessOf(loop, p.id),
       checkin: p.next_checkin_due_at
-        ? `${p.next_checkin_due_at && ms(p.next_checkin_due_at) < now(loop) ? 'overdue' : 'next'} ${localTime(p.next_checkin_due_at, p.tz || 'UTC')}`
+        ? `${p.next_checkin_due_at && ms(p.next_checkin_due_at) < now(loop) ? 'overdue' : 'next'} ${zl(p.next_checkin_due_at, p.tz || 'UTC')}`
         : null,
     });
   }
@@ -585,14 +673,16 @@ export function rosterView(loop, cities) {
     );
   const counts = Object.fromEntries(POSTURES.map((k) => [k, 0]));
   for (const p of people) counts[p.posture] = (counts[p.posture] || 0) + 1;
-  const prot = { DETAIL: 0, REMOTE: 0, MONITORED: 0 };
-  for (const p of people) prot[p.protection] = (prot[p.protection] || 0) + 1;
   return {
     total: people.length,
     counts: POSTURES.slice()
       .reverse()
       .map((k) => ({ posture: k, bars: barsOf(k), n: counts[k] || 0 })),
-    protection: `DETAIL ${prot.DETAIL} · REMOTE ${prot.REMOTE} · MONITORED ${prot.MONITORED}`,
+    // One count on MAIN and the roster (F1's postureCounts, R11 S2-6).
+    protection: postureCounts(loop.people, loop.details).line.replace(
+      / · \d+ ON WATCH$/,
+      '',
+    ),
     raised: [...raised.values()].map((s) => ({
       callsign: s.callsign,
       // The callsign heads the row already: the why without it.
@@ -605,15 +695,17 @@ export function rosterView(loop, cities) {
     ),
     cities: cities.map((c) => ({
       ...c,
-      local: localTime(loop.clock.simNow, c.tz),
+      local: localTime(shown, c.tz),
       people: byCity.get(c.name) || [],
     })),
   };
 }
 
 /** Roster by trip (EP-32 §3.7): trips, legs, check-ins, overdue. */
-export function tripsView(loop, trips = []) {
+export function tripsView(loop, trips = [], { at = null } = {}) {
   const t = now(loop);
+  // The card clocks read the wall's extrapolated clock (R19 S3-1).
+  const shown = at ?? loop.clock.simNow;
   const cards = trips.map((trip) => {
     const lead = loop.people[trip.lead_person];
     const tz = lead?.tz || 'UTC';
@@ -622,7 +714,9 @@ export function tripsView(loop, trips = []) {
       .filter(Boolean)
       .sort((a, b) => ms(a.start) - ms(b.start))
       .map((l) => ({
-        line: `${lz(l.start, l.tz || tz)} · ${legLine(l)}`,
+        // Z first, as the wall's header (R14 S2-6); a leg that does not
+        // start today carries its date (R14 S2-7).
+        line: `${dayPrefix(l.start, t, l.tz || tz)}${zl(l.start, l.tz || tz)} · ${legLine(l)}`,
         done: ms(l.end) <= t,
         now: ms(l.start) <= t && t < ms(l.end),
       }));
@@ -632,6 +726,22 @@ export function tripsView(loop, trips = []) {
       due && ms(due) + (lead?.checkin_overdue_after_min || 0) * 60e3 < t;
     const overMin = over ? Math.floor((t - ms(due)) / 60e3) : 0;
     const raised = raisedNow(loop).get(trip.lead_person);
+    // A principal with a detail: the detail's comms check, not a phone
+    // check-in he never makes (R11 S2-11, R12 S2-13).
+    const det = lead?.detail_id ? loop.details?.[lead.detail_id] : null;
+    const comms = det
+      ? Object.values(loop.commsChecks || {})
+          .filter(
+            (c) =>
+              c.detail_id === det.id && c.answered_at && ms(c.answered_at) <= t,
+          )
+          .sort((a, b) => ms(b.answered_at) - ms(a.answered_at))[0]
+      : null;
+    const commsLine = det
+      ? comms
+        ? `comms check ${watchTime(comms.answered_at)} · next ${watchTime(ms(comms.due_at) + (det.comms_check?.interval_min || 30) * 60e3)}`
+        : `comms check every ${det.comms_check?.interval_min || 30} min`
+      : null;
     return {
       id: trip.id,
       callsign: lead?.callsign ?? '—',
@@ -640,12 +750,14 @@ export function tripsView(loop, trips = []) {
       protection: trip.protection || lead?.protection,
       posture: lead?.posture,
       bars: barsOf(lead?.posture),
-      clock: localTime(loop.clock.simNow, tz),
-      zulu: watchTime(loop.clock.simNow),
+      // Z first, local beside (R14 S2-6).
+      clock: watchTime(shown),
+      zulu: `${localTime(shown, tz)} ${trip.city}`,
       tzName: trip.city,
       checkin: over
         ? `overdue ${overMin} min`
-        : `${last ? `checked in ${localTime(last, tz)}` : 'no check-in yet'}${due ? ` · next ${localTime(due, tz)}` : ''}`,
+        : commsLine ||
+          `${last ? `checked in ${zl(last, tz)}` : 'no check-in yet'}${due && (!last || ms(due) > ms(last)) ? ` · next ${zl(due, tz)}` : ''}`,
       overdue: Boolean(over),
       raised: raised ? scrub(loop, raised.why_raised) : null,
       legs,
@@ -662,6 +774,25 @@ export function tripsView(loop, trips = []) {
     head: `ROSTER BY TRIP · ${cards.length} · ${overdue ? `${overdue} overdue` : 'no one overdue'}`,
     cards,
   };
+}
+
+const MON = 'JAN FEB MAR APR MAY JUN JUL AUG SEP OCT NOV DEC'.split(' ');
+const localDay = (t, tz) =>
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz || 'UTC',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(t));
+/**
+ * `26 OCT ` for a leg that starts on another local day than now (in the
+ * leg's own zone: SWIFT's 2030L move is today's, though it is 0030Z
+ * tomorrow), else ''.
+ */
+export function dayPrefix(start, t, tz = 'UTC') {
+  const a = localDay(ms(start), tz);
+  if (a === localDay(t, tz)) return '';
+  return `${a.slice(8, 10)} ${MON[Number(a.slice(5, 7)) - 1]} `;
 }
 
 /** A leg's words without its time (the time is shown beside it). */
@@ -730,6 +861,7 @@ export function principalView(loop, geo) {
     .sort((a, b) => ms(a.start) - ms(b.start))[0];
   const rec = s ? recOf(loop, s) : null;
   const sitrep = s?.sitrep_id ? loop.sitreps[s.sitrep_id] : null;
+  const dlPlan = dlPlanOf(loop, s, venue);
   const open = Object.values(loop.situations).filter(
     (x) => x.person_id === f.person_id && x.state !== 'CLOSED',
   );
@@ -797,8 +929,37 @@ export function principalView(loop, geo) {
         }
       : null,
     rec,
+    dlPlan,
     open: Boolean(s && s.state !== 'CLOSED'),
     sit: s,
+  };
+}
+
+/**
+ * The detail leader's plan when he non-concurred (F2 S2): the entrance his
+ * plan names (else the venue's north door), and the one the watch had
+ * recommended, now superseded. Null otherwise.
+ */
+export function dlPlanOf(loop, s, venue) {
+  if (!s?.push_id) return null;
+  const push = loop.pushes[s.push_id];
+  if (!push || push.tier !== 'DETAIL') return null;
+  const r = Object.values(push.recipients || {}).find(
+    (x) => x.dl?.answer === 'nonconcur',
+  );
+  if (!r) return null;
+  const rec = loop.recommendations[push.recommendation_id];
+  const ents = venue?.entrances || [];
+  const plan = String(r.dl.plan || '').toLowerCase();
+  const named =
+    ents.find((e) => plan && plan.includes(e.name.toLowerCase())) ||
+    ents.find((e) => /north/i.test(e.name) && /north/.test(plan)) ||
+    ents.find((e) => e.side === 'N') ||
+    null;
+  return {
+    entrance: named?.name ?? null,
+    rejected: rec?.destination?.name ?? null,
+    plan: r.dl.plan ? scrub(loop, r.dl.plan) : null,
   };
 }
 
@@ -855,8 +1016,23 @@ export function principalOverlay(loop, geo, view) {
           label: `${oi.kind === 'road_closure' ? 'Road closure' : 'Official'} · ${oi.place.name}`,
           lat: oi.place.lat,
           lon: oi.place.lon,
-          r: Math.min(400, oi.place.accuracy_m || 300),
+          // The closed segment, not the whole venue (B7 #13).
+          r: Math.min(150, oi.place.accuracy_m || 150),
         });
+    // A hazard area on the situation's intel (the storm line, B7 #12):
+    // its polygon, hatched, on the flat map.
+    for (const id of s.intel_ids || []) {
+      const g = loop.intel[id]?.geo;
+      if (g?.polygon?.length > 2 && loop.intel[id]?.hazard_area !== false)
+        areas.push({
+          kind: 'weather',
+          label: scrub(loop, g.name || 'hazard area'),
+          lat: g.lat,
+          lon: g.lon,
+          polygon: g.polygon,
+          r: Math.min(400, g.accuracy_m || 300),
+        });
+    }
     for (const id of s.salute_ids || []) {
       const sal = loop.salutes[id];
       if (sal?.location)
@@ -867,12 +1043,20 @@ export function principalOverlay(loop, geo, view) {
         });
     }
   }
+  // After the detail leader's NON-CONCUR the original plan stands: the
+  // watch's entrance is greyed as superseded and his door is the focus.
+  const dl = view.dlPlan;
   return {
     marks,
     routes,
-    areas,
+    // A polygon area belongs to the flat map; the 3D twin draws discs only.
+    areas: view.flat ? areas : areas.filter((a) => !a.polygon),
     posts,
-    entrances: (v?.entrances || []).map((e) => ({ ...e })),
+    entrances: (v?.entrances || []).map((e) => ({
+      ...e,
+      superseded: Boolean(dl && e.name === dl.rejected),
+    })),
+    focusEntrance: dl ? dl.entrance : null,
     venue: v,
   };
 }
@@ -907,11 +1091,27 @@ export function mainView(main, { at, beat }) {
       : sc
         ? { mode: 'flat' }
         : { mode: 'field' };
+  // After the detail leader's NON-CONCUR the original plan stands: MAIN
+  // does not show the watch's rejected entrance (F2 S2). His door, when
+  // the host sends the venue's entrances, else the plan's own words.
+  const dlNo = rows[0]?.detail && /NON-CONCUR/.test(rows[0].ladder || '');
+  const dlDoor = dlNo
+    ? (sc?.entrances || []).find(
+        (e) =>
+          e.name !== sc?.entrance?.name &&
+          (/north/i.test(e.name) || e.side === 'N'),
+      ) || null
+    : null;
   if (sc && rows.length)
     Object.assign(map, {
       callsign: sc.callsign,
       title: sc.venue?.name ?? null,
-      entrance: sc.entrance?.name ?? null,
+      entrance: dlNo
+        ? dlDoor
+          ? `${dlDoor.name} (DL plan)`
+          : 'original plan (DL)'
+        : (sc.entrance?.name ?? null),
+      dl: dlNo ? { door: dlDoor, rejected: sc.entrance?.name ?? null } : null,
       leg:
         sc.leg && sc.at
           ? `${sc.callsign} · ${sc.leg.replace(/ \d{4}L$/, '')} ${sc.at}`

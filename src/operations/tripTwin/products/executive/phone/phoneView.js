@@ -34,9 +34,13 @@ const DL_WORD = {
   executing: 'EXECUTING',
   request_support: 'REQUEST SUPPORT',
 };
-/** EP-32 §4: P1 critical, P2 danger, then the app's lower tiers. */
+/**
+ * EP-32 §4, amended by B7 #6: a P1 from the watch is a recommendation or an
+ * instruction, not an incident, so it takes the app's amber (warning) tier;
+ * red is for incidents only (EP-38 #10). P2 danger, then the lower tiers.
+ */
 const SEVERITY = {
-  P1: 'critical',
+  P1: 'warning',
   P2: 'danger',
   P3: 'warning',
   P4: 'info',
@@ -44,7 +48,7 @@ const SEVERITY = {
 };
 /** EP-37 §1: what a push is, per protection. */
 const KIND = {
-  DETAIL: ['recommendation', 'Recommendation to the detail leader'],
+  DETAIL: ['recommendation', 'Recommendation · your decision'],
   REMOTE: ['instruction', 'Instruction from the watch'],
   MONITORED: ['advisory', 'Advisory from the watch'],
 };
@@ -166,17 +170,25 @@ function cardLine(card, prefix) {
 }
 
 /** EP-37 §3: the phone order, every slot that has a value. */
+/**
+ * A DETAIL push is a recommendation to the detail leader (B7 #8): no
+ * ACTION line and no ACK; his four answers, in his words.
+ */
+export const DL_REPLY = 'Concur / Non-concur / Executing / Request support';
+
 function orderRows(rec, push, tz) {
   if (!rec) return [];
   const rows = [];
   const add = (k, v) => v && rows.push({ k, v });
-  add(
-    'ACTION',
-    rec.action_display ||
-      String(rec.action || '')
-        .replace('_', ' ')
-        .toUpperCase(),
-  );
+  const detail = (push.tier || push.protection) === 'DETAIL';
+  if (!detail)
+    add(
+      'ACTION',
+      rec.action_display ||
+        String(rec.action || '')
+          .replace('_', ' ')
+          .toUpperCase(),
+    );
   add('BY', rec.by_when_display || (rec.by_when && lz(rec.by_when, tz)));
   add('WHERE', rec.destination?.name);
   add('REQUEST', rec.request);
@@ -185,7 +197,7 @@ function orderRows(rec, push, tz) {
     'VALID UNTIL',
     rec.valid_until_display || (rec.valid_until && lz(rec.valid_until, tz)),
   );
-  add('REPLY', rec.reply);
+  add('REPLY', detail ? DL_REPLY : rec.reply);
   add(
     'NEXT UPDATE',
     rec.next_update_display ||
@@ -201,6 +213,42 @@ function orderRows(rec, push, tz) {
     ) || (rec.official_instruction === 'none on file' ? 'none on file' : null),
   );
   return rows;
+}
+
+/**
+ * The takeover's kicker from the item (B7 #6): what the push is and how
+ * sure the watch is, never a posture word. `UNCONFIRMED · F3 ·
+ * RECOMMENDATION · SAMPLE` for ATLAS 6; `INSTRUCTION · REROUTE · SAMPLE`
+ * for WREN.
+ */
+export function kickerOf(header, kind) {
+  const word = String(kind || 'advisory').toUpperCase();
+  const parts = String(header || '')
+    .split(' · ')
+    .map((x) => x.trim())
+    .filter((x) => x && x !== 'SAMPLE' && x !== 'CRITICAL' && x !== word);
+  const out = /^UNCONFIRMED/.test(parts[0] || '')
+    ? [...parts, word]
+    : [word, ...parts];
+  return [...out, 'SAMPLE'].join(' · ');
+}
+
+/**
+ * The full message of a DETAIL push, as a recommendation (B7 #8): the
+ * `Action: …` segment goes and the reply reads in the leader's words.
+ */
+export function detailCard(lines = []) {
+  return lines
+    .map((l) =>
+      String(l)
+        .split(' · ')
+        .filter((seg) => !/^Action:/.test(seg.trim()) && !/^ACK\b/.test(seg))
+        .map((seg) =>
+          /^Reply CONCUR/.test(seg.trim()) ? `Reply ${DL_REPLY}` : seg,
+        )
+        .join(' · '),
+    )
+    .filter((l) => l.trim());
 }
 
 function signedLine(v) {
@@ -279,6 +327,15 @@ export function phoneViewModel(
       kindLine,
       tier,
       header: push.header || (a.unconfirmed ? 'UNCONFIRMED · SAMPLE' : null),
+      kicker: kickerOf(
+        push.header || (a.unconfirmed ? 'UNCONFIRMED · SAMPLE' : null),
+        kind,
+      ),
+      // B7 #7: the detail leader answers after his advance has reported.
+      awaitsSalute:
+        tier === 'DETAIL' &&
+        Boolean(rec?.request) &&
+        !(sit?.salute_ids || []).length,
       unconfirmed: a.unconfirmed,
       title: a.title,
       body: a.message,
@@ -288,7 +345,7 @@ export function phoneViewModel(
       severity: SEVERITY[a.priority] || 'warning',
       bluf: rec?.bluf ?? a.message,
       rows: orderRows(rec, push, tz),
-      card: push.card ?? [],
+      card: tier === 'DETAIL' ? detailCard(push.card) : (push.card ?? []),
       sender: `${push.sent_by} · ${watchName}`,
       signed: signedLine(v),
       sentAt: push.sent_at,

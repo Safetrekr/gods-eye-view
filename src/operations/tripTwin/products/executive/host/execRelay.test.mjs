@@ -336,16 +336,22 @@ test('B2 I10: a phone gets only its participant’s pushes; a foreign or forged 
       .phone.alerts.map((a) => a.id),
     ['push-atlas-01'],
   );
-  assert.equal(
-    phoneCmd(atlas6, {
-      type: 'dl.respond',
-      push_id: 'push-atlas-01',
-      answer: 'nonconcur',
-      reason: 'covered',
-      principal_informed: true,
-    }).ok,
-    true,
+  // B7 #7: the NON-CONCUR waits for the advance's SALUTE (1812Z).
+  const early = {
+    type: 'dl.respond',
+    push_id: 'push-atlas-01',
+    answer: 'nonconcur',
+    reason: 'covered',
+    principal_informed: true,
+  };
+  assert.equal(phoneCmd(atlas6, early).code, 'SALUTE_FIRST');
+  assert.ok(
+    lines.some(
+      (l) => l.type === 'loop.refused' && l.data.code === 'SALUTE_FIRST',
+    ),
   );
+  loopCmd({ type: 'clock.jump', to: '2026-10-27T18:12:30Z' });
+  assert.equal(phoneCmd(atlas6, early).ok, true);
   assert.ok(
     lines.some(
       (l) =>
@@ -507,19 +513,19 @@ test('B2 audit: one allowlisted line per accepted loop event, no free text; a sc
   const reason =
     'North door covered by venue security, Belvedere Road is clear';
   phoneCmd(atlas6, {
+    type: 'salute.file',
+    size: '1 male',
+    activity: 'Filming the north entrance, left on approach',
+    unit: 'none seen',
+    equipment: 'phone',
+  });
+  phoneCmd(atlas6, {
     type: 'dl.respond',
     push_id: 'push-atlas-01',
     answer: 'nonconcur',
     reason,
     plan: 'original plan, +1 post',
     principal_informed: true,
-  });
-  phoneCmd(atlas6, {
-    type: 'salute.file',
-    size: '1 male',
-    activity: 'Filming the north entrance, left on approach',
-    unit: 'none seen',
-    equipment: 'phone',
   });
   phoneCmd(atlas6, {
     type: 'checkin.respond',
@@ -533,7 +539,7 @@ test('B2 audit: one allowlisted line per accepted loop event, no free text; a sc
   // beat.go, clock.jump, then the three phone events.
   assert.deepEqual(
     accepted.map((l) => l.data.type),
-    ['beat.go', 'clock.jump', 'dl.respond', 'salute.file', 'checkin.respond'],
+    ['beat.go', 'clock.jump', 'salute.file', 'dl.respond', 'checkin.respond'],
   );
   const text = JSON.stringify(loopLines);
   for (const s of [

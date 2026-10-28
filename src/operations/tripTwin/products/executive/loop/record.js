@@ -130,6 +130,59 @@ function roleOf(loop, id, viewer) {
   return p ? String(p.role || '').toLowerCase() || 'person' : '—';
 }
 
+/** The four answers of a detail leader, in his words (B7 #8). */
+export const DL_REPLY = 'Concur / Non-concur / Executing / Request support';
+
+/**
+ * An official instruction as the authority wrote it (B7 #10): the id
+ * resolved against every leg's `official_instructions`, its `line`; never
+ * the raw id on a page.
+ */
+export function officialText(loop, id, scrub = (t) => t) {
+  if (!id || id === 'none on file') return 'No official instruction on file';
+  for (const l of Object.values(loop.legs || {}))
+    for (const o of l.official_instructions || [])
+      if (o.id === id)
+        return scrub(
+          String(o.line || '').replace(/^OFFICIAL · /, '') ||
+            [
+              o.kind === 'road_closure' ? 'Road closure' : 'Official',
+              o.place?.name,
+              o.authority_class,
+            ]
+              .filter(Boolean)
+              .join(' · '),
+        );
+  return /^oi-/.test(String(id)) ? 'Official instruction on file' : id;
+}
+
+function isViewer(loop, viewer, by) {
+  return by === viewer.id || by === viewer.callsign;
+}
+/**
+ * The client viewer's opens of a situation (B7 #14): the loop's `views`
+ * (the reducer's `record.view`), else `record.view` lines on its log.
+ * The first open at or after the raise.
+ */
+function viewerEvents(loop, viewer, s) {
+  const src = Array.isArray(loop.views)
+    ? loop.views
+    : (loop.log || []).filter((l) =>
+        /^(record\.view|client\.view)/.test(l.type || ''),
+      );
+  return src
+    .filter(
+      (l) =>
+        isViewer(loop, viewer, l.by) &&
+        (l.sit_id ?? l.ids?.sit_id) === s.sit_id &&
+        l.at &&
+        ms(l.at) >= ms(s.raised_at),
+    )
+    .sort((a, b) => ms(a.at) - ms(b.at))
+    .slice(0, 1)
+    .map((l) => ({ at: l.at, via: null }));
+}
+
 /** Every roster name, longest first. */
 function namesOf(loop) {
   return Object.values(loop.people || {})
@@ -225,14 +278,30 @@ function situationRecord(loop, s, ctx) {
   lines.push(
     line(s.raised_at, 1, `raised · ${scrub(s.why_raised) ?? '—'}`, 'system'),
   );
-  if (viewer)
-    access.push({
-      who: viewer.callsign,
-      role: 'your security lead, read-only',
-      at: s.raised_at,
-      action: 'opened',
-      via: 'client viewer screen',
-    });
+  // The client's security lead (B7 #14): `viewing`, from a real viewer
+  // event on the loop's log when the relay records one (record.view,
+  // client.view); until then from the read-only viewer screen, open from
+  // the raise, and said so. Never `opened` at the raise instant.
+  if (viewer) {
+    const seen = viewerEvents(loop, viewer, s);
+    if (seen.length)
+      for (const l of seen)
+        access.push({
+          who: viewer.callsign,
+          role: 'your security lead',
+          at: l.at,
+          action: 'viewing',
+          via: l.via ?? null,
+        });
+    else
+      access.push({
+        who: viewer.callsign,
+        role: 'your security lead',
+        at: s.raised_at,
+        action: 'viewing',
+        via: 'read-only screen, open from the raise',
+      });
+  }
 
   // -- verification (every version; a reopened decision stays beside it)
   const versions = v ? [...(v.versions || []), v] : [];
@@ -245,8 +314,9 @@ function situationRecord(loop, s, ctx) {
         version: v.version,
         countersignedBy: v.countersigned_by ?? null,
         countersignedAt: v.countersigned_at ?? null,
+        // A presenter shortcut says so on the record (S2, F1's _via).
         countersigned: v.countersigned_at
-          ? `${v.countersigned_by} ${when(v.countersigned_at, tz)}`
+          ? `${v.countersigned_by} ${when(v.countersigned_at, tz)}${v.countersigned_via === 'presenter' ? " · from the presenter's iPad" : ''}`
           : null,
         twoPerson: s.raised_tier === 'DETAIL' || s.tier === 'DETAIL',
         note: scrub(v.note),
@@ -340,10 +410,22 @@ function situationRecord(loop, s, ctx) {
     who: whoOf(loop, r.participant_id),
     role: r.role ?? null,
   }));
+  // A DETAIL push is a recommendation, the detail leader's decision (B7
+  // #8): no ACTION and no ACK; his four answers as the reply.
+  const recDetail =
+    s.tier === 'DETAIL' ||
+    (s.push_id && loop.pushes?.[s.push_id]?.tier === 'DETAIL');
   const recommendation = rec
     ? {
+        detail: Boolean(recDetail),
+        kicker: recDetail
+          ? "Recommendation · the detail leader's decision"
+          : 'Recommendation',
         bluf: scrub(rec.bluf),
-        action: rec.action_display || String(rec.action || '').toUpperCase(),
+        action: recDetail
+          ? null
+          : rec.action_display || String(rec.action || '').toUpperCase(),
+        reply: recDetail ? DL_REPLY : (rec.reply ?? null),
         by: rec.by_when ? when(rec.by_when, tz) : '—',
         validUntil: rec.valid_until ? when(rec.valid_until, tz) : '—',
         to: recipients
@@ -352,7 +434,12 @@ function situationRecord(loop, s, ctx) {
           )
           .join(' · '),
         request: scrub(rec.request) ?? null,
-        official: rec.official_instruction || 'No official instruction on file',
+        official: officialText(loop, rec.official_instruction, scrub),
+        subordinate: Boolean(
+          rec.subordinate &&
+          rec.official_instruction &&
+          rec.official_instruction !== 'none on file',
+        ),
         version: rec.version,
         status: rec.status,
         draftedBy:
@@ -701,7 +788,7 @@ function situationRecord(loop, s, ctx) {
         line(
           r.at,
           4,
-          `re-tier ${r.from} → ${r.to} · reason: ${scrub(r.reason)}`,
+          `re-tier ${r.from} → ${r.to} · reason: ${scrub(r.reason)}${r.via === 'presenter' ? " · from the presenter's iPad" : ''}`,
           r.by,
           r.reverses ? { reverses: r.reverses } : {},
         ),
@@ -733,7 +820,7 @@ function situationRecord(loop, s, ctx) {
         ]
           .filter(Boolean)
           .join(' · '),
-        line: `${r.from} → ${r.to} · ${r.by} ${watchTime(r.at)} · reason: ${scrub(r.reason)}`,
+        line: `${r.from} → ${r.to} · ${r.by} ${watchTime(r.at)}${r.via === 'presenter' ? " · from the presenter's iPad" : ''} · reason: ${scrub(r.reason)}`,
       };
     });
   // The comms checks while a DETAIL situation was open (EP-37 §7).
@@ -819,8 +906,9 @@ function situationRecord(loop, s, ctx) {
                 scrub(val) || '—',
               ])
             : null,
+          // `draft 2107Z · signed VALE …`: never "drafted system" (R15 S2-8).
           drafted: x.drafted_at
-            ? `drafted ${x.drafted_by === 'generator' ? 'system' : x.drafted_by} ${watchTime(x.drafted_at)}`
+            ? `Draft ${x.drafted_by === 'generator' || x.drafted_by === 'system' ? '' : `${x.drafted_by} `}${watchTime(x.drafted_at)}`
             : null,
           signed: x.signed_at
             ? `Signed ${x.signed_by} ${dtg(x.signed_at)}`
@@ -861,7 +949,11 @@ function situationRecord(loop, s, ctx) {
 
   // -- opened from a surface (a `record.view` line, when the relay logs one)
   for (const l of loop.log || [])
-    if (l.type === 'record.view' && l.ids?.sit_id === s.sit_id)
+    if (
+      l.type === 'record.view' &&
+      l.ids?.sit_id === s.sit_id &&
+      !(viewer && isViewer(loop, viewer, l.by))
+    )
       access.push({
         who: whoOf(loop, l.by),
         role: roleOf(loop, l.by, viewer),

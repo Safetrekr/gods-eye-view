@@ -17,6 +17,7 @@
   --ph-primary-dark: #2f7d4f;
   --ph-destructive: #c1253e;
   --ph-critical: #b4001f;
+  --ph-amber: #b45309;
   --ph-danger-bg: #fef2f2;
   --ph-danger-fg: #991b1b;
   --ph-warning-bg: #fff7ed;
@@ -702,7 +703,8 @@ body.ph-fill .ph-status {
   position: absolute;
   inset: 0;
   z-index: 25;
-  background: var(--ph-critical);
+  /* B7 #6: a P1 from the watch is amber; red is for incidents only. */
+  background: var(--ph-amber);
   color: #fff;
   display: flex;
   flex-direction: column;
@@ -739,7 +741,7 @@ body.ph-fill .ph-status {
 }
 .ph-take-msg {
   font: 400 16px/24px var(--ph-font);
-  color: #fee2e2;
+  color: #fff7ed;
 }
 .ph-take-foot {
   padding: 16px 24px 28px;
@@ -751,8 +753,23 @@ body.ph-fill .ph-status {
   border: 0;
   border-radius: 14px;
   background: #fff;
-  color: var(--ph-critical);
+  color: var(--ph-amber);
   font: 700 17px/22px var(--ph-font);
+}
+
+/* Accept above the fold (B7 S2): the reply bar pins to the bottom. */
+.ph-sticky {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  margin: 0 -16px;
+  padding: 10px 16px 12px;
+  background: var(--ph-bg);
+  border-top: 1px solid var(--ph-border);
+}
+.ph-field textarea.ph-short {
+  min-height: 0;
+  resize: none;
 }
 
 /* -------------------------------------------------------------- toast */

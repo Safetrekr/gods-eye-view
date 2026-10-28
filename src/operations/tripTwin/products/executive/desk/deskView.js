@@ -9,6 +9,7 @@
 import { selectCounter, selectQueue, queueLine } from '../loop/select.js';
 import { PUSHABLE } from '../loop/loopPolicy.js';
 import { dtg, legShort, watchTime, zl } from '../format.js';
+import { DL_REPLY, officialText } from '../loop/record.js';
 
 const ms = (t) => (typeof t === 'number' ? t : Date.parse(t));
 export const esc = (s) =>
@@ -313,7 +314,8 @@ export function deskActions(loop, desk, sitId, as = 'VALE') {
     const push = scriptAt(desk, sit, 'push.send');
     add({
       id: 'push',
-      key: 'Enter',
+      // `P`, and Enter only while it is the primary (R11 S2-10).
+      key: 'P',
       label: signedOff
         ? `${approved ? 'Push to recipients' : 'Approve and push'}${at(push)}`
         : 'Push · needs countersign',
@@ -383,12 +385,24 @@ export function deskActions(loop, desk, sitId, as = 'VALE') {
     const step = scriptAt(desk, sit, 'callback.step');
     const next =
       cb.chain[cb.steps.at(-1)?.step ?? cb.step - 1] || cb.chain[cb.step - 1];
+    // A step the chain marks `needs: countersign` (the police welfare
+    // check) goes with ORTEGA's countersign (R13 S2-2, F1's reducer).
+    const cs = next?.needs === 'countersign';
     add({
       id: 'call',
       key: 'C',
-      label: `Call next${next ? ` · ${next.role}` : ''}${at(step)}`,
+      label: `Call next${next ? ` · ${next.role}` : ''}${cs ? ' · needs countersign' : ''}${at(step)}`,
       primary: true,
-      cmds: [{ type: 'callback.step', push_id: live.push_id }],
+      needs: cs ? 'ORTEGA' : null,
+      disabled:
+        cs && as === 'ORTEGA' ? 'The analyst calls; ORTEGA countersigns' : null,
+      cmds: [
+        {
+          type: 'callback.step',
+          push_id: live.push_id,
+          ...(cs ? { countersigned_by: 'ORTEGA' } : {}),
+        },
+      ],
     });
   }
   const msg = scriptAt(desk, sit, 'message.send');
@@ -497,14 +511,15 @@ function gradeOf(g) {
   return m ? { source: m[1], info: Number(m[2]) } : null;
 }
 
+/** The Verify wall's seven checks, in its words (R14 S2-4). */
 const CHECK = [
-  ['archived', 'archive'],
-  ['identity', 'identity'],
-  ['account', 'account'],
-  ['corroboration', 'corroboration'],
-  ['place', 'geolocation'],
-  ['schedule', 'schedule'],
-  ['coordination', 'coordination'],
+  ['archived', 'ARCHIVED'],
+  ['identity', 'IDENTITY'],
+  ['account', 'ACCOUNT'],
+  ['corroboration', 'CORROBORATION'],
+  ['place', 'PLACE'],
+  ['schedule', 'SCHEDULE'],
+  ['coordination', 'COORDINATION'],
 ];
 const row = (k, v) =>
   `<div class="dk-row"><span class="dk-k">${esc(k)}</span><span class="dk-v">${v}</span></div>`;
@@ -586,7 +601,7 @@ export function evidenceHtml(loop, desk, sitId) {
     ${row('SOURCE AND GRADE', `${esc(grade)}${v?.corroborated_by?.length ? ' · corroborated' : ''}`)}
     <div class="dk-srcs">${sources}</div>
     ${row('TIMES', `<span class="dk-mono">observed ${head ? dtg(head.sent_at) : '—'} · received ${head ? watchTime(head.received_at) : '—'} · raised ${watchTime(sit.raised_at)}</span>`)}
-    <div class="dk-salute">${SAL.map(([k, x]) => `<span class="dk-k">${k}</span><span>${esc(x ?? '—')}</span>`).join('')}</div>
+    ${sal ? `<div class="dk-salute">${SAL.map(([k, x]) => `<span class="dk-k">${k}</span><span>${esc(x ?? '—')}</span>`).join('')}</div>` : ''}
     <ul class="dk-check">${checks}</ul>
     <div class="dk-decision">${decision}</div>
     ${ladderHtml(loop, sit)}
@@ -643,20 +658,22 @@ export function recommendationHtml(loop, desk, sitId) {
     ? `${esc(rec.status)} · v${rec.version}${rec.approved_by ? ` · approved ${esc(rec.approved_by)} ${watchTime(rec.approved_at)}` : ''}${rec.edited_by ? ` · edited ${esc(rec.edited_by)} ${watchTime(rec.edited_at)}` : ''}`
     : `draft · system · on the record when verified (script ${watchTime(r.at)})`;
   const len = [...(r.bluf || '')].length;
+  // A DETAIL push is the detail leader's decision (B7 #8): no ACTION, no ACK.
+  const detail = sit.tier === 'DETAIL';
   return `<article class="dk-card dk-rec">
     <div class="dk-rec-bluf">${esc(r.bluf)}</div>
     <div class="dk-dim dk-mono">${len}/90 · ${status}</div>
-    ${row('ACTION', `<b class="dk-mono">${esc((r.action_display || r.action || '').toUpperCase())}</b>`)}
+    ${detail ? `<div class="dk-dim dk-mono">RECOMMENDATION · THE DETAIL LEADER'S DECISION</div>` : row('ACTION', `<b class="dk-mono">${esc((r.action_display || r.action || '').toUpperCase())}</b>`)}
     ${row('BY', esc(r.by_when_display || (r.by_when ? zl(r.by_when, tz) : '—')))}
-    ${row('TO', esc(r.destination?.name || '—'))}
-    ${row('TO WHOM', recips || '—')}
+    ${row('WHERE', esc(r.destination?.name || '—'))}
+    ${row('TO', recips || '—')}
     ${row('VALID UNTIL', esc(r.valid_until_display || (r.valid_until ? zl(r.valid_until, tz) : '—')))}
-    ${row('ACK', r.requires_ack ? `required · reply ${esc(r.reply || '')}` : 'not required')}
+    ${row('REPLY', detail ? DL_REPLY : r.requires_ack ? esc(r.reply || 'required') : 'read only')}
     ${row('KNOWN', esc(r.known || '—'))}
     ${row('NOT KNOWN', esc(r.unknown || '—'))}
     ${row('NEXT UPDATE', esc(r.next_update_display || (r.next_update_at ? zl(r.next_update_at, tz) : '—')))}
     ${r.request ? row('REQUEST', esc(r.request)) : ''}
-    ${row('OFFICIAL', esc(r.official_instruction || 'No official instruction on file.'))}
+    ${row('OFFICIAL', esc(officialText(loop, r.official_instruction)))}
     <div class="dk-sig">${v ? `verified ${esc(v.verified_by)} ${watchTime(v.verified_at)}${v.countersigned_by ? ` · countersigned ${esc(v.countersigned_by)} ${watchTime(v.countersigned_at)}` : ''}` : 'not verified'}</div>
     ${ladderHtml(loop, sit)}
   </article>`;

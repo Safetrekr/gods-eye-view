@@ -436,7 +436,7 @@ function startPhone() {
     }
     if (!p) {
       const sc = el('div', 'ph-scroll');
-      sc.append(el('div', 'ph-sect', 'Pairing…'));
+      sc.append(el('div', 'ph-sect', 'Pairing'));
       nodes.push(sc);
       screen.replaceChildren(...nodes);
       document.body.dataset.phScreen = 'pairing';
@@ -567,7 +567,7 @@ function startPhone() {
     ring.append(icon('alert', 56));
     b.append(
       ring,
-      el('div', 'ph-take-kick', `CRITICAL · ${a.header || 'SAMPLE'}`),
+      el('div', 'ph-take-kick', a.kicker || a.header || 'SAMPLE'),
       el('div', 'ph-take-title', a.title),
       el('div', 'ph-take-msg', a.body),
     );
@@ -740,13 +740,13 @@ function startPhone() {
       sc.append(c);
     }
 
-    sc.append(el('div', 'ph-sect', 'Alerts'));
+    sc.append(el('div', 'ph-sect', 'Messages'));
     if (!p.alerts.length)
       sc.append(
         el(
           'div',
           'ph-card ph-foot',
-          'No alerts. The watch will message you here.',
+          'Nothing from the watch yet. Messages arrive here.',
         ),
       );
     for (const a of p.alerts) sc.append(alertCard(a));
@@ -1058,7 +1058,16 @@ function startPhone() {
     card.append(sender);
     card.append(ladder(a));
     sc.append(card);
-    sc.append(actionsFor(a));
+    const acts = actionsFor(a);
+    // Accept above the fold (B7 S2): the reply bar stays on screen while
+    // the order fields scroll beneath it; the leader's form stays in flow.
+    if (
+      a.canAct &&
+      !(a.kind === 'recommendation' && P().detail?.leader) &&
+      acts.querySelector('button')
+    )
+      acts.classList.add('ph-sticky');
+    sc.append(acts);
     const full = el('details', 'ph-full');
     full.append(el('summary', null, 'Full message'));
     for (const l of a.card) full.append(el('p', null, l));
@@ -1361,6 +1370,18 @@ function startPhone() {
         'The watch advises; you decide. Your answer and reason go on the record.',
       ),
     );
+    if (a.awaitsSalute) {
+      // B7 #7: no answer before the advance has reported.
+      f.dataset.wait = 'salute';
+      f.append(
+        el(
+          'div',
+          'ph-banner ph-grey',
+          "Your advance's SALUTE is not filed yet. The answer opens when it is.",
+        ),
+      );
+      return f;
+    }
     const grid = el('div', 'ph-actions ph-two');
     const ANS = [
       ['concur', 'Concur'],
@@ -1457,7 +1478,9 @@ function startPhone() {
   function openSalute() {
     const h = hint('salute.file');
     const now = simNow();
-    const useHint = h && Math.abs(Date.parse(h.time || h.at) - now) <= 120_000;
+    // Observed is never after filed (B7 #7): a hint from the future is not used.
+    const ht = h ? Date.parse(h.time || h.at) : NaN;
+    const useHint = h && Math.abs(ht - now) <= 120_000 && ht <= now;
     const t = useHint
       ? h.time
       : new Date(Math.floor(now / 60000) * 60000)
@@ -1476,11 +1499,19 @@ function startPhone() {
   }
 
   // -------------------------------------------------------- sheets
-  function field(label, key, { area = false, max = 280, mono = false } = {}) {
+  function field(
+    label,
+    key,
+    { area = false, max = 280, mono = false, rows = 0 } = {},
+  ) {
     const l = el('label', 'ph-field');
     l.append(el('span', null, label));
     const i = el(area ? 'textarea' : 'input');
     i.maxLength = max;
+    if (area && rows) {
+      i.rows = rows;
+      i.classList.add('ph-short');
+    }
     i.value = ui.form[key] ?? '';
     i.dataset.field = key;
     if (mono) i.style.fontFamily = 'var(--ph-mono)';
@@ -1604,7 +1635,7 @@ function startPhone() {
       );
       sh.append(
         field('S · SIZE', 'size', { max: 48 }),
-        field('A · ACTIVITY', 'activity', { max: 48 }),
+        field('A · ACTIVITY', 'activity', { max: 48, area: true, rows: 2 }),
         field('L · LOCATION', 'locName', { max: 48 }),
       );
       if (s.hint?.location?.mgrs)

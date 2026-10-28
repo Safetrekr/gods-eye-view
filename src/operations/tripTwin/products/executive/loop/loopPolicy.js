@@ -43,6 +43,8 @@ export const LOOP_ACTIONS = Object.freeze({
   'recommendation.approve': { who: ['analyst', 'supervisor'], tier: 'ask' },
   'push.send': { who: ['analyst'], tier: 'ask', undo: 'recall / supersede' },
   'message.send': { who: ['analyst', 'supervisor'], tier: 'act' },
+  // B7: the supervisor's own countersign of a watch reply (review R13 S2-5).
+  'message.countersign': { who: ['supervisor'], tier: 'ask' },
   'callback.step': { who: ['analyst', 'supervisor'], tier: 'act' },
   'posture.retier': { who: ['supervisor'], tier: 'desk' },
   'sitrep.sign': {
@@ -67,6 +69,9 @@ export const LOOP_ACTIONS = Object.freeze({
   'salute.file': { who: ['person'], tier: 'act' },
   'checkin.respond': { who: ['person'], tier: 'act' },
   'sharing.set': { who: ['person'], tier: 'act' },
+  // B7 (fix list #14): the client viewer opens a record (read-only; the
+  // reducer accepts only the day's client viewer).
+  'record.view': { who: ['person'], tier: 'act' },
   'clock.start': { who: ['presenter'], tier: 'act' },
   'clock.pause': { who: ['presenter'], tier: 'act' },
   'clock.resume': { who: ['presenter'], tier: 'act' },
