@@ -1,0 +1,13 @@
+{
+  "note": "sha256 of the school Trip Twin build at the clean tag; scripts/trip-twin-profile-check.mjs rebuilds and compares.",
+  "tag": "trip-twin-clean-2026-10-27",
+  "commit": "ee764d62135be41aab0a5ba101eeca5babcbbb28",
+  "built_with": {
+    "node": "24.22.0",
+    "command": "vite build --config vite.twin.config.js"
+  },
+  "files": {
+    "twin.html": "f34f9f25c9fdb767715f6309b3119d11e5f6a4e994d59247212fc86e0681a5fb",
+    "assets/twin-2XWCiQOY.js": "c2789e14dcd7b71448bc9493b5c6139f48640c8e2fb7b33608eb19de16cb693a"
+  }
+}
