@@ -603,6 +603,113 @@ export const AUDIT_EVENTS = Object.freeze({
 
 export const AUDIT_EVENT_TYPES = Object.freeze(Object.keys(AUDIT_EVENTS));
 
+// ------------------------------------------------------------ executive
+// SafeTrekr Executive (B2; EP-35 §7, EP-33 §3): the loop's own lines,
+// written only by a log opened for the executive product
+// (TRIP_TWIN_PRODUCT=executive, or `product: 'executive'`). The school
+// catalogue above, its canary and AUDIT_EVENT_TYPES are unchanged, and a
+// school log never writes these types. Ids, codes and closed lists only:
+// never a BLUF, a name, a reason or any other free text. The lists are
+// spelled out here so the school relay loads no executive module
+// (products/executive/host/loopHost.test.mjs keeps them equal).
+export const LOOP_EVENT_NAMES = Object.freeze([
+  'intel.received',
+  'intel.raise',
+  'position.fix',
+  'leg.changed',
+  'checkin.due',
+  'comms.due',
+  'comms.overdue',
+  'recommendation.draft',
+  'sitrep.draft',
+  'intel.dismiss',
+  'intel.watch',
+  'verification.decide',
+  'verification.countersign',
+  'notify.send',
+  'recommendation.edit',
+  'recommendation.approve',
+  'push.send',
+  'message.send',
+  'callback.step',
+  'posture.retier',
+  'sitrep.sign',
+  'situation.close',
+  'ack',
+  'dl.respond',
+  'salute.file',
+  'checkin.respond',
+  'sharing.set',
+  'clock.start',
+  'clock.pause',
+  'clock.resume',
+  'clock.jump',
+  'beat.go',
+  'reset',
+]);
+/** Presenter commands that are not loop events (execProtocol.js PRESENTER_CMDS). */
+export const PRESENTER_CMD_NAMES = Object.freeze([
+  'clock.rate',
+  'clock.auto',
+  'next',
+  'previous',
+  'confirm',
+  'cancel',
+  'wall.role',
+  'phone.ticket',
+]);
+const LOOP_TYPES = [...LOOP_EVENT_NAMES, ...PRESENTER_CMD_NAMES];
+const LOOP_FROM = ['phone', 'desk', 'presenter'];
+/** Who acted: the system, the presenter, a watch callsign or a participant id. */
+const loopBy = (v) =>
+  ['generator', 'presenter', 'VALE', 'ORTEGA'].includes(v) ? v : id(v);
+/** A refusal code: upper case and underscores, never text. */
+const loopCode = (v) =>
+  v == null
+    ? undefined
+    : typeof v === 'string' && /^[A-Z][A-Z0-9_]{1,39}$/.test(v)
+      ? v
+      : 'other';
+export const LOOP_AUDIT_EVENTS = Object.freeze({
+  // One line per accepted live loop event (a phone's, the desk's, the
+  // presenter's); the scripted timeline is the fixture and is not logged.
+  'loop.event': {
+    peer: false,
+    data: {
+      type: oneOf(LOOP_TYPES),
+      by: loopBy,
+      sit_id: id,
+      push_id: id,
+      rung: oneOf(['delivered', 'read', 'accepted', 'done']),
+      answer: oneOf(['concur', 'nonconcur', 'executing', 'request_support']),
+      code: loopCode,
+      from: oneOf(LOOP_FROM),
+      run: int,
+    },
+  },
+  'loop.refused': {
+    peer: false,
+    data: { type: oneOf(LOOP_TYPES), code: loopCode, from: oneOf(LOOP_FROM) },
+  },
+  // A rewind is on record too (EP-33 §7).
+  'presenter.beat': {
+    peer: false,
+    data: {
+      from: iso,
+      to: iso,
+      how: oneOf(['next', 'previous', 'beat', 'reset', 'jump']),
+      run: int,
+    },
+  },
+});
+const EXECUTIVE_EVENTS = Object.freeze({
+  ...AUDIT_EVENTS,
+  ...LOOP_AUDIT_EVENTS,
+});
+/** The catalogue a log writes: the school one, plus the loop's for the executive. */
+export const auditCatalogue = (product = process.env.TRIP_TWIN_PRODUCT) =>
+  product === 'executive' ? EXECUTIVE_EVENTS : AUDIT_EVENTS;
+
 const ACTOR_SPEC = {
   ref,
   kind: oneOf(['remote', 'screen', 'launcher', 'host']),
@@ -620,8 +727,13 @@ const PEER_SPEC = { ip: clip64, local: bool };
  * One event as it may be written (no `seq` yet): every part through its
  * allowlist. Returns null for a type not in the catalogue.
  */
-export function serialiseEvent(type, ev = {}, at = Date.now()) {
-  const entry = AUDIT_EVENTS[type];
+export function serialiseEvent(
+  type,
+  ev = {},
+  at = Date.now(),
+  catalogue = AUDIT_EVENTS,
+) {
+  const entry = catalogue[type];
   if (!entry) return null;
   const data = pick(ev.data, entry.data);
   const out = {
@@ -707,7 +819,10 @@ export function createAuditLog({
   pruneEveryMs = AUDIT_PRUNE_EVERY_MS,
   sideFiles = [WOULD_REFUSE_FILE],
   refused = null,
+  // SafeTrekr Executive (B2): the loop's lines too (auditCatalogue).
+  product = process.env.TRIP_TWIN_PRODUCT,
 } = {}) {
+  const catalogue = auditCatalogue(product);
   const st = {
     ok: Boolean(dir),
     ready: false, // folder made and the last seq read
@@ -779,7 +894,7 @@ export function createAuditLog({
     st.ready = true;
   }
 
-  const make = (type, ev) => serialiseEvent(type, ev, now());
+  const make = (type, ev) => serialiseEvent(type, ev, now(), catalogue);
 
   async function drain() {
     try {
@@ -993,7 +1108,7 @@ export function createAuditLog({
   function emit(type, ev = {}) {
     try {
       if (closed) return false;
-      const line = serialiseEvent(type, ev, now());
+      const line = serialiseEvent(type, ev, now(), catalogue);
       if (!line) return false;
       // No folder (unset or refused): nothing is kept in memory either.
       if (!dir || queue.length >= queueCap) {

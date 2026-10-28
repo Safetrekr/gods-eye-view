@@ -89,6 +89,18 @@ export default async (env) => {
           twinRemote: fileURLToPath(
             new URL('./twin-remote.html', import.meta.url),
           ),
+          // SafeTrekr Executive (B2, EP-35 §6): its own pages, only under
+          // TRIP_TWIN_PRODUCT=executive; the school build is unchanged.
+          ...(process.env.TRIP_TWIN_PRODUCT === 'executive'
+            ? {
+                twinExecutive: fileURLToPath(
+                  new URL('./twin-executive.html', import.meta.url),
+                ),
+                twinPhone: fileURLToPath(
+                  new URL('./twin-phone.html', import.meta.url),
+                ),
+              }
+            : {}),
         },
       },
     },

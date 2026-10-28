@@ -49,6 +49,7 @@
 // Prototype only: plain ws, LAN, no login — production needs TLS, device
 // enrolment, SSO, signed commands and an append-only audit store off the
 // host (07-production-delta).
+import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -88,6 +89,16 @@ import {
 } from './twinHosts.js';
 
 const PATH = SYNC_PATH;
+
+// SafeTrekr Executive (B2, EP-35 §§6–7): only under
+// TRIP_TWIN_PRODUCT=executive does the relay load the loop host and hold the
+// loop beside the session. The school relay never imports it, and with
+// `exec` null (createRelay's default) every executive line below is inert.
+export const EXECUTIVE = process.env.TRIP_TWIN_PRODUCT === 'executive';
+const EXEC_DIR = '../../src/operations/tripTwin/products/executive/';
+const EXEC_HOST = EXECUTIVE
+  ? await import('../../src/operations/tripTwin/products/executive/host/loopHost.js')
+  : null;
 /** This checkout: a data folder inside it is refused (S-1, sec N2). */
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -194,6 +205,8 @@ export function createRelay({
   timers = REAL_TIMERS,
   limits = LIMITS,
   healthFlags = null,
+  // SafeTrekr Executive (B2): loopHost.js executiveRelay(…), else null.
+  exec = null,
 } = {}) {
   const sockets = new Map(); // ws → {id, kind, secure, place}: paired
   const pending = new Map(); // ws → {id, kind, secure, place}: showing a code
@@ -356,6 +369,21 @@ export function createRelay({
     const hf = flags();
     each((ws, meta) => send(ws, { t: 'presence', presence: view(meta, hf) }));
   };
+  // SafeTrekr Executive (B2): phones, the monitor, presenter clock
+  // commands and the per-socket loop. Null for the school product.
+  const ex = exec
+    ? exec({
+        host,
+        sockets,
+        record,
+        limiter,
+        limitHit,
+        release: (ws) => release(ws),
+        timers,
+        limits,
+        now,
+      })
+    : null;
   /** A socket's hello deadline (sec S6): no accepted hello, closed. */
   function armDeadline(ws, conn) {
     timers.clear(conn.deadline);
@@ -418,6 +446,7 @@ export function createRelay({
     const conn = conns.get(ws);
     if (!conn) return;
     conns.delete(ws);
+    ex?.release(ws);
     timers.clear(conn.deadline);
     const wasPending = pending.has(ws);
     const me = sockets.get(ws) || pending.get(ws);
@@ -501,7 +530,7 @@ export function createRelay({
       counters.msgDropped += 1;
       return;
     }
-    const me = sockets.get(ws) || pending.get(ws);
+    const me = sockets.get(ws) || pending.get(ws) || ex?.meta(ws);
     // Before an accepted hello, only hello and (from this computer) setup.
     if (!me && m.t !== 'hello' && m.t !== 'setup') {
       counters.msgDropped += 1;
@@ -547,6 +576,8 @@ export function createRelay({
   });
 
   function handle(ws, m, me, conn) {
+    // SafeTrekr Executive (B2): its kinds and messages first.
+    if (ex?.handle(ws, m, me, conn)) return;
     switch (m.t) {
       case 'hello': {
         // One accepted hello per socket (SEC-7): a second one closes it.
@@ -1159,6 +1190,8 @@ export function createRelay({
         state: c.state,
         kind: (sockets.get(ws) || pending.get(ws))?.kind ?? null,
       })),
+    // SafeTrekr Executive (B2): the loop seam, for its tick and tests.
+    ...(ex ? { exec: ex } : {}),
   };
 }
 
@@ -1332,6 +1365,16 @@ export function twinSyncRelay() {
           audit: Boolean(audit.health().ok),
           store: Boolean(store.status?.().ok),
         }),
+        // SafeTrekr Executive (B2): the loop beside the session.
+        exec: EXEC_HOST?.executiveRelay({
+          day: JSON.parse(
+            readFileSync(
+              new URL(`${EXEC_DIR}data/day.json`, import.meta.url),
+              'utf8',
+            ),
+          ),
+          tokens: TOKENS,
+        }),
       });
       const host = server.config?.server?.host;
       relay.record('relay.boot', {
@@ -1356,8 +1399,12 @@ export function twinSyncRelay() {
       // Presence every 5 s so links and leases age visibly; the code sweep
       // runs with it (K7).
       const tick = setInterval(() => relay.presenceTick(), 5000);
+      // SafeTrekr Executive (B2): the loop's clock.
+      const execTick =
+        relay.exec && setInterval(() => relay.exec.tick(), EXEC_HOST.TICK_MS);
       server.httpServer?.on('close', () => {
         clearInterval(tick);
+        if (execTick) clearInterval(execTick);
         store.close();
         relay.record('relay.stop', {
           data: {
