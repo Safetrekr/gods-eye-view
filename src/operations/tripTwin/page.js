@@ -45,6 +45,12 @@ import {
   sitesForCity,
 } from './twinSites.js';
 import { createSiteBeacons } from './twinSiteBeacons.js';
+import {
+  aircraftLine,
+  aircraftView,
+  createAircraftFeed,
+} from './twinAircraft.js';
+import { createAircraftLayer } from './twinAircraftLayer.js';
 import { DEFAULT_GLOW, GLOW_STYLES } from './twinSelect.js';
 import { UNIT, formatLength, groundLine } from './twinUnits.js';
 import { SCENARIOS, TRIP_ID, tripTwinDemoSnapshot } from './demoTripTwin.js';
@@ -2134,6 +2140,16 @@ async function main() {
       customLayer?.dispose();
       customLayer = createCustomPathsLayer(viewer, site);
       renderCustom();
+      airLayer?.dispose();
+      airLayer = createAircraftLayer(viewer, site, {
+        wall: () => document.body.dataset.view === 'screen',
+        // Carried forward only while live and the Live tier moves.
+        extrapolate: () => airShown.status === 'live' && motion.on('live'),
+      });
+      // A new site asks for the aircraft around it.
+      airDrawn = null;
+      airFeed.recenter();
+      renderAircraft();
       $('tt-osm-source').textContent =
         site.osmSource === 'live'
           ? 'OSM buildings · live'
@@ -5437,6 +5453,21 @@ async function main() {
         'Sidewalks are part of the street · fire exits are not mapped',
       ],
     ],
+    // Live public data (twinAircraft.js): the first note is the status line.
+    aircraft: [
+      [
+        '',
+        '#b8c3c7',
+        'In the air · nose points along its track · stem to the ground',
+      ],
+      ['', '#80959b', 'On the ground (stands, taxiways)'],
+      ['note', '', aircraftLine(airShown) || 'Aircraft · loading'],
+      [
+        'note',
+        '',
+        'Public flight data · positions lag a few seconds · callsigns when nearer · not for navigation',
+      ],
+    ],
   });
   const GROUPS = [
     [
@@ -5464,6 +5495,8 @@ async function main() {
         ['avoidAreas', 'Avoid-areas', false],
       ],
     ],
+    // Live public data (29 Oct 2026); packs under Paths in the sheet.
+    ['Traffic', [['aircraft', 'Live aircraft (OpenSky)', false]]],
     [
       'Site',
       [
@@ -5493,6 +5526,7 @@ async function main() {
       walkways: twin.streets.walkways,
       context: twin.context.ring,
       corridors: twin.context.corridors,
+      aircraft: airOn,
     };
     const root = $('tt-layers');
     const scroll = root.scrollTop;
@@ -5569,6 +5603,8 @@ async function main() {
             customVis[key === 'savedPaths' ? 'saved' : 'avoid'] = box.checked;
             renderCustom();
             waysOutTouched(key, box.checked);
+          } else if (key === 'aircraft') {
+            setAircraft(box.checked);
           } else {
             twin.setLayer(key, box.checked);
             waysOutTouched(key, box.checked);
@@ -5604,12 +5640,14 @@ async function main() {
             item.append(sw, document.createTextNode(text));
             k.append(item);
           }
-          for (const t of notes) {
+          notes.forEach((t, i) => {
             const n = document.createElement('span');
             n.className = 'tt-key-note';
+            // The aircraft status line counts on between polls.
+            if (key === 'aircraft' && i === 0) n.id = 'tt-air-line';
             n.textContent = t;
             k.append(n);
-          }
+          });
           g.append(k);
         }
         if (on && (key === 'grid' || key === 'elevation'))
@@ -6137,6 +6175,69 @@ async function main() {
   const ncCenter = () => ({
     lat: city.center.lat,
     lon: city.center.lon ?? city.center.lng,
+  });
+  // ---- Live aircraft (Jesse, 29 Oct 2026; twinAircraft.js) ----
+  // Its own layer, off by default: on, the page asks the room's aircraft
+  // route every 15 s while it is visible; off, nothing is fetched. LIVE
+  // public data (OpenSky Network), never sample; the line under the toggle
+  // and in the source line says LIVE / STALE / RECORDED and how old.
+  let airLayer = null;
+  let airOn = false;
+  let airShown = { status: 'off', aircraft: [], count: 0 };
+  const airFeed = createAircraftFeed({
+    fetchJson: async (url) => {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    },
+    center: () => {
+      const c = twin.site?.center;
+      return c ? { lat: c.lat, lon: c.lon ?? c.lng } : null;
+    },
+    visible: () => document.visibilityState !== 'hidden',
+    onChange: () => renderAircraft(),
+  });
+  let airDrawn = null; // the answer and status last drawn
+  function renderAircraft() {
+    airShown = aircraftView(airFeed.state());
+    airLayer?.setShow(airOn);
+    // Redrawn on a new answer or a new status (stale, then none), not on
+    // the line's clock.
+    const drawKey = `${airShown.receivedAt}|${airShown.status}`;
+    if (airOn && airLayer && drawKey !== airDrawn) {
+      airLayer.update(airShown);
+      airDrawn = drawKey;
+    }
+    if (!airOn) airDrawn = null;
+    const line = aircraftLine(airShown);
+    let credit = $('tt-air-credit');
+    // A page without the span in its source line (Executive) gets one.
+    if (!credit && airOn && $('tt-wx-credit')) {
+      credit = document.createElement('span');
+      credit.id = 'tt-air-credit';
+      $('tt-wx-credit').after(credit);
+    }
+    if (credit) {
+      credit.hidden = !airOn;
+      credit.textContent = line;
+    }
+    const key = document.getElementById('tt-air-line');
+    if (key) key.textContent = line;
+  }
+  function setAircraft(on) {
+    airOn = Boolean(on);
+    airFeed.setOn(airOn);
+    renderAircraft();
+  }
+  document.addEventListener('visibilitychange', () =>
+    airFeed.visibilityChanged(),
+  );
+  // "updated 6 s ago" keeps counting between polls.
+  const airBeat = setInterval(() => airOn && renderAircraft(), 5000);
+  cleanups.push(() => {
+    clearInterval(airBeat);
+    airFeed.dispose();
+    airLayer?.dispose();
   });
   let wxLayer = null;
   let fxLayer = null;
@@ -8979,7 +9080,8 @@ async function main() {
       } else if (key === 'grid' || key === 'elevation') {
         ground[key === 'grid' ? 'grid' : 'contours'] = on;
         applyGround();
-      } else setViewLayer(key, on);
+      } else if (key === 'aircraft') setAircraft(on);
+      else setViewLayer(key, on);
     },
     /** Motion tiers for this wall, from the session (phase 11). */
     setMotion(tiers) {

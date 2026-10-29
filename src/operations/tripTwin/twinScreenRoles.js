@@ -198,6 +198,12 @@ export const LAYER_CATALOG = Object.freeze([
     ],
   },
   {
+    // Live public flight data (Jesse, 29 Oct 2026): off by default, on any
+    // wall from the remote or Fitzroy ("show the planes").
+    group: 'Traffic',
+    layers: [{ key: 'aircraft', label: 'Live aircraft (OpenSky)', def: false }],
+  },
+  {
     group: 'Views',
     layers: [
       { key: 'waysOut', label: 'Ways out view', def: false },

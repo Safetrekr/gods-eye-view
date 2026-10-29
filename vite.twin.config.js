@@ -9,6 +9,7 @@ import { twinRoutingProxy } from './server/tripTwin/routingProxy.js';
 import { twinSyncRelay } from './server/tripTwin/syncRelay.js';
 import { twinStreetPhotoProxy } from './server/tripTwin/streetPhotoProxy.js';
 import { twinCameraProxy } from './server/tripTwin/cameraProxy.js';
+import { twinAircraftProxy } from './server/tripTwin/aircraftProxy.js';
 import { twinVoiceProxy } from './server/tripTwin/voiceProxy.js';
 import { terrainHeightsProxy } from './server/providers/terrain.js';
 import {
@@ -75,6 +76,9 @@ export default async (env) => {
       // Traffic cameras (review/traffic-cameras T5): one fetch per camera for
       // the room, over upstream's own routes.
       twinCameraProxy(),
+      // Live aircraft (29 Oct 2026): upstream's /api/flights read once per
+      // 10 s for the room; each wall gets the aircraft near its site.
+      twinAircraftProxy(),
       // SOC multi-view (phase 10): screens + remote. LAN devices need
       // HOST=0.0.0.0 npx vite --config vite.twin.config.js
       twinSyncRelay(),

@@ -35,6 +35,7 @@
             "corridors",
             "grid",
             "elevation",
+            "aircraft",
             "waysOut",
             "streetPhoto"
           ]

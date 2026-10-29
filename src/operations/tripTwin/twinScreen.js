@@ -1208,6 +1208,10 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       applied.modeKey = key;
       for (const [k, v] of Object.entries(s.layers || {}))
         if (applied.layers?.[k] !== v) api.setLayer(k, v);
+      // A layer the session no longer sets (a Reset) goes back to its
+      // default here too: Live aircraft off again (29 Oct 2026).
+      for (const k of Object.keys(applied.layers || {}))
+        if (!(k in (s.layers || {}))) api.setLayer(k, layerValue(s, k));
       applied.layers = { ...(s.layers || {}) };
       // Motion tiers are this wall's own (phase 11).
       const mkey = JSON.stringify(s.motion || {});

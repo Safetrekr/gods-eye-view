@@ -16,8 +16,11 @@
 // CLI (runs until Ctrl-C):
 //   node scripts/qa-twin-server.mjs --dir <qa folder> [--port 4181]
 //     [--ref HEAD|worktree] [--env-file <path>] [--voice-port <port>]
+//     [--aircraft fixture|live]
 // `--voice-port` points the server's /api/twin-voice route at a test voice
 // service (voice-lab run on another port), never the live one on :8788.
+// `--aircraft live` lets the Live aircraft layer read the real OpenSky feed
+// (anonymous); the default serves the recorded Heathrow snapshot.
 // `--ref worktree` serves the working tree as it is (tracked and new files,
 // .gitignore respected), for a slice gate before its commit.
 // Module: startQaServer({dir, port, ref, envFile}) → {url, restart({ref}),
@@ -161,6 +164,7 @@ export async function startQaServer({
   ref = 'HEAD',
   envFile = defaultEnvFile(),
   voicePort = null,
+  aircraft = 'fixture',
   log = () => {},
 } = {}) {
   if (!dir) throw new Error('qa-twin-server: --dir is required');
@@ -184,6 +188,8 @@ export async function startQaServer({
     TRIP_TWIN_PHOTOS: 'fixture',
     // Traffic cameras from canned fixtures: QA never asks an agency (T5).
     TRIP_TWIN_CAMERAS: 'fixture',
+    // Aircraft from the recorded snapshot unless asked for live (29 Oct).
+    ...(aircraft === 'live' ? {} : { TRIP_TWIN_AIRCRAFT: 'fixture' }),
     QA_HOST: host,
     QA_PORT: String(port),
     QA_CACHE_DIR: cacheDir,
@@ -295,6 +301,7 @@ if (invoked === fileURLToPath(import.meta.url)) {
     ref: arg('ref', 'HEAD'),
     envFile: arg('env-file', defaultEnvFile()),
     voicePort: arg('voice-port', null),
+    aircraft: arg('aircraft', 'fixture'),
     log: (m) => console.log(m),
   });
   console.log(`Ctrl-C to stop (pid ${s.pid})`);

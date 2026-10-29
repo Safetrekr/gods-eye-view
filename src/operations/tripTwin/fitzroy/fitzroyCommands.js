@@ -128,6 +128,15 @@ const screens = [
         'Turn the clouds off everywhere',
         { screen: 'all', layer: 'clouds', on: false },
       ],
+      // Live aircraft (29 Oct 2026): the planes are a layer like any other.
+      [
+        'Show the planes on every screen',
+        { screen: 'all', layer: 'aircraft', on: true },
+      ],
+      [
+        'Hide the planes on screen one',
+        { screen: '1', layer: 'aircraft', on: false },
+      ],
     ],
   }),
   defineCommand({
@@ -919,6 +928,9 @@ export const ALL_SCREENS_WORDS = Object.freeze([
 /** Spoken names for docs and the lab grammar (keys are catalog ids). */
 export const SPOKEN = Object.freeze({
   layer: Object.fromEntries(LAYERS.map((k) => [k, spokenLayer(k)])),
+  // Other words people use for a layer, for the lab's next rules round (the
+  // frozen v2 rules do not know these yet).
+  layerAlso: { aircraft: ['planes', 'aircraft', 'flights', 'air traffic'] },
   role: SCREEN_ARG_ROLE,
   place: PLACE_WORDS,
   hazard: HAZARD_WORDS,

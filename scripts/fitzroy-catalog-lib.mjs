@@ -280,6 +280,13 @@ export async function buildFitzroyOutputs(root) {
       { type: 'session', patch: { visitor: true } },
     ],
     [
+      'Live aircraft (any site)',
+      'Show the planes on every screen',
+      'set_screen_layer',
+      { screen: 'all', layer: 'aircraft', on: true },
+      null,
+    ],
+    [
       'On the Austin trip',
       'Go to Westminster Abbey',
       'go_to_site',

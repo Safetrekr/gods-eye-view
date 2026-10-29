@@ -86,6 +86,7 @@ Fitzroy says: read from the Austin demo, six screens (1 Site, 2 People, 3 Incide
 | A report is open | "Satellite fire off on screen four" | That layer stays on while an incident is open. |
 | A report is open | "Switch to the London trip" | A report is open. Switch trips on the remote, in Trips. |
 | Visitor mode already on | "Visitors are coming in" | Visitor mode is already on. |
+| Live aircraft (any site) | "Show the planes on every screen" | Every screen: live aircraft on. |
 | On the Austin trip | "Go to Westminster Abbey" | Westminster Abbey is on the Youth choir tour. Switch trips first. |
 | Four screens | "Pin screen six" | There is no screen 6. |
 

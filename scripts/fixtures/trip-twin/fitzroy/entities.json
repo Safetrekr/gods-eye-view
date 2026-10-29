@@ -23,8 +23,17 @@
       "corridors": "toward venues & hospital",
       "grid": "scale grid",
       "elevation": "elevation contours",
+      "aircraft": "live aircraft",
       "waysOut": "ways out view",
       "streetPhoto": "street photo"
+    },
+    "layerAlso": {
+      "aircraft": [
+        "planes",
+        "aircraft",
+        "flights",
+        "air traffic"
+      ]
     },
     "role": {
       "site": "Site",
