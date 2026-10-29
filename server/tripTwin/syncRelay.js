@@ -129,9 +129,11 @@ export function lanAddresses(ifaces = os.networkInterfaces()) {
  * Presence as one socket may see it: no device ids, its own flag. Actors
  * by ref (K5): who is on the wall and every ref the state names. `health`
  * (K7, CF-D9; K8 shows "Log not writing"): is the audit log writing, is
- * the store saving.
+ * the store saving. `voice {listening}` (PROTO 8): a paired remote's
+ * microphone is open for "Fitzroy…" (the walls show FITZROY LISTENING); a
+ * boolean only.
  */
-export function presenceFor(p, meId, health = {}) {
+export function presenceFor(p, meId, health = {}, voice = {}) {
   const screens = {};
   for (const [slot, s] of Object.entries(p.screens || {}))
     screens[slot] = {
@@ -169,6 +171,7 @@ export function presenceFor(p, meId, health = {}) {
       audit: Boolean(health.audit),
       store: Boolean(health.store),
     },
+    voice: { listening: Boolean(voice.listening) },
   };
 }
 
@@ -228,6 +231,10 @@ export function createRelay({
   // from its upgrade; state is 'new' (no accepted hello), 'pending' or
   // 'paired' (screens with a slot, remotes, launchers).
   const conns = new Map();
+  // Fitzroy hands-free (PROTO 8): the paired remote sockets whose page says
+  // its microphone is open for "Fitzroy…". Per socket, never stored: a
+  // closed socket stops listening for the walls at once.
+  const listening = new Set();
   const waiting = new Map(); // device id → the socket that shows its code
   const limiter = createLimiter({ limits });
   // Health (BE-10): counters from the events, timings of commands.
@@ -325,7 +332,9 @@ export function createRelay({
     }
   };
   const view = (meta, hf = flags()) =>
-    presenceFor(host.presence(), meta.id, hf);
+    presenceFor(host.presence(), meta.id, hf, {
+      listening: listening.size > 0,
+    });
   /** The socket that holds this device id (paired or pending), not `not`. */
   const liveOf = (id, not = null) => {
     for (const map of [sockets, pending])
@@ -471,6 +480,11 @@ export function createRelay({
     const me = sockets.get(ws) || pending.get(ws);
     sockets.delete(ws);
     pending.delete(ws);
+    if (listening.delete(ws))
+      record('voice.listening', {
+        actor: me?.id ? host.actorOf(me.id, VIA.SYSTEM) : null,
+        data: { on: false },
+      });
     if (me && waiting.get(me.id) === ws) {
       waiting.delete(me.id);
       host.dropCode?.(me.id);
@@ -1011,6 +1025,23 @@ export function createRelay({
       case 'hb':
         host.beat(me.id);
         break;
+      case 'voice': {
+        // A paired remote's microphone is open (or closed) for "Fitzroy…".
+        // Only the boolean is read; anything else in the message (a
+        // transcript, a heard word) is never read, kept or forwarded.
+        if (me.kind !== 'remote' || typeof m.listening !== 'boolean') break;
+        const was = listening.size > 0;
+        const had = listening.has(ws);
+        if (m.listening) listening.add(ws);
+        else listening.delete(ws);
+        if (had !== m.listening)
+          record('voice.listening', {
+            actor: host.actorOf(me.id),
+            data: { on: m.listening },
+          });
+        if (was !== listening.size > 0) presence();
+        break;
+      }
       case 'request-control': {
         if (me.kind !== 'remote') break;
         const r = host.requestControl(me.id);

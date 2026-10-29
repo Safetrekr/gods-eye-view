@@ -145,7 +145,18 @@ export function createScreenMode({ api, slot = null, setup = null }) {
   const visitorMark = el('span', 'tt-wall-visitor', 'VISITOR MODE');
   visitorMark.title = 'Visitor mode · initials and counts only';
   visitorMark.hidden = true;
-  tags.append(handsTag, wallTag, visitorMark);
+  // Fitzroy hands-free (29 Oct 2026): a remote's microphone is open for
+  // "Fitzroy…" (presence voice.listening, PROTO 8). Never what was said.
+  const listenTag = el(
+    'span',
+    'tt-wall-tag tt-wall-listening',
+    'FITZROY LISTENING',
+  );
+  listenTag.title =
+    'A remote is listening for “Fitzroy…” · nothing said is shown here';
+  listenTag.dataset.ttListening = '';
+  listenTag.hidden = true;
+  tags.append(handsTag, wallTag, visitorMark, listenTag);
   right.append(chip, tags);
   head.append(left, status, right);
   // Phase 12: the approach line and the lens line, under the header.
@@ -1427,6 +1438,7 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       data.classList.toggle('late', late);
     }
     visitorMark.hidden = !ss.visitor;
+    listenTag.hidden = !presence?.voice?.listening;
     handsTag.hidden = !handsOn();
     wallTag.hidden = !setAtWall(s);
     // Another trip's report (W1): "› S6" names the Trips wall when there is

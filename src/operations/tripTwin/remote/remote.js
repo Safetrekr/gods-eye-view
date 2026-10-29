@@ -105,6 +105,9 @@ const ui = {
 
   target:
     ss.get('target', '1') === 'all' ? 'all' : Number(ss.get('target', '1')),
+  // When this remote's user last picked a TARGET (Fitzroy's default screen
+  // for a command that names none); null until they pick one.
+  targetAt: Number(ss.get('targetAt', '')) || null,
   station: ss.get('station', 'incident'),
   day: null,
   // K10: the server's question {kind: 'cmd'|'undo', confirmId, cmd, label,
@@ -125,6 +128,7 @@ const ui = {
   pair: null, // {text, err, until}
   awaitUndo: false,
   undoLeft: '', // K9: what an undo left, said with its broadcast
+  voiceListening: false, // Fitzroy hands-free is on here (the walls' flag)
 };
 
 const device =
@@ -195,6 +199,19 @@ function ask(cmd, text, label = '', hint = null) {
   return send(cmd, label, { ask: hint, text });
 }
 /**
+ * Fitzroy's hooks (remoteVoice.js fills them with ?voice=1; empty
+ * otherwise): what happened to a change it proposed, for its local usage
+ * log (ids only). The remote works the same without them.
+ */
+const voiceHooks = {};
+const hook = (name, ...a) => {
+  try {
+    voiceHooks[name]?.(...a);
+  } catch {
+    /* voice never breaks touch */
+  }
+};
+/**
  * Send one command. Fitzroy V1 (remoteVoice.js): `voice` is the proposal's
  * envelope ({intent} only); the relay checks it and stamps via voice. The
  * ack is returned (a page-side refusal as {ok: false, error}).
@@ -246,6 +263,7 @@ function askServer(r, item) {
 /** A command's answer: the result bar, with Undo when there is one. */
 function applied(r, cmd, label, before) {
   if (!r.ok) return notify(r.error || 'Not applied', true);
+  hook('applied', cmd, r);
   const said = render(describeCommand(cmd, before), {
     audience: 'remote',
     names: personNames(),
@@ -275,13 +293,16 @@ async function confirmNow() {
   }
   const r = await sync.request({ t: 'confirm', confirmId: c.confirmId });
   // The wall changed: the fresh question, asked in place (S-18).
-  if (r.code === CODE.CONFIRM_STALE)
+  if (r.code === CODE.CONFIRM_STALE) {
+    hook('restale', c.confirmId, r.confirmId);
     return askServer(r, {
       ...c,
       text: `The wall changed · check and confirm again · ${r.question?.text || c.text}`,
       focused: false,
     });
+  }
   ui.confirm = null;
+  hook('confirmed', c.confirmId, r);
   if (c.kind === 'undo') return undoAnswered(r);
   applied(r, c.cmd, c.label, before);
 }
@@ -289,6 +310,7 @@ async function confirmNow() {
 function cancelConfirm() {
   const c = ui.confirm;
   ui.confirm = null;
+  if (c?.confirmId) hook('cancelled', c.confirmId);
   if (c?.confirmId) sync.send({ t: 'confirm-cancel', confirmId: c.confirmId });
   renderBar();
 }
@@ -328,6 +350,7 @@ async function undoBy(undoId, voice = null) {
     askServer(r, { kind: 'undo', text: r.question?.text });
     return r;
   }
+  hook('undone', undoId, r);
   // The words come with the undone state (what really went back).
   undoAnswered(r);
   return r;
@@ -347,9 +370,13 @@ function personNames() {
     },
   };
 }
-function setTarget(t) {
+function setTarget(t, { user = true } = {}) {
   ui.target = t;
   ss.set('target', t);
+  if (user) {
+    ui.targetAt = Date.now();
+    ss.set('targetAt', ui.targetAt);
+  }
   renderTargets();
   renderPreview();
   renderContent(true);
@@ -1395,7 +1422,10 @@ function noteChange(prev, m) {
 function renderBar() {
   const b = ui.bar;
   // A confirm that nobody answers goes away after 15 s (R11).
-  if (ui.confirm && Date.now() > ui.confirm.until) ui.confirm = null;
+  if (ui.confirm && Date.now() > ui.confirm.until) {
+    hook('expired', ui.confirm.confirmId);
+    ui.confirm = null;
+  }
   if (ui.confirm) {
     bar.hidden = false;
     bar.className = 'rm-bar ask';
@@ -1485,6 +1515,8 @@ const sync = connectSync({
       }
       if (m.type === 'denied') return renderDenied(m.error);
       ui.outOfDate = null;
+      // Fitzroy's listening flag lives on this socket only: say it again.
+      if (ui.voiceListening) sync.send({ t: 'voice', listening: true });
       // The QR's setup code has done its job; the token rejoins from now on.
       if (params.has('setup')) {
         params.delete('setup');
@@ -1513,7 +1545,8 @@ const sync = connectSync({
       setTimeout(() => refreshWx(), 0);
       ui.presence = m.presence || ui.presence;
       ui.controller = Boolean(ui.presence?.youControl);
-      if (ui.target !== 'all' && !ui.state.screens[ui.target]) setTarget('all');
+      if (ui.target !== 'all' && !ui.state.screens[ui.target])
+        setTarget('all', { user: false });
       renderAll();
     },
     presence(m) {
@@ -1616,5 +1649,13 @@ if (params.get('voice') === '1')
       confirm: () =>
         ui.confirm && Date.now() <= ui.confirm.until ? ui.confirm : null,
       cancelConfirm,
+      // The TARGET row, and when its user last picked it (null: never).
+      target: () => ({ target: ui.target, at: ui.targetAt }),
+      // FITZROY LISTENING on the walls: a boolean on the relay, no words.
+      setListening: (on) => {
+        ui.voiceListening = Boolean(on);
+        sync.send({ t: 'voice', listening: ui.voiceListening });
+      },
+      hooks: voiceHooks,
     }),
   );

@@ -48,9 +48,12 @@ const rel = (p) => path.relative(ROOT, p).split(path.sep).join('/');
  * revision-checked undo (twinUndo.test.mjs), K10 server confirm
  * (twinConfirm.test.mjs) and the voice policy (twinVoice.test.mjs).
  * Fitzroy V1 adds eight voice-glue, relay, audio and dev-route tests
- * (fitzroy/fitzroyVoice.test.mjs).
+ * (fitzroy/fitzroyVoice.test.mjs). Fitzroy's 29 Oct round adds five
+ * (fitzroy/fitzroyListen.test.mjs: the default screen, the hands-free
+ * segmenter and its self-trigger mute, the relay's listening flag, the
+ * dev route's new paths).
  */
-export const BASELINE = 618;
+export const BASELINE = 623;
 /**
  * From K6 every gate re-runs the audit canary (PHASE-CF-PLAN §6.2 rule 8);
  * from L5 the token scan and the v1 migration (§6.6 L5 gate, S-14): these

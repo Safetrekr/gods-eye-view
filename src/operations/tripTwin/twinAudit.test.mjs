@@ -703,6 +703,10 @@ const FIXTURES = {
       voice: { intent: 'acknowledge_incident', transcript: PLANTED },
     },
   },
+  // Fitzroy hands-free: on or off, never what the microphone heard.
+  'voice.listening': {
+    data: { on: true, transcript: `Fitzroy show ${PLANTED}`, heard: PLANTED },
+  },
 };
 
 test('K6 canary (catalogue): every event type has a fixture; with generated poison in every field, no secret, id, code, thumbnail, user agent or planted name reaches the folder', async () => {
@@ -771,6 +775,7 @@ test('K6 canary (catalogue): every event type has a fixture; with generated pois
     field: 'incidentAck',
     tier: 'touch',
   });
+  assert.deepEqual(first('voice.listening').data, { on: true });
   assert.deepEqual(first('device.hello').actor, { ref: 'D7', kind: 'remote' });
   assert.equal(first('session.setup').data.tripId, 'trip-choir-austin');
   assert.equal(first('upgrade.refused').data.host, 'evil.example:4173');

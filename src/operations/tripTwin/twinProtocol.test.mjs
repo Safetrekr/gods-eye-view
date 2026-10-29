@@ -63,6 +63,8 @@ const WIRE_SCHEMA = Object.freeze({
   // broadcast says undone {of, restored, skipped}; VOICE_REFUSED carries a
   // reason.
   7: '80c941b49e557e03f2b50121d2e0a177ca85ded0676df1011e3ce9e357bad5ae',
+  // Fitzroy hands-free (29 Oct 2026): presence carries voice {listening}.
+  8: 'a9b42442df0c169de04bb6d29a67fbc6b456dec3c519b15844815a52b798e83a',
 });
 
 /** A host on a fake clock with a seeded random (deterministic tokens). */
@@ -204,6 +206,9 @@ function goldenTranscript() {
   });
   r.say({ t: 'undo', reqId: 10, undoId });
   r.say({ t: 'undo', reqId: 11, undoId });
+  // Fitzroy hands-free (PROTO 8): a remote's microphone opens for
+  // "Fitzroy…"; presence says voice.listening (a boolean, nothing else).
+  r.say({ t: 'voice', listening: true, transcript: 'never read' });
   // Thumbnails, hands-on, identify, control and handover.
   s1.say({ t: 'thumb', data: 'data:image/jpeg;base64,AAAA' });
   s2.say({ t: 'local', on: true, text: 'picked' });
@@ -355,7 +360,7 @@ test('K5 S-15: a launcher page from before K5 cannot start a setup (RELOAD); thi
 });
 
 test('K5 S-15: every welcome says PROTO; PROTO_MIN equals PROTO at this slice; protoOk takes integers from PROTO_MIN up', () => {
-  assert.equal(PROTO, 7);
+  assert.equal(PROTO, 8);
   assert.equal(PROTO_MIN, PROTO);
   for (const p of [PROTO, PROTO + 1]) assert.equal(protoOk(p), true);
   for (const p of [undefined, null, 0, 1, '2', 1.5, NaN])

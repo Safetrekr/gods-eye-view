@@ -631,6 +631,10 @@ export const AUDIT_EVENTS = Object.freeze({
       tier: oneOf(['act', 'ask', 'touch']),
     },
   },
+  // Fitzroy hands-free (29 Oct 2026): a remote's microphone opened or
+  // closed for "Fitzroy…" (closed also when its socket goes). On or off
+  // only: never what was heard.
+  'voice.listening': { peer: false, data: { on: bool } },
 });
 
 export const AUDIT_EVENT_TYPES = Object.freeze(Object.keys(AUDIT_EVENTS));

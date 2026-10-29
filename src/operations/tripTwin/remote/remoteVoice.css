@@ -82,3 +82,35 @@
   opacity: 0.5;
   cursor: default;
 }
+/* 29 Oct: "Talking about: S2", the log note, the Listening switch and
+   "That was wrong" (with Undo beside a flag). Steel only; the words carry
+   the state. */
+.rm-voice-about,
+.rm-voice-log {
+  flex: none;
+  font: 500 11px var(--rm-mono);
+  color: var(--rm-text-2);
+  white-space: nowrap;
+}
+.rm-voice-log {
+  color: var(--rm-dim);
+}
+.rm-voice-keys {
+  flex-wrap: wrap;
+}
+.rm-voice-listen,
+.rm-voice-wrong,
+.rm-voice-undo,
+.rm-voice-mute {
+  flex: none;
+}
+.rm-voice-listen[aria-checked='true'] {
+  border-color: var(--rm-active);
+}
+.rm-voice[data-listening='on'] .rm-voice-listen {
+  background: var(--rm-text);
+  color: var(--rm-field);
+}
+.rm-voice-undo[hidden] {
+  display: none;
+}

@@ -15,7 +15,9 @@
 //     ever printed, logged or written.
 // CLI (runs until Ctrl-C):
 //   node scripts/qa-twin-server.mjs --dir <qa folder> [--port 4181]
-//     [--ref HEAD|worktree] [--env-file <path>]
+//     [--ref HEAD|worktree] [--env-file <path>] [--voice-port <port>]
+// `--voice-port` points the server's /api/twin-voice route at a test voice
+// service (voice-lab run on another port), never the live one on :8788.
 // `--ref worktree` serves the working tree as it is (tracked and new files,
 // .gitignore respected), for a slice gate before its commit.
 // Module: startQaServer({dir, port, ref, envFile}) → {url, restart({ref}),
@@ -158,6 +160,7 @@ export async function startQaServer({
   host = '127.0.0.1',
   ref = 'HEAD',
   envFile = defaultEnvFile(),
+  voicePort = null,
   log = () => {},
 } = {}) {
   if (!dir) throw new Error('qa-twin-server: --dir is required');
@@ -185,6 +188,7 @@ export async function startQaServer({
     QA_PORT: String(port),
     QA_CACHE_DIR: cacheDir,
     QA_MODULES: modules,
+    ...(voicePort ? { TRIP_TWIN_VOICE_PORT: String(voicePort) } : {}),
     ...keys,
   };
   const logFile = path.join(dir, 'server.log');
@@ -290,6 +294,7 @@ if (invoked === fileURLToPath(import.meta.url)) {
     port: Number(arg('port', QA_PORT)),
     ref: arg('ref', 'HEAD'),
     envFile: arg('env-file', defaultEnvFile()),
+    voicePort: arg('voice-port', null),
     log: (m) => console.log(m),
   });
   console.log(`Ctrl-C to stop (pid ${s.pid})`);

@@ -6,9 +6,12 @@
 // a loopback peer, a loopback Host and a same-origin fetch, else 403 and an
 // `http.refused` event. iPads and phones are V3 (HTTPS first).
 //
-// Paths: GET /api/twin-voice/health, POST /api/twin-voice/turn | /speak |
-// /reset. Bodies pass through as they are and are never logged (a turn
-// carries the utterance; its answer, the transcript).
+// Paths: GET /api/twin-voice/health, POST /api/twin-voice/turn | /listen |
+// /speak | /reset | /outcome | /flag. Bodies pass through as they are and
+// are never logged (a turn carries the utterance; its answer, the
+// transcript). /listen is one voiced segment from the remote's open
+// microphone (hands-free, 29 Oct 2026); /outcome and /flag carry a turn id
+// and an event for the voice service's own usage log, never words.
 import http from 'node:http';
 import { hostCheckFor } from './twinHostCheck.js';
 import { twinHostGuard, twinLocalOnly } from './twinHosts.js';
@@ -16,8 +19,11 @@ import { twinHostGuard, twinLocalOnly } from './twinHosts.js';
 export const VOICE_PATHS = Object.freeze({
   'GET /health': '/health',
   'POST /turn': '/turn',
+  'POST /listen': '/listen',
   'POST /speak': '/speak',
   'POST /reset': '/reset',
+  'POST /outcome': '/outcome',
+  'POST /flag': '/flag',
 });
 const MAX_BODY = 4 * 1024 * 1024;
 

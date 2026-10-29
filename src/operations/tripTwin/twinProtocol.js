@@ -93,6 +93,10 @@ export const MSG_TYPES = Object.freeze([
   // K10: the asking device answers the server's question (S-18, C24).
   'confirm',
   'confirm-cancel',
+  // Fitzroy hands-free (29 Oct 2026): a remote says its microphone is open
+  // for "Fitzroy…" ({listening: boolean}, nothing else); the walls show
+  // FITZROY LISTENING while any remote says so. Old relays drop it.
+  'voice',
 ]);
 
 // ---------------------------------------------------------------- K5
@@ -100,7 +104,8 @@ export const MSG_TYPES = Object.freeze([
 // message shape raises PROTO and sets PROTO_MIN = PROTO: K5 → 2, K7 → 3,
 // wall keyboard commands (shell D5) → 4, the wall menu's layout
 // (screens/05-S1-PLAN) → 5, the hazard demos (review/hazards H5) → 6, K9
-// and K10 together (review/voice/PRE-V1-NOTES.md) → 7, then K11 → 8. A
+// and K10 together (review/voice/PRE-V1-NOTES.md) → 7, Fitzroy's
+// listening flag (29 Oct 2026) → 8, then K11 → 9. A
 // hello below PROTO_MIN (or with no `proto`:
 // every page from before K5) is refused RELOAD with text an old page can
 // show. twinProtocol.test.mjs keeps one schema hash per PROTO: a shape
@@ -126,11 +131,15 @@ export const MSG_TYPES = Object.freeze([
  * An undo answers `{restored, skipped, undoable}` (no `undoId`; `replay`
  * for a repeat), and its broadcast says `undone {of, restored, skipped}`.
  * A command may carry `voice {intent}` (a Fitzroy proposal): the relay
- * stamps `via` 'voice' and checks its voice policy table.
+ * stamps `via` 'voice' and checks its voice policy table. 8 (Fitzroy
+ * hands-free, 29 Oct 2026): presence carries `voice {listening}`, true
+ * while a paired remote has said `{t:'voice', listening: true}` on its open
+ * socket (its microphone is open for "Fitzroy…"); a boolean only, never a
+ * word of what was said.
  */
-export const PROTO = 7;
+export const PROTO = 8;
 /** The oldest page the relay still talks to. */
-export const PROTO_MIN = 7;
+export const PROTO_MIN = 8;
 
 /** True when a page says a protocol this relay still talks to. */
 export const protoOk = (proto) => Number.isInteger(proto) && proto >= PROTO_MIN;

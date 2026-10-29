@@ -16,6 +16,11 @@
 // (voicePolicy.table.js is generated from the same catalog), and the relay
 // still decides: Tier B comes back CONFIRM_REQUIRED (K10) and Tier C is
 // refused VOICE_REFUSED with its touch-only words.
+//
+// 29 Oct 2026 (Jesse: "1-3"): the screen a command means when it names
+// none (talkingAbout: the TARGET this remote tapped, or the last screen it
+// spoke to, whichever is newer; 10 minutes idle forgets the last one), and
+// the words for "that was wrong" and hands-free listening.
 import { tripById } from '../demoTripList.js';
 import { CODE } from '../twinProtocol.js';
 import { FITZROY_POLICY } from './fitzroyCommand.js';
@@ -41,7 +46,54 @@ export const SAY = Object.freeze({
   nothingUndone: 'Nothing undone.',
   notApplied: 'Not applied. Nothing changed.',
   unclear: "I didn't catch a command.",
+  // Hands-free (and push-to-talk) from a remote that is not in control.
+  takeControl: 'Take control on the remote first.',
+  flagged: 'Flagged. Nothing changed.',
+  nothingToFlag: 'Nothing to flag.',
 });
+
+/** The last screen spoken to is forgotten after this long with no turn. */
+export const TALK_IDLE_MS = 10 * 60 * 1000;
+
+/**
+ * The screen a command means when it names none (fewer questions back):
+ * the TARGET this remote's user tapped (S1–S6 or All), or the last single
+ * screen a voice change went to (the service's last_target, `at` in
+ * seconds), whichever is newer. → {screen, from: 'target'|'last'} or null.
+ * o: {target, targetAt (ms, null when never tapped), lastTarget, nowMs,
+ * screens (the state's screens)}.
+ */
+export function talkingAbout(o = {}) {
+  const now = o.nowMs ?? Date.now();
+  const has = (s) => s === 'all' || Boolean(o.screens?.[s]);
+  const tapped =
+    o.targetAt != null && o.target != null && has(o.target)
+      ? { screen: o.target, from: 'target', at: o.targetAt }
+      : null;
+  const lt = o.lastTarget;
+  const lastAt = Number(lt?.at) * 1000;
+  const last =
+    Number.isInteger(lt?.screen) &&
+    has(lt.screen) &&
+    Number.isFinite(lastAt) &&
+    now - lastAt <= TALK_IDLE_MS
+      ? { screen: lt.screen, from: 'last', at: lastAt }
+      : null;
+  const pick = tapped && (!last || tapped.at >= last.at) ? tapped : last;
+  return pick ? { screen: pick.screen, from: pick.from } : null;
+}
+
+/** "Talking about: S2" (the strip), or '' when nothing is remembered. */
+export function talkingText(t) {
+  if (!t) return '';
+  return `Talking about: ${t.screen === 'all' ? 'All screens' : `S${t.screen}`}`;
+}
+
+/** The strip's log note: "Logging on · 14 days" or "Logging off". */
+export function logText(log) {
+  if (!log) return '';
+  return log.on ? `Logging on · ${log.keep_days} days` : 'Logging off';
+}
 
 /** Rules v2 refusals → the catalog's touch-only entry (its words). */
 const REFUSE_ENTRY = Object.freeze({
@@ -65,7 +117,8 @@ export function placeCategory(id) {
 /**
  * The context the decision service reads (voice-lab/src/v2/README.md), from
  * this remote's own session state. o: {pending (the open question's words),
- * lastTarget (this remote's memory), reportOpen, nowMs, source}.
+ * lastTarget (this remote's memory), defaultTarget (talkingAbout: the
+ * screen to use when the words name none), reportOpen, nowMs, source}.
  */
 export function voiceContext(state, o = {}) {
   const s = state?.session || {};
@@ -86,6 +139,7 @@ export function voiceContext(state, o = {}) {
     report: Boolean(o.reportOpen ?? s.report),
     visitor: Boolean(s.visitor),
     last_target: o.lastTarget || null,
+    default_target: o.defaultTarget || null,
     now: (o.nowMs ?? Date.now()) / 1000,
     source: o.source || 'remote',
   };
