@@ -8418,6 +8418,9 @@ async function main() {
       const p = { ...presets[key] };
       const c = twin.site.center;
       const s = twin.scene;
+      // A wider site (Heathrow T5, 2.75 km) frames its whole map at City.
+      if (key === 'city')
+        p.range = Math.max(p.range, (twin.site.radius || 0) * 2.9);
       if (p.fit)
         p.range = Math.max(p.range, (s.hotelTop - s.hotelBase) * 2.4 + 120);
       const target = new Cesium.BoundingSphere(

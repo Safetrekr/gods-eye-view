@@ -121,6 +121,15 @@ export const TWIN_VENUES = Object.freeze({
     // How a sentence names it (street photos: "towards Heathrow Terminal 5").
     photoName: 'Heathrow Terminal 5',
     center: { lat: 51.4717, lon: -0.48771 },
+    // The airport and its surroundings, not one building (Jesse, 29 Oct
+    // 2026): out to 2.75 km takes the western side of Heathrow (T5A/B/C,
+    // the control tower, cargo and maintenance, car parks), the Bath Road
+    // and Northern Perimeter Road hotels, both runways where they cross the
+    // area, and the edges of Harmondsworth, Longford and Colnbrook. Runways,
+    // taxiways and aprons are drawn; buildings beyond 1.2 km are recorded as
+    // footprints only (twinData AIRSIDE_DETAIL_M).
+    radiusM: 2750,
+    airside: true,
     groundFloorLabel: 0,
     // OSM maps `level=0-4` and a height, not building:levels: the floor
     // count is not verified (the floor-numbering prompt, as at the hotel).

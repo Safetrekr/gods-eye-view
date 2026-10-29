@@ -11,8 +11,10 @@ import {
   makeProjector,
   parseOverpassElements,
   projectBuildings,
+  AIRSIDE_DETAIL_M,
+  haversineM,
   selectHotelFootprint,
-  TWIN_RADIUS_M,
+  siteRadiusM,
 } from '../src/operations/tripTwin/twinData.js';
 import { TWIN_CITIES } from '../src/operations/tripTwin/twinCities.js';
 import {
@@ -55,6 +57,32 @@ async function overpass(query) {
   throw last;
 }
 
+/**
+ * An airside site's far buildings (beyond AIRSIDE_DETAIL_M) as footprints
+ * only: their outline and `building`, coordinates to 6 decimals (~0.1 m),
+ * no heights, names or other tags. Keeps a 2.75 km airport fixture small
+ * and the wall light; near buildings keep every tag.
+ */
+function thinFarBuildings(elements, center) {
+  let thinned = 0;
+  const r6 = (v) => Math.round(v * 1e6) / 1e6;
+  const out = elements.map((el) => {
+    const t = el.tags || {};
+    if (!t.building || el.type !== 'way' || !Array.isArray(el.geometry))
+      return el;
+    const c = centroid(el.geometry);
+    if (haversineM(center, c) <= AIRSIDE_DETAIL_M) return el;
+    thinned += 1;
+    return {
+      type: 'way',
+      id: el.id,
+      tags: { building: t.building },
+      geometry: el.geometry.map((p) => ({ lat: r6(p.lat), lon: r6(p.lon) })),
+    };
+  });
+  return { elements: out, thinned };
+}
+
 function centroid(geometry) {
   let lat = 0;
   let lon = 0;
@@ -79,7 +107,11 @@ async function capture(key) {
       ? centroid(el.geometry)
       : null;
   if (!center) throw new Error(`${key}: site ${city.osm} has no geometry`);
-  const query = buildTwinQuery(center, TWIN_RADIUS_M);
+  // A site's own radius and airside terms (Heathrow T5), else the default.
+  const radiusM = siteRadiusM(city);
+  const query = buildTwinQuery(center, radiusM, {
+    airside: Boolean(city.airside),
+  });
   const site = await overpass(query);
   const file = new URL(
     `./fixtures/trip-twin/${key}.overpass.json`,
@@ -95,7 +127,7 @@ async function capture(key) {
         tags: el.tags || {},
       },
       timezone: city.timezone,
-      radius_m: TWIN_RADIUS_M,
+      radius_m: radiusM,
       query,
       fetched_at: new Date().toISOString(),
       source: site.url,
@@ -104,6 +136,11 @@ async function capture(key) {
     },
     elements: site.json.elements,
   };
+  if (city.airside) {
+    const thin = thinFarBuildings(out.elements, center);
+    out.elements = thin.elements;
+    out.meta.thinned = { beyondM: AIRSIDE_DETAIL_M, buildings: thin.thinned };
+  }
   // Anchors from the recorded footprint (deterministic, offline-repeatable).
   const proj = makeProjector(center);
   const parsed = parseOverpassElements(out.elements);
@@ -127,6 +164,7 @@ async function capture(key) {
   console.log(
     `${key}: ${out.meta.hotel.name} @ ${center.lat.toFixed(5)},${center.lon.toFixed(5)} via ${site.url} →`,
     kinds,
+    `${Math.round(JSON.stringify(out).length / 1024)} KB`,
   );
 }
 

@@ -487,51 +487,73 @@ export function tripTwinDemoSnapshot(
     P('JP', { at: farAway, acc: 16, age: 55, unaccompanied: true });
     P('EW', { at: null });
   } else if (sc === 'c' && arrival) {
-    // Demo C, Day 1 08:15: landed, through passport control and baggage.
-    // The group and the three chaperones are gathered in T5's arrivals hall
-    // (landside, along the west wall); two travellers are still at baggage
-    // reclaim, further in. Fresh fixes with indoor accuracy (9–18 m), all
-    // inside the terminal by the 2× rule; nobody away, stale or unlocated.
+    // Demo C, Day 1 08:15: landed, through passport control. The group is
+    // spread across T5 in small groups (Jesse, 29 Oct 2026): the main
+    // cluster at the arrivals meeting point, seven at three reclaim belts
+    // (T10 and NF still waiting for bags), four by a café, a pair by the
+    // restrooms; one chaperone with each of the three larger groups. Fresh
+    // fixes, indoor accuracy 9–18 m, all inside by the 2× rule.
     const V = arrival.anchors;
     venueCtx = venueCtxFor(arrival);
-    // The forecourt side (west at T5), and the way back in, airside.
+    // The forecourt side (west at T5) and the way in, airside (east).
     const forecourt = arrival.assemblyToward ?? bearing(V.inside, V.assembly);
     const inward = (forecourt + 180) % 360;
-    // The hall: mid-façade, ~50 m in from the forecourt wall; baggage
-    // reclaim further in.
-    const hall = offset(V.inside, forecourt, 30);
-    const reclaim = offset(hall, inward, 46);
-    const gathered = CAST.map(([id]) => id).filter(
-      (id) => id !== 'T10' && id !== 'NF',
-    );
-    gathered.forEach((id, i) =>
-      P(id, {
-        // Spread along the hall (along the façade), a few metres deep.
-        at: offset(
-          offset(hall, (forecourt + 90) % 360, ((i % 9) - 4) * 4.5),
-          inward,
-          (Math.floor(i / 9) - 1) * 4,
-        ),
-        acc: 9 + ((i * 7) % 10),
-        age: 8 + ((i * 13) % 70),
-        floor: {
-          level: 0,
-          seed: 80 + i,
-          site: 'venue',
-          anchorAgo: 2400,
-          ...(id === 'LB' ? { barometer: 'missing' } : {}),
-        },
-      }),
-    );
-    // The stragglers: waiting for bags at reclaim, a minute's walk behind.
-    ['T10', 'NF'].forEach((id, i) =>
-      P(id, {
-        at: offset(reclaim, (forecourt + 90 + 180 * i) % 360, 6 + i * 3),
-        acc: 14 + i * 3,
-        age: 20 + i * 15,
-        floor: { level: 0, seed: 110 + i, site: 'venue', anchorAgo: 2400 },
-      }),
-    );
+    const along = (forecourt + 90) % 360; // along the façade (north at T5)
+    /** A point `inM` toward airside and `alongM` along the façade. */
+    const at = (inM, alongM, from = V.inside) =>
+      offset(offset(from, inward, inM), along, alongM);
+    // Group centres from the deepest point: the arrivals hall is ~50 m in
+    // from the forecourt wall; reclaim belts 45 m apart further in.
+    const GROUPS = [
+      {
+        key: 'meeting',
+        center: at(-28, 20),
+        ids: [
+          'TC',
+          'MR',
+          'AK',
+          'SD',
+          'IS',
+          'T15',
+          'T16',
+          'T17',
+          'RO',
+          'EW',
+          'T01',
+          'T02',
+          'JO',
+        ],
+      },
+      { key: 'belt-1', center: at(30, -35), ids: ['KV', 'T03', 'T04'] },
+      { key: 'belt-2', center: at(30, 10), ids: ['T10', 'T05', 'T06'] },
+      { key: 'belt-3', center: at(30, 55), ids: ['NF', 'T07'] },
+      { key: 'cafe', center: at(-30, 95), ids: ['HL', 'LB', 'T08', 'T09'] },
+      { key: 'restrooms', center: at(-38, -55), ids: ['T11', 'JP'] },
+    ];
+    // Loose spacing inside a group (a sunflower: neighbours 7.7 m or more
+    // apart, the 13 of the meeting point within 18 m): people, not a stack.
+    const SPOTS = Array.from({ length: 13 }, (_, k) => {
+      const r = 5 * Math.sqrt(k + 0.5);
+      return [r * Math.cos(k * 2.39996), r * Math.sin(k * 2.39996)];
+    });
+    let n = 0;
+    for (const g of GROUPS)
+      g.ids.forEach((id, j) => {
+        const i = n++;
+        const [inM, alongM] = SPOTS[j];
+        P(id, {
+          at: at(inM, alongM, g.center),
+          acc: 9 + ((i * 7) % 10),
+          age: 8 + ((i * 13) % 70),
+          floor: {
+            level: 0,
+            seed: 80 + i,
+            site: 'venue',
+            anchorAgo: 2400,
+            ...(id === 'LB' ? { barometer: 'missing' } : {}),
+          },
+        });
+      });
   } else {
     // Baseline, 21:32: covers every position and floor state.
     P('MR', {

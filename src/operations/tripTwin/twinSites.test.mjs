@@ -211,3 +211,95 @@ test('Heathrow T5: the recorded terminal footprint carries its anchors', () => {
   // The site centre is the terminal's own (the capture's centre).
   assert.ok(pointInRing(xy(site.center), ring));
 });
+
+test('Heathrow T5 reads as the airport: a 2.75 km map with runways, taxiways and aprons', async () => {
+  const {
+    AIRSIDE_DETAIL_M,
+    buildTwinQuery,
+    clipToDisc,
+    haversineM,
+    siteRadiusM,
+    TWIN_RADIUS_M,
+  } = await import('./twinData.js');
+  const t5 = siteConfig('london-heathrow-t5');
+  const R = siteRadiusM(t5);
+  assert.equal(R, 2750);
+  // Every other site keeps the 400 m map and its query, word for word.
+  for (const s of [
+    ...sitesForCity('austin'),
+    ...sitesForCity('dc'),
+    ...sitesForCity('london'),
+  ])
+    if (s.key !== t5.key) {
+      assert.equal(siteRadiusM(s), TWIN_RADIUS_M, s.key);
+      assert.equal(s.airside, undefined, s.key);
+    }
+  const plain = buildTwinQuery(t5.center, 400);
+  assert.doesNotMatch(plain, /aeroway/);
+  // Without airside the radius still caps at 800 m, as before.
+  const capped = buildTwinQuery(t5.center, R);
+  assert.match(capped, /around:800,/);
+  assert.doesNotMatch(capped, /around:2750,|aeroway/);
+  const q = buildTwinQuery(t5.center, R, { airside: true });
+  assert.match(
+    q,
+    /way\(around:2750,[^)]+\)\["aeroway"~"\^\(runway\|taxiway\|apron\)\$"\]/,
+  );
+  assert.match(
+    q,
+    /way\(around:450,[^)]+\)\["highway"/,
+    'minor ways near the terminal only',
+  );
+  // The recorded fixture: its radius, the satellites, the airside.
+  const { f, proj } = footprint(t5.key);
+  assert.equal(f.meta.radius_m, R);
+  // Far buildings are footprints only (outline + `building`): drawn low
+  // and faint like any unmapped height; near ones keep their tags.
+  assert.equal(f.meta.thinned.beyondM, AIRSIDE_DETAIL_M);
+  assert.ok(f.meta.thinned.buildings > 0);
+  const center = f.meta.hotel.center;
+  for (const el of f.elements)
+    if (el.type === 'way' && el.tags?.building && Array.isArray(el.geometry)) {
+      const far = el.geometry.every(
+        (p) => haversineM(center, p) > AIRSIDE_DETAIL_M + 400,
+      );
+      if (far)
+        assert.deepEqual(Object.keys(el.tags), ['building'], `way/${el.id}`);
+    }
+  const parsed = parseOverpassElements(f.elements);
+  const ids = new Set(parsed.buildings.map((b) => b.id));
+  for (const id of ['way/23479613', 'way/23479729', 'way/108056983'])
+    assert.ok(ids.has(id), `${id} (T5B, T5C, Sofitel) recorded`);
+  const kinds = {};
+  for (const a of parsed.aeroways) kinds[a.kind] = (kinds[a.kind] || 0) + 1;
+  assert.ok(
+    kinds.runway >= 1 && kinds.taxiway >= 10 && kinds.apron >= 1,
+    JSON.stringify(kinds),
+  );
+  for (const a of parsed.aeroways.filter((x) => x.kind !== 'apron'))
+    assert.ok(a.widthM > 0 && a.coords.length >= 2, a.id);
+  // A runway crossing the disc keeps only its inside part.
+  const runway = parsed.aeroways.find((a) => a.kind === 'runway');
+  for (const piece of clipToDisc(runway.coords, proj, R + 60))
+    for (const p of piece)
+      assert.ok(Math.hypot(...proj.toXY(p.lat, p.lon)) <= R + 61);
+  // Other fixtures have no airside.
+  assert.deepEqual(
+    parseOverpassElements(footprint('london-abbey').f.elements).aeroways,
+    [],
+  );
+});
+
+test('clipToDisc: a line through the disc keeps its chord; one outside is dropped', async () => {
+  const { clipToDisc } = await import('./twinData.js');
+  const proj = makeProjector({ lat: 0, lon: 0 });
+  const p = (x, y) => proj.toLL(x, y);
+  const through = clipToDisc([p(-200, 0), p(200, 0)], proj, 100);
+  assert.equal(through.length, 1);
+  const [a, b] = through[0].map((q) => proj.toXY(q.lat, q.lon));
+  assert.ok(Math.abs(a[0] + 100) < 1e-6 && Math.abs(b[0] - 100) < 1e-6);
+  assert.deepEqual(clipToDisc([p(-200, 150), p(200, 150)], proj, 100), []);
+  // In, out, in again: two pieces.
+  const twice = clipToDisc([p(0, 0), p(0, 300), p(10, 0)], proj, 100);
+  assert.equal(twice.length, 2);
+});

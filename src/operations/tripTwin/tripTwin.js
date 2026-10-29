@@ -8,6 +8,7 @@ import { createContextLayer } from './twinContext.js';
 import { resolveEllipsoidalGround } from '../../data/terrainHeights.js';
 import {
   TWIN_RADIUS_M,
+  siteRadiusM,
   buildTwinQuery,
   gridPoints,
   makeHeightfield,
@@ -55,7 +56,7 @@ export async function loadOsm(siteKey, mode, signal) {
     const res = await fetch('/api/overpass', {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: `data=${encodeURIComponent(buildTwinQuery(city.center, TWIN_RADIUS_M))}`,
+      body: `data=${encodeURIComponent(buildTwinQuery(city.center, siteRadiusM(city), { airside: Boolean(city.airside) }))}`,
       signal: AbortSignal.any([signal, timeout]),
     });
     if (!res.ok) throw new Error(`overpass ${res.status}`);
@@ -82,9 +83,10 @@ export async function loadOsm(siteKey, mode, signal) {
   }
 }
 
-async function loadHeightfield(center, signal) {
-  // 41 × 41 = 1,681 points (~25 m spacing): enough for honest contours.
-  const grid = gridPoints(center, TWIN_RADIUS_M, 41);
+async function loadHeightfield(center, signal, radius = TWIN_RADIUS_M) {
+  // 41 × 41 = 1,681 points (~25 m spacing at 400 m): enough for honest
+  // contours. A wider site (Heathrow T5) keeps the count, coarser.
+  const grid = gridPoints(center, radius, 41);
   try {
     const results = await resolveEllipsoidalGround(
       grid.points.map((p) => ({ lat: p.lat, lon: p.lon })),
@@ -475,7 +477,8 @@ export function createTripTwin({
       stats.requests.overpass += osmMode === 'live' ? 1 : 0;
       const [osm, ground] = await Promise.all([
         loadOsm(siteKey, osmMode, signal),
-        ((stats.requests.terrain += 1), loadHeightfield(center, signal)),
+        ((stats.requests.terrain += 1),
+        loadHeightfield(center, signal, siteRadiusM(city))),
       ]);
       performance.mark('trip-twin:parse:start');
       const parsed = parseOverpassElements(osm.elements);
@@ -502,12 +505,14 @@ export function createTripTwin({
         center,
         projector,
         field: ground.field,
-        radius: TWIN_RADIUS_M,
+        radius: siteRadiusM(city),
         buildings: projected.buildings,
         totalBuildings: projected.total,
         capped: projected.capped,
         hotel,
         roads: parsed.roads,
+        // Runways, taxiways and aprons: airport sites only (Heathrow T5).
+        aeroways: parsed.aeroways,
         entrances: parsed.entrances,
         osmSource: osm.source,
         osmFetchedAt: osm.fetchedAt,
@@ -551,6 +556,7 @@ export function createTripTwin({
           offset: new Cesium.HeadingPitchRange(
             0,
             Cesium.Math.toRadians(-40),
+            // The entry frames the subject the same way at every site.
             2 * TWIN_RADIUS_M,
           ),
           duration: reduced ? 0 : flightMs(distance) / 1000,

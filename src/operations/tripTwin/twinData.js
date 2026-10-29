@@ -3,6 +3,22 @@
 import { currentFreshness, validPoint } from '../model.js';
 
 export const TWIN_RADIUS_M = 400;
+/**
+ * A site's map radius: TWIN_RADIUS_M, or its own `radiusM` where one
+ * building is not the place (Heathrow T5 reads as the airport at ~1.5 km).
+ */
+export const siteRadiusM = (site) =>
+  Number.isFinite(site?.radiusM) ? site.radiusM : TWIN_RADIUS_M;
+/** Minor ways an airside site records only near its terminal (fixture size). */
+export const AIRSIDE_MINOR_M = 450;
+/**
+ * Beyond this an airside site's buildings are recorded as footprints only
+ * (geometry and `building`, no heights or names): drawn low and faint, as
+ * any unmapped height is (capture-trip-twin-osm.mjs thinFarBuildings).
+ */
+export const AIRSIDE_DETAIL_M = 1200;
+/** Default widths (m) when OSM gives none: ICAO runway and taxiway widths. */
+const AEROWAY_WIDTH_M = { runway: 45, taxiway: 23 };
 export const NEARBY_M = 150; // 06 HTL-03 / HTL-04 split (01 [A5])
 export const LEVEL_HEIGHT_M = 3.3; // repo convention (annotationResolver), X-11
 export const DEFAULT_BUILDING_HEIGHT_M = 9.9; // three levels, drawn as approximate
@@ -119,24 +135,100 @@ export function ringStitch(paths) {
 const HIGHWAYS =
   'motorway|trunk|primary|secondary|tertiary|unclassified|residential|service|living_street|pedestrian|footway|steps';
 
-/** 03 §4.1. Centre rounded to 5 decimals so cache keys are stable. */
-export function buildTwinQuery(center, radius = TWIN_RADIUS_M) {
-  const r = Math.round(Math.min(800, Math.max(100, radius)));
+const MAIN_HIGHWAYS =
+  'motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|unclassified|residential';
+
+/**
+ * 03 §4.1. Centre rounded to 5 decimals so cache keys are stable.
+ * airside (an airport site, e.g. Heathrow T5): runways, taxiways and aprons
+ * out to the radius, main roads out to the radius, and minor ways (service,
+ * foot) only within AIRSIDE_MINOR_M, so the apron's service roads do not
+ * swell the fixture. Every other site's query is unchanged.
+ */
+export function buildTwinQuery(
+  center,
+  radius = TWIN_RADIUS_M,
+  { airside = false } = {},
+) {
+  const r = Math.round(Math.min(airside ? 3000 : 800, Math.max(100, radius)));
   const lat = center.lat.toFixed(5);
   const lon = center.lon.toFixed(5);
   const near = `${lat},${lon}`;
+  const ways = airside
+    ? [
+        `way(around:${r},${near})["highway"~"^(${MAIN_HIGHWAYS})$"];`,
+        `way(around:${Math.min(r, AIRSIDE_MINOR_M)},${near})["highway"~"^(${HIGHWAYS})$"];`,
+        `way(around:${r},${near})["aeroway"~"^(runway|taxiway|apron)$"];`,
+        `relation(around:${r},${near})["aeroway"="apron"];`,
+      ]
+    : [`way(around:${r},${near})["highway"~"^(${HIGHWAYS})$"];`];
   return [
-    '[out:json][timeout:25];',
+    `[out:json][timeout:${airside ? 180 : 25}];`,
     '(',
     `way(around:${r},${near})["building"];`,
     `relation(around:${r},${near})["building"]["type"="multipolygon"];`,
     `way(around:150,${near})["building:part"];`,
     `nwr(around:150,${near})["tourism"~"^(hotel|hostel|guest_house|motel|apartment)$"];`,
     `node(around:150,${near})["entrance"];`,
-    `way(around:${r},${near})["highway"~"^(${HIGHWAYS})$"];`,
+    ...ways,
     ');',
     'out geom qt;',
   ].join('\n');
+}
+
+/**
+ * The parts of a line inside a disc (metres from the projector's centre):
+ * every segment clipped to the circle, consecutive inside parts joined.
+ * coords: [{lat, lon}] → [[{lat, lon}, …], …]. A runway that crosses the
+ * disc keeps its middle; one outside it is dropped. Pure.
+ */
+export function clipToDisc(coords, projector, R) {
+  const pts = coords.map((p) => projector.toXY(p.lat, p.lon));
+  const inside = ([x, y]) => x * x + y * y <= R * R;
+  const out = [];
+  let cur = [];
+  const ll = ([x, y]) => {
+    const q = projector.toLL(x, y);
+    return { lat: q.lat, lon: q.lon };
+  };
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const A = dx * dx + dy * dy;
+    let t0 = 0;
+    let t1 = 1;
+    if (A > 0) {
+      const B = 2 * (a[0] * dx + a[1] * dy);
+      const C = a[0] * a[0] + a[1] * a[1] - R * R;
+      const disc = B * B - 4 * A * C;
+      if (disc < 0) t0 = t1 = NaN;
+      else {
+        const sq = Math.sqrt(disc);
+        t0 = Math.max(0, (-B - sq) / (2 * A));
+        t1 = Math.min(1, (-B + sq) / (2 * A));
+      }
+    } else if (!inside(a)) t0 = t1 = NaN;
+    if (!(t0 <= t1)) {
+      if (cur.length >= 2) out.push(cur);
+      cur = [];
+      continue;
+    }
+    const p0 = [a[0] + dx * t0, a[1] + dy * t0];
+    const p1 = [a[0] + dx * t1, a[1] + dy * t1];
+    if (!cur.length || t0 > 0) {
+      if (cur.length >= 2) out.push(cur);
+      cur = [ll(p0)];
+    }
+    cur.push(ll(p1));
+    if (t1 < 1) {
+      out.push(cur);
+      cur = [];
+    }
+  }
+  if (cur.length >= 2) out.push(cur);
+  return out;
 }
 
 export function parseMeters(value) {
@@ -196,6 +288,9 @@ export function parseOverpassElements(elements = []) {
   const roads = [];
   const entrances = [];
   const hotels = [];
+  // Airside (airport sites only): runways and taxiways as centre lines with
+  // a width, aprons as areas.
+  const aeroways = [];
   for (const el of elements) {
     const tags = el.tags || {};
     if (
@@ -238,6 +333,33 @@ export function parseOverpassElements(elements = []) {
       });
       continue;
     }
+    if (!tags.building && /^(runway|taxiway|apron)$/.test(tags.aeroway || '')) {
+      if (tags.aeroway === 'apron') {
+        const rings =
+          el.type === 'way' && Array.isArray(el.geometry)
+            ? [el.geometry.map(ll)]
+            : el.type === 'relation' && Array.isArray(el.members)
+              ? ringStitch(
+                  el.members
+                    .filter(
+                      (m) => m.role !== 'inner' && Array.isArray(m.geometry),
+                    )
+                    .map((m) => m.geometry.map(ll)),
+                )
+              : [];
+        for (const ring of rings)
+          if (ring.length >= 4)
+            aeroways.push({ id: `${el.type}/${el.id}`, kind: 'apron', ring });
+      } else if (el.type === 'way' && Array.isArray(el.geometry))
+        aeroways.push({
+          id: `way/${el.id}`,
+          kind: tags.aeroway,
+          ref: tags.ref || null,
+          widthM: parseMeters(tags.width) || AEROWAY_WIDTH_M[tags.aeroway],
+          coords: el.geometry.map(ll),
+        });
+      continue;
+    }
     const isPart = Boolean(tags['building:part']) && !tags.building;
     if (!tags.building && !isPart) continue;
     let outer = [];
@@ -267,7 +389,7 @@ export function parseOverpassElements(elements = []) {
     };
     (isPart ? parts : buildings).push(record);
   }
-  return { buildings, parts, roads, entrances, hotels };
+  return { buildings, parts, roads, entrances, hotels, aeroways };
 }
 
 function centroidLL(geometry) {

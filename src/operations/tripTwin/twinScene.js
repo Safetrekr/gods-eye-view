@@ -2,7 +2,7 @@
 // data on one heightfield. Nothing clamps to Google tiles or the globe
 // (03 ADR-003). Colors are SafeTrekr brand tokens (04 §5.1–5.2).
 import * as Cesium from 'cesium';
-import { haversineM } from './twinData.js';
+import { AIRSIDE_DETAIL_M, clipToDisc, haversineM } from './twinData.js';
 
 const css = (hex, a = 1) => Cesium.Color.fromCssColorString(hex).withAlpha(a);
 
@@ -20,6 +20,13 @@ export const TWIN_PALETTE = Object.freeze({
   gridMinor: ['#415e6b', 0.55],
   gridMajor: ['#365462', 0.9],
   street: ['#415e6b', 0.9],
+  // Airside (airport sites only): quieter than the buildings. Runways are
+  // wide pale bands, taxiways thin lines, aprons faint areas.
+  runway: ['#b8c3c7', 0.24],
+  runwayEdge: ['#b8c3c7', 0.45],
+  taxiway: ['#80959b', 0.38],
+  apron: ['#415e6b', 0.1],
+  apronEdge: ['#80959b', 0.2],
 });
 
 const GLASS_SOURCE = `
@@ -291,7 +298,11 @@ export function buildTwinScene(viewer, site) {
     });
 
   // --- ground: grid (operator-chosen spacing) and terrain contours ---
-  const gridR = radius + 100;
+  // A wide site (Heathrow T5, 2.75 km) keeps the grid and contours to its
+  // detail ring: beyond it the map is roads, runways and footprints, so a
+  // 50 m grid does not swamp the City view.
+  const gridR =
+    radius > AIRSIDE_DETAIL_M * 1.5 ? AIRSIDE_DETAIL_M + 100 : radius + 100;
   let grid = null;
   let contours = null;
   // Grid and elevation are independent layers (Jesse): either, both or neither.
@@ -366,6 +377,8 @@ export function buildTwinScene(viewer, site) {
         }),
       )
     : null;
+  const airside = makeAirside(site.aeroways || [], projector, field, radius);
+  if (airside) primitives.add(airside.group);
   // Primitives compile only while shown; the controller hides them after ready().
 
   let disposed = false;
@@ -387,6 +400,7 @@ export function buildTwinScene(viewer, site) {
       triangles,
       primitives: bandPrimitives.length * 2 + 4,
       roads: streetInstances.length,
+      aeroways: airside?.count || 0,
     },
     /** The faint base streets step aside while the Streets layer is on. */
     setBaseStreets(on) {
@@ -405,6 +419,7 @@ export function buildTwinScene(viewer, site) {
       if (grid) grid.show = r >= radius / 4;
       if (contours) contours.show = r >= radius / 4;
       if (streets) streets.show = r >= radius / 2 && !baseStreetsOff;
+      if (airside) airside.group.show = r >= radius / 4;
     },
     /** Surrounding buildings on/off (Layers › Site). The hotel always stays. */
     /** Floor focus (phase 3 Part F): the hotel glass steps back. */
@@ -452,6 +467,7 @@ export function buildTwinScene(viewer, site) {
       hotelGroup.show = false;
       bandPrimitives.forEach((g) => (g.show = false));
       if (streets) streets.show = false;
+      if (airside) airside.group.show = false;
     },
     /** Resolves when every asynchronous primitive has compiled (or timeout). */
     ready(timeoutMs = 20000) {
@@ -486,6 +502,140 @@ export function buildTwinScene(viewer, site) {
       if (!viewer.isDestroyed()) viewer.scene.primitives.remove(primitives);
     },
   };
+}
+
+/**
+ * Runways, taxiways and aprons inside the disc (airport sites only; none
+ * elsewhere, so nothing is built). Flat on the heightfield: runways as
+ * bands of their mapped width with faint edges, taxiways as 1 px lines,
+ * aprons as faint areas with a faint outline. Returns {group, count} or null.
+ */
+function makeAirside(aeroways, projector, field, radius) {
+  if (!aeroways.length) return null;
+  const R = radius + 60;
+  const at = (p) => {
+    const [x, y] = projector.toXY(p.lat, p.lon);
+    return field.at(x, y);
+  };
+  const color = ([hex, a]) =>
+    Cesium.ColorGeometryInstanceAttribute.fromColor(css(hex, a));
+  const bands = [];
+  const lines = [];
+  const areas = [];
+  const outlines = [];
+  let count = 0;
+  for (const a of aeroways) {
+    if (a.kind === 'apron') {
+      const ring = a.ring;
+      if (!ring.some((p) => Math.hypot(...projector.toXY(p.lat, p.lon)) <= R))
+        continue;
+      const h = at(ring[0]) + 0.05;
+      const hierarchy = new Cesium.PolygonHierarchy(
+        ring.map((p) => Cesium.Cartesian3.fromDegrees(p.lon, p.lat, h)),
+      );
+      areas.push(
+        new Cesium.GeometryInstance({
+          geometry: new Cesium.PolygonGeometry({
+            polygonHierarchy: hierarchy,
+            height: h,
+            vertexFormat: Cesium.PerInstanceColorAppearance.VERTEX_FORMAT,
+          }),
+          attributes: { color: color(TWIN_PALETTE.apron) },
+        }),
+      );
+      outlines.push(
+        new Cesium.GeometryInstance({
+          geometry: new Cesium.PolylineGeometry({
+            positions: ring.map((p) =>
+              Cesium.Cartesian3.fromDegrees(p.lon, p.lat, h + 0.05),
+            ),
+            width: 1,
+            arcType: Cesium.ArcType.NONE,
+          }),
+          attributes: { color: color(TWIN_PALETTE.apronEdge) },
+        }),
+      );
+      count += 1;
+      continue;
+    }
+    for (const piece of clipToDisc(a.coords, projector, R)) {
+      const pts = piece.filter(
+        (p, i) =>
+          i === 0 || p.lat !== piece[i - 1].lat || p.lon !== piece[i - 1].lon,
+      );
+      if (pts.length < 2) continue;
+      const h = at(pts[Math.floor(pts.length / 2)]) + 0.1;
+      const positions = pts.map((p) =>
+        Cesium.Cartesian3.fromDegrees(p.lon, p.lat, h),
+      );
+      if (a.kind === 'runway') {
+        bands.push(
+          new Cesium.GeometryInstance({
+            geometry: new Cesium.CorridorGeometry({
+              positions,
+              width: a.widthM,
+              height: h,
+              vertexFormat: Cesium.PerInstanceColorAppearance.VERTEX_FORMAT,
+            }),
+            attributes: { color: color(TWIN_PALETTE.runway) },
+          }),
+        );
+        outlines.push(
+          new Cesium.GeometryInstance({
+            geometry: new Cesium.CorridorOutlineGeometry({
+              positions,
+              width: a.widthM,
+              height: h + 0.05,
+            }),
+            attributes: { color: color(TWIN_PALETTE.runwayEdge) },
+          }),
+        );
+      } else
+        lines.push(
+          new Cesium.GeometryInstance({
+            geometry: new Cesium.PolylineGeometry({
+              positions,
+              width: 1,
+              arcType: Cesium.ArcType.NONE,
+            }),
+            attributes: { color: color(TWIN_PALETTE.taxiway) },
+          }),
+        );
+      count += 1;
+    }
+  }
+  const group = new Cesium.PrimitiveCollection();
+  const flat = (instances) =>
+    group.add(
+      new Cesium.Primitive({
+        geometryInstances: instances,
+        appearance: new Cesium.PerInstanceColorAppearance({
+          flat: true,
+          translucent: true,
+        }),
+        asynchronous: true,
+      }),
+    );
+  const polylines = (instances) =>
+    group.add(
+      new Cesium.Primitive({
+        geometryInstances: instances,
+        appearance: new Cesium.PolylineColorAppearance({ translucent: true }),
+        asynchronous: true,
+      }),
+    );
+  if (areas.length) flat(areas);
+  if (bands.length) flat(bands);
+  const outlineLines = outlines.filter(
+    (g) => g.geometry instanceof Cesium.PolylineGeometry,
+  );
+  const outlineEdges = outlines.filter(
+    (g) => !(g.geometry instanceof Cesium.PolylineGeometry),
+  );
+  if (outlineEdges.length) flat(outlineEdges);
+  if (outlineLines.length || lines.length)
+    polylines([...outlineLines, ...lines]);
+  return count ? { group, count } : null;
 }
 
 function makeGrid(projector, field, gridR, spacingM, majorEvery) {

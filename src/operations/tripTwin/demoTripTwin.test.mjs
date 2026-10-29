@@ -11,7 +11,6 @@ import {
   projectBuildings,
   selectHotelFootprint,
   bannedWordHits,
-  distanceToRing,
 } from './twinData.js';
 
 const fixture = (city, kind) =>
@@ -168,9 +167,10 @@ test('no banned words in names, labels or geofences', () => {
   assert.deepEqual(bannedWordHits(text), []);
 });
 
-// Demo C (Jesse, 29 Oct 2026): the London group at Heathrow T5's arrivals
-// hall, two at baggage reclaim; normal, nobody away, stale or unlocated.
-test('Demo C: all 27 inside Heathrow T5 by the 2× rule, two at reclaim, nothing to check', async () => {
+// Demo C (Jesse, 29 Oct 2026): the London group across Heathrow T5 in
+// small groups (meeting point, reclaim belts, café, restrooms); normal,
+// nobody away, stale or unlocated.
+test('Demo C: all 27 inside Heathrow T5 by the 2× rule, in six small groups, nothing to check', async () => {
   const { siteConfig, siteCounts, sitesForCity } =
     await import('./twinSites.js');
   const { deriveMode } = await import('./twinData.js');
@@ -219,19 +219,52 @@ test('Demo C: all 27 inside Heathrow T5 by the 2× rule, two at reclaim, nothing
   const c = siteCounts(s.participants, sitesForCity('london'));
   assert.equal(c.bySite.find((x) => x.key === key).n, 27);
   assert.equal(c.between + c.elsewhere + c.notLocated + c.notCurrent, 0);
-  // The chaperones are with the group in the hall; the two stragglers are
-  // further in (baggage reclaim), away from the forecourt wall.
-  const fromWall = (id) => {
-    const p = s.participants.find((x) => x.id === `twin-${id}`).coordinates;
-    return distanceToRing(projector.toXY(p.lat, p.lng), sel.building.xy[0]);
-  };
-  const hall = s.participants
-    .map((p) => p.id.slice(5))
-    .filter((id) => id !== 'T10' && id !== 'NF');
-  const hallMax = Math.max(...hall.map(fromWall));
-  assert.ok(hallMax < 70, `the hall is by the forecourt (${hallMax} m in)`);
+  // Small groups, not one blob (Jesse, 29 Oct 2026): six groups at least
+  // 40 m apart (meeting point, three reclaim belts, café, restrooms), no
+  // two people within 5 m (no stacked pin), a chaperone in each of three
+  // groups, T10 and NF at reclaim, airside of the meeting point.
+  const xy = new Map(
+    s.participants.map((p) => [
+      p.id.slice(5),
+      projector.toXY(p.coordinates.lat, p.coordinates.lng),
+    ]),
+  );
+  const ids = [...xy.keys()];
+  const dist = (a, b) =>
+    Math.hypot(xy.get(a)[0] - xy.get(b)[0], xy.get(a)[1] - xy.get(b)[1]);
+  for (const a of ids)
+    for (const b of ids)
+      if (a < b) assert.ok(dist(a, b) >= 5, `${a} and ${b} ${dist(a, b)} m`);
+  // Groups: people within 25 m of each other, chained.
+  const groupOf = new Map();
+  let groups = 0;
+  for (const id of ids) {
+    if (groupOf.has(id)) continue;
+    groups += 1;
+    const todo = [id];
+    groupOf.set(id, groups);
+    while (todo.length) {
+      const a = todo.pop();
+      for (const b of ids)
+        if (!groupOf.has(b) && dist(a, b) <= 25) {
+          groupOf.set(b, groups);
+          todo.push(b);
+        }
+    }
+  }
+  assert.equal(groups, 6);
+  const sizes = [...new Set(groupOf.values())]
+    .map((g) => ids.filter((id) => groupOf.get(id) === g).length)
+    .sort((a, b) => b - a);
+  assert.deepEqual(sizes, [13, 4, 3, 3, 2, 2]);
+  const chaps = ['TC', 'KV', 'HL'];
+  assert.equal(new Set(chaps.map((c) => groupOf.get(c))).size, 3);
+  assert.equal(groupOf.get('T10') === groupOf.get('NF'), false, 'two belts');
+  const meeting = ids.filter((id) => groupOf.get(id) === groupOf.get('TC'));
+  assert.equal(meeting.length, 13);
+  const eastMost = Math.max(...meeting.map((id) => xy.get(id)[0]));
   for (const id of ['T10', 'NF'])
-    assert.ok(fromWall(id) > hallMax + 5, `${id} at reclaim, further in`);
+    assert.ok(xy.get(id)[0] > eastMost + 30, `${id} at reclaim, airside`);
   // The plan: the arrival is Day 1's first stop, its pick-up named.
   assert.equal(s.itinerary[0].title, 'Arrival · Heathrow T5');
   assert.equal(s.itinerary[0].start_time, '07:30');

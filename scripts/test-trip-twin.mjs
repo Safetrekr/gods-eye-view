@@ -54,8 +54,9 @@ const rel = (p) => path.relative(ROOT, p).split(path.sep).join('/');
  * dev route's new paths). Heathrow T5 and Demo C (29 Oct) add seven (the
  * site and its anchors, the scenario's placement, the other scenarios kept,
  * Demo C elsewhere, the trip demo pick, London's Day 1, the coach brief).
+ * The wider Heathrow map adds two (the airside fixture, clipToDisc).
  */
-export const BASELINE = 630;
+export const BASELINE = 632;
 /**
  * From K6 every gate re-runs the audit canary (PHASE-CF-PLAN §6.2 rule 8);
  * from L5 the token scan and the v1 migration (§6.6 L5 gate, S-14): these
