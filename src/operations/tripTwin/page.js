@@ -10179,15 +10179,24 @@ async function main() {
   // review ticks keep reaching them after a reload (Jesse, 26 Oct).
   if (!VIEW) resumeReviewLink();
   // Filming opens straight on the All-in-one: no chooser on camera.
-  if (!VIEW && !params.has('freeze') && !FILM)
-    showEntry({
+  // The chooser shows unless "All in one" was remembered; ?entry and the ⋯
+  // menu's Screens item always show it (Jesse, 29 Oct).
+  if (!VIEW && !params.has('freeze') && !FILM) {
+    const entryOpts = (force) => ({
       cityKey,
       scenario,
       tripId: focusTrip.id,
       siteKey: () => siteKey,
       pref,
       save,
+      force,
     });
+    showEntry(entryOpts(params.has('entry')));
+    $('tt-layout-btn')?.addEventListener('click', () => {
+      closePops();
+      if (!document.querySelector('.tt-entry')) showEntry(entryOpts(true));
+    });
+  }
   // The launch page (another computer's screens) needs no 3D of its own.
   if (VIEW === 'launch') return;
   await twin.open(siteKey, { osmMode });
