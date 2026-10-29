@@ -25,6 +25,9 @@ export const DEMO_TRIPS = Object.freeze([
     orgShort: 'SA',
     city: 'london',
     scenario: 'a',
+    // Demo C, the arrival at Heathrow T5 (Jesse, 29 Oct 2026): picked at
+    // launch with ?scenario=c, never the trip's default.
+    demos: ['c'],
   },
 ]);
 
@@ -32,3 +35,16 @@ export const tripById = (id) =>
   DEMO_TRIPS.find((t) => t.id === id) || DEMO_TRIPS[0];
 export const tripForCity = (cityKey) =>
   DEMO_TRIPS.find((t) => t.city === cityKey) || DEMO_TRIPS[0];
+
+/** True for a trip's extra demo scenario ('c'), never a default one. */
+export const isTripDemo = (key) =>
+  Boolean(key) && DEMO_TRIPS.some((t) => t.demos?.includes(key));
+
+/**
+ * The scenario a trip shows: its extra demo when that demo was picked
+ * (`pick`, from ?scenario= or ?demo=), else its own default. Every surface
+ * (the twin, the walls, the remote, the trip tiles) asks this, so a picked
+ * Demo C is the London trip everywhere.
+ */
+export const scenarioForTrip = (trip, pick = null) =>
+  pick && trip?.demos?.includes(pick) ? pick : trip?.scenario;

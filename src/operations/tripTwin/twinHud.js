@@ -1701,7 +1701,7 @@ export function createCard(card, { onClose }) {
       frame(
         geom.isHotel
           ? ctx.siteKind === 'venue'
-            ? `TRIP VENUE${ctx.siteWhen ? ` · ${ctx.siteWhen}` : ''}`
+            ? `${ctx.siteKicker || 'TRIP VENUE'}${ctx.siteWhen ? ` · ${ctx.siteWhen}` : ''}`
             : 'GROUP HOTEL'
           : 'BUILDING',
         b.name || (geom.isHotel ? ctx.hotelLabel : 'Unnamed building'),

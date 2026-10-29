@@ -596,6 +596,12 @@
           "hotel": true
         },
         {
+          "key": "london-heathrow-t5",
+          "label": "Heathrow Terminal 5",
+          "short": "Heathrow T5",
+          "hotel": false
+        },
+        {
           "key": "london-festival-hall",
           "label": "Royal Festival Hall",
           "short": "Festival Hall",
@@ -758,6 +764,26 @@
           "id": "sp-london-relocation",
           "category": "relocation",
           "name": "Relocation site (sample)"
+        },
+        {
+          "id": "sp-london-heathrow-t5-hospital",
+          "category": "hospital",
+          "name": "Ashford Hospital"
+        },
+        {
+          "id": "sp-london-heathrow-t5-police",
+          "category": "police",
+          "name": "Heathrow Police Station"
+        },
+        {
+          "id": "sp-london-heathrow-t5-fire",
+          "category": "fire",
+          "name": "Heathrow Airport Fire Service - Station 1 'Fire HQ'"
+        },
+        {
+          "id": "sp-london-heathrow-t5-rally-1",
+          "category": "rally_primary",
+          "name": "Rally point (primary) · open space"
         },
         {
           "id": "sp-london-festival-hall-hospital",

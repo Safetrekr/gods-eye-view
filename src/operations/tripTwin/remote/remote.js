@@ -15,8 +15,9 @@ import { connectSync } from '../twinSync.js';
 import { ROLES, screenSummary } from '../twinScreenRoles.js';
 import { needsConfirm, previewAll } from '../twinSession.js';
 import { DEMO_TRIPS, tripById, tripDays } from '../demoTrips.js';
+import { isTripDemo, scenarioForTrip } from '../demoTripList.js';
 import { tripTwinDemoSnapshot } from '../demoTripTwin.js';
-import { siteConfig, sitesForCity } from '../twinSites.js';
+import { siteConfig, siteNoun, sitesForCity } from '../twinSites.js';
 import { approachNow, approachText } from '../twinNowcast.js';
 import { createHazardLoad } from '../twinHazardLoad.js';
 import {
@@ -139,6 +140,12 @@ const device =
       : 'Laptop';
 
 // ---- trip data (no Cesium): the snapshot + its days, per trip ----
+// A trip's extra demo picked at launch (Demo C: ?scenario=c on the remote's
+// link, as on the walls): that trip shows it here too.
+const demoPick = (() => {
+  const q = new URLSearchParams(location.search);
+  return [q.get('scenario'), q.get('demo')].find(isTripDemo) || null;
+})();
 const tripCache = new Map();
 const poisCache = new Map();
 function tripData(t) {
@@ -166,7 +173,7 @@ function tripData(t) {
   const minute = Math.floor(Date.now() / 60000);
   const hit = tripCache.get(key);
   if (hit && hit.minute === minute) return hit;
-  const snapshot = tripTwinDemoSnapshot(t.city, t.scenario, {
+  const snapshot = tripTwinDemoSnapshot(t.city, scenarioForTrip(t, demoPick), {
     pois: pois[t.city] || [],
     poisBySite: pois,
     startMs: epoch,
@@ -1170,7 +1177,7 @@ async function refreshWx(force = false) {
     const h = Math.floor(-m / 60);
     return `${clock(ms)}, in ${h ? `${h} h ` : ''}${-m % 60} min`;
   };
-  const noun = site.kind === 'lodging' ? 'hotel' : 'venue';
+  const noun = siteNoun(site);
   const SIM_MAX = 45 * 60e3;
   const simOn = Boolean(ss.simStorm) && Date.now() - ss.simStorm < SIM_MAX;
   const sim = simOn ? simNowcast({ center, simStart: ss.simStorm }) : null;

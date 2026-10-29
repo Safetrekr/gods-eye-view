@@ -128,3 +128,21 @@ test('forecast lookup ignores steps far from the event', () => {
   assert.ok(forecastAt(met, t0 + 30 * 60000));
   assert.equal(forecastAt(met, t0 - 3 * 86400000), null);
 });
+
+test('site brief: an airport arrival is a coach transfer, never a walk', async () => {
+  const { siteConfig } = await import('./twinSites.js');
+  const { tripTwinDemoSnapshot } = await import('./demoTripTwin.js');
+  const snapshot = tripTwinDemoSnapshot('london', 'c', { now: 0, elapsed: 0 });
+  const b = siteBrief({
+    site: siteConfig('london-heathrow-t5'),
+    hotel: siteConfig('london'),
+    event: null,
+    snapshot,
+    pois: [],
+    numbering: { mapped: false, operator: null },
+    timeZone: 'Europe/London',
+  });
+  const from = b.items.find((it) => it.key === 'from_hotel');
+  assert.match(from.text, /straight line · group transfer by coach/);
+  assert.doesNotMatch(from.text, /walk/);
+});

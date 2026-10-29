@@ -231,7 +231,10 @@ export function siteBrief(ctx) {
       label: 'From the hotel',
       text: ctx.route
         ? ctx.route
-        : `${formatDistance(d)} ${bearingLabel(hotelPt, here)} straight line · about ${w[0]}–${w[1]} min walk (estimate ×1.3 for streets) · street path not checked`,
+        : site.role === 'arrival'
+          ? // An airport is a coach transfer, never a walk (Heathrow T5).
+            `${formatDistance(d)} ${bearingLabel(hotelPt, here)} straight line · group transfer by coach · road route not checked`
+          : `${formatDistance(d)} ${bearingLabel(hotelPt, here)} straight line · about ${w[0]}–${w[1]} min walk (estimate ×1.3 for streets) · street path not checked`,
       ok: Boolean(ctx.routeChecked),
     });
   }

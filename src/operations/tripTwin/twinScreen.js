@@ -1164,6 +1164,8 @@ export function createScreenMode({ api, slot = null, setup = null }) {
       const q = new URLSearchParams(location.search);
       q.set('city', api.tripCity(ss.tripId));
       q.set('scenario', api.tripScenario(ss.tripId));
+      // A picked trip demo (Demo C) survives a switch away and back.
+      if (api.demoPick) q.set('demo', api.demoPick);
       q.delete('site');
       location.search = `?${q}`;
       return;

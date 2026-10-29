@@ -6,22 +6,83 @@ import {
   siteConfig,
   siteCounts,
   siteCountsLine,
+  siteNoun,
   siteOptionLabel,
   sitesForCity,
 } from './twinSites.js';
+import { readFileSync } from 'node:fs';
+import {
+  distanceToRing,
+  makeProjector,
+  parseOverpassElements,
+  pointInRing,
+  projectBuildings,
+  selectHotelFootprint,
+} from './twinData.js';
+
+/** A site's recorded footprint (ring in metres) and the other buildings. */
+function footprint(key) {
+  const site = siteConfig(key);
+  const f = JSON.parse(
+    readFileSync(
+      new URL(
+        `../../../scripts/fixtures/trip-twin/${key}.overpass.json`,
+        import.meta.url,
+      ),
+      'utf8',
+    ),
+  );
+  const center = f.meta.hotel.center;
+  const proj = makeProjector(center);
+  const parsed = parseOverpassElements(f.elements);
+  const projected = projectBuildings(parsed.buildings, proj, center);
+  const sel = selectHotelFootprint(
+    projected.buildings,
+    parsed.hotels,
+    { ...center, osm_id: site.osm },
+    proj,
+  );
+  return {
+    f,
+    sel,
+    proj,
+    ring: sel.building.xy[0],
+    others: projected.buildings
+      .filter((b) => b.id !== sel.building.id)
+      .map((b) => b.xy[0]),
+  };
+}
 
 test('every city has its hotel first, then venues by day', () => {
   for (const city of ['austin', 'dc', 'london']) {
     const s = sitesForCity(city);
     assert.equal(s[0].kind, 'lodging');
     assert.equal(s[0].key, city);
-    assert.equal(s.length, 3);
+    // London's trip starts at Heathrow T5 on Day 1 (Demo C, 29 Oct 2026).
+    assert.equal(s.length, city === 'london' ? 4 : 3);
     assert.deepEqual(
       s.slice(1).map((v) => v.day),
-      [2, 3],
+      city === 'london' ? [1, 2, 3] : [2, 3],
     );
     for (const v of s) assert.ok(v.anchors?.assembly, `${v.key} anchors`);
   }
+  assert.deepEqual(
+    sitesForCity('london').map((s) => [s.key, s.role]),
+    [
+      ['london', 'lodging'],
+      ['london-heathrow-t5', 'arrival'],
+      ['london-festival-hall', 'performance'],
+      ['london-abbey', 'visit'],
+    ],
+  );
+  assert.equal(
+    siteOptionLabel(siteConfig('london-heathrow-t5')),
+    'Heathrow T5 (Day 1, 07:30)',
+  );
+  assert.equal(siteConfig('london-heathrow-t5').timezone, 'Europe/London');
+  assert.equal(siteNoun(siteConfig('london-heathrow-t5')), 'terminal');
+  assert.equal(siteNoun(siteConfig('london-abbey')), 'venue');
+  assert.equal(siteNoun(siteConfig('london')), 'hotel');
   assert.equal(
     siteOptionLabel(siteConfig('austin-long-center')),
     'Long Center (Day 2, 19:00)',
@@ -117,4 +178,36 @@ test('an incident at another site is never hidden ("No incident" never shown)', 
   );
   assert.equal(m.groups[0].key, 'elsewhere_above');
   assert.ok(m.groups[0].rows.length >= 2, 'M.R. and A.K. by phone estimate');
+});
+
+test('Heathrow T5: the recorded terminal footprint carries its anchors', () => {
+  const site = siteConfig('london-heathrow-t5');
+  const { f, sel, proj, ring, others } = footprint('london-heathrow-t5');
+  assert.equal(sel.source, 'osm_id');
+  assert.equal(sel.building.id, 'way/23231957');
+  assert.equal(sel.approximate, false);
+  // The pasted anchors are the capture script's (computeAnchors).
+  assert.deepEqual(site.anchors, f.meta.anchors);
+  const xy = (p) => proj.toXY(p.lat, p.lon);
+  const A = site.anchors;
+  // inside: deep in the terminal (room for indoor accuracy circles).
+  assert.ok(pointInRing(xy(A.inside), ring));
+  assert.ok(distanceToRing(xy(A.inside), ring) >= 40);
+  // edge: 6–10 m inside the wall, on the forecourt side.
+  assert.ok(pointInRing(xy(A.edge), ring));
+  const e = distanceToRing(xy(A.edge), ring);
+  assert.ok(e >= 6 && e <= 10, `edge ${e.toFixed(1)} m inside`);
+  // assembly: outdoors, 40–80 m off the wall, on no other building, west
+  // (the arrivals forecourt and coach pick-up side).
+  const S = xy(A.assembly);
+  assert.ok(!pointInRing(S, ring));
+  const off = distanceToRing(S, ring);
+  assert.ok(off >= 40 && off <= 80, `assembly ${off.toFixed(1)} m out`);
+  assert.ok(!others.some((o) => pointInRing(S, o)), 'on no other building');
+  const [ix, iy] = xy(A.inside);
+  const bearing =
+    ((Math.atan2(S[0] - ix, S[1] - iy) * 180) / Math.PI + 360) % 360;
+  assert.ok(Math.abs(bearing - 270) <= 50, `assembly bearing ${bearing}`);
+  // The site centre is the terminal's own (the capture's centre).
+  assert.ok(pointInRing(xy(site.center), ring));
 });

@@ -8,7 +8,13 @@ import { localClock, sunTimes, tripEvents } from './twinAdvance.js';
 import { sitesForCity } from './twinSites.js';
 
 // The trip list lives in demoTripList.js (pure data); re-exported here.
-export { DEMO_TRIPS, tripById, tripForCity } from './demoTripList.js';
+export {
+  DEMO_TRIPS,
+  isTripDemo,
+  scenarioForTrip,
+  tripById,
+  tripForCity,
+} from './demoTripList.js';
 import { DEMO_TRIPS, tripById } from './demoTripList.js';
 
 const localTime = (now, timeZone) =>
@@ -243,7 +249,12 @@ export function tripDays(trip, snapshot) {
   for (let d = 1, ms = start; ms <= end; d++, ms += 86400000) {
     const date = new Date(ms).toISOString().slice(0, 10);
     const evs = events.filter((e) => e.date === date);
-    const keys = [sites[0].key, ...evs.map((e) => e.siteKey)];
+    // Day 1 lists its stops in plan order (London: Heathrow T5, then the
+    // hotel); other days the hotel first.
+    const keys =
+      d === 1
+        ? [...evs.map((e) => e.siteKey), sites[0].key]
+        : [sites[0].key, ...evs.map((e) => e.siteKey)];
     const daySites = [...new Set(keys)].map((key) => {
       const site = sites.find((x) => x.key === key);
       const place = snapshot.places?.find((p) => p.site_key === key);

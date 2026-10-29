@@ -122,8 +122,14 @@ async function captureCity(key) {
     ).elements,
   );
   // Corridors: hotel → each venue in this city, hotel → nearest hospital.
+  // A stop beyond walking distance (Heathrow T5, a coach transfer) gets no
+  // walking corridor.
   const targets = Object.values(TWIN_VENUES)
-    .filter((v) => v.city === key)
+    .filter(
+      (v) =>
+        v.city === key &&
+        haversineM(hotel, v.anchors?.inside || v.center) <= 5000,
+    )
     .map((v) => ({
       key: v.key,
       label: v.short,

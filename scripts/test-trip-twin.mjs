@@ -51,9 +51,11 @@ const rel = (p) => path.relative(ROOT, p).split(path.sep).join('/');
  * (fitzroy/fitzroyVoice.test.mjs). Fitzroy's 29 Oct round adds five
  * (fitzroy/fitzroyListen.test.mjs: the default screen, the hands-free
  * segmenter and its self-trigger mute, the relay's listening flag, the
- * dev route's new paths).
+ * dev route's new paths). Heathrow T5 and Demo C (29 Oct) add seven (the
+ * site and its anchors, the scenario's placement, the other scenarios kept,
+ * Demo C elsewhere, the trip demo pick, London's Day 1, the coach brief).
  */
-export const BASELINE = 623;
+export const BASELINE = 630;
 /**
  * From K6 every gate re-runs the audit canary (PHASE-CF-PLAN §6.2 rule 8);
  * from L5 the token scan and the v1 migration (§6.6 L5 gate, S-14): these

@@ -3,11 +3,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DEMO_TRIPS,
+  isTripDemo,
+  scenarioForTrip,
   sortTiles,
+  tripById,
   tripDays,
   tripForCity,
   tripTile,
 } from './demoTrips.js';
+import { SCENARIOS } from './demoTripTwin.js';
 import { tripTwinDemoSnapshot } from './demoTripTwin.js';
 import { bannedWordHits } from './twinData.js';
 
@@ -152,4 +156,42 @@ test("S6: one moment for every trip, in each trip's zone; tiers, not a sum", () 
     sortTiles(tiles, { order: 'name' }).map((t) => t.title),
     ['Youth choir tour', 'Jazz band trip', 'Spring choir tour'],
   );
+});
+
+test('Demo C is the London trip’s extra demo, picked, never its default', () => {
+  const london = tripById('trip-youth-london');
+  assert.equal(london.scenario, 'a');
+  assert.equal(scenarioForTrip(london), 'a');
+  assert.equal(scenarioForTrip(london, 'c'), 'c');
+  assert.equal(scenarioForTrip(london, 'b'), 'a', 'only its own demos');
+  for (const t of DEMO_TRIPS.filter((x) => x !== london))
+    assert.equal(scenarioForTrip(t, 'c'), t.scenario, t.id);
+  assert.equal(isTripDemo('c'), true);
+  for (const k of ['a', 'b', 'baseline', null, ''])
+    assert.equal(isTripDemo(k), false);
+  // Every trip demo is a scenario of that trip's city.
+  for (const t of DEMO_TRIPS)
+    for (const d of t.demos || []) assert.equal(SCENARIOS[d].city, t.city);
+});
+
+test('London Day 1: Heathrow T5 first, then the hotel', () => {
+  const t = tripById('trip-youth-london');
+  const snap = tripTwinDemoSnapshot(t.city, 'c', { now: NOW, elapsed: 0 });
+  const day1 = tripDays(t, snap)[0];
+  assert.deepEqual(
+    day1.events.map((e) => [e.start, e.title, e.siteKey]),
+    [
+      ['07:30', 'Arrival · Heathrow T5', 'london-heathrow-t5'],
+      ['15:00', 'Arrive · Park Plaza London Waterloo', 'london'],
+    ],
+  );
+  assert.deepEqual(
+    day1.sites.map((x) => x.key),
+    ['london-heathrow-t5', 'london'],
+  );
+  // Other days and other trips keep the hotel first.
+  assert.equal(tripDays(t, snap)[1].sites[0].key, 'london');
+  const a = DEMO_TRIPS[0];
+  const as = tripTwinDemoSnapshot(a.city, a.scenario, { now: NOW, elapsed: 0 });
+  for (const d of tripDays(a, as)) assert.equal(d.sites[0].key, 'austin');
 });

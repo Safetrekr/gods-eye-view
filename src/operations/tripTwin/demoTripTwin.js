@@ -66,10 +66,34 @@ export function roomAssignments() {
   );
 }
 
+// siteRole: the site a scenario opens on (the trip's site with that role);
+// city: a demo only that city's trip has (elsewhere it reads as baseline).
 export const SCENARIOS = Object.freeze({
   baseline: { label: 'Evening at the hotel', clock: '21:32:00' },
   a: { label: 'Hotel fire alarm (Demo A)', clock: '02:14:00' },
-  b: { label: 'Evening concert (Demo B)', clock: '19:40:00', day: 2 },
+  b: {
+    label: 'Evening concert (Demo B)',
+    clock: '19:40:00',
+    day: 2,
+    siteRole: 'performance',
+  },
+  // Jesse, 29 Oct 2026: the London group has landed at Heathrow T5, cleared
+  // passport control and baggage, and gathered in the arrivals hall before
+  // the coach to the hotel. Normal: nobody away, stale or unlocated.
+  c: {
+    label: 'Arrival at Heathrow (Demo C)',
+    clock: '08:15:00',
+    day: 1,
+    siteRole: 'arrival',
+    city: 'london',
+  },
+});
+
+/** How the plan and the walls name a stop of each role. */
+const ROLE_WORD = Object.freeze({
+  performance: 'Concert',
+  visit: 'Visit',
+  arrival: 'Arrival',
 });
 
 /**
@@ -211,7 +235,12 @@ export function tripTwinDemoSnapshot(
   } = {},
 ) {
   const city = TWIN_CITIES[cityKey] || TWIN_CITIES.austin;
-  const sc = SCENARIOS[scenario] ? scenario : 'baseline';
+  // A city's own demo (Demo C is London's) reads as baseline elsewhere.
+  const sc =
+    SCENARIOS[scenario] &&
+    (!SCENARIOS[scenario].city || SCENARIOS[scenario].city === city.key)
+      ? scenario
+      : 'baseline';
   // Scenario seconds since load; tests pin it with `elapsed` for determinism.
   const t = Number.isFinite(elapsed)
     ? elapsed
@@ -251,6 +280,18 @@ export function tripTwinDemoSnapshot(
   const venues = sitesForCity(city.key).filter((v) => v.kind === 'venue');
   const venuePlaceId = (v) => `fixture-venue-${v.key}`;
   const concert = venues.find((v) => v.role === 'performance');
+  const arrival = venues.find((v) => v.role === 'arrival');
+  /** Floor context at a venue (its own building and place id). */
+  const venueCtxFor = (v) => ({
+    ...ctx,
+    building: {
+      levels_above_ground: v.levels ?? null,
+      floor_height_m: v.floorHeightM ?? null,
+      ground_floor_label: v.groundFloorLabel,
+      levels_source: v.levels ? 'osm_levels' : null,
+    },
+    placeId: venuePlaceId(v),
+  });
 
   const people = {};
   const P = (id, fields) => (people[id] = fields);
@@ -373,13 +414,7 @@ export function tripTwinDemoSnapshot(
     // venue, a few outside its doors, three back at the hotel, two walking
     // between the hotel and the venue, one away, one not located.
     const V = concert.anchors;
-    const vBuilding = {
-      levels_above_ground: concert.levels ?? null,
-      floor_height_m: concert.floorHeightM ?? null,
-      ground_floor_label: concert.groundFloorLabel,
-      levels_source: concert.levels ? 'osm_levels' : null,
-    };
-    venueCtx = { ...ctx, building: vBuilding, placeId: venuePlaceId(concert) };
+    venueCtx = venueCtxFor(concert);
     const vOut = bearing(V.inside, V.assembly);
     const vAcc = Math.min(12, Math.floor(V.insideClearanceM / 2.6));
     const top = concert.levels ? concert.levels - 1 : 1;
@@ -451,6 +486,52 @@ export function tripTwinDemoSnapshot(
     P('T09', { at: leg(0.52), acc: 14, age: 26 });
     P('JP', { at: farAway, acc: 16, age: 55, unaccompanied: true });
     P('EW', { at: null });
+  } else if (sc === 'c' && arrival) {
+    // Demo C, Day 1 08:15: landed, through passport control and baggage.
+    // The group and the three chaperones are gathered in T5's arrivals hall
+    // (landside, along the west wall); two travellers are still at baggage
+    // reclaim, further in. Fresh fixes with indoor accuracy (9–18 m), all
+    // inside the terminal by the 2× rule; nobody away, stale or unlocated.
+    const V = arrival.anchors;
+    venueCtx = venueCtxFor(arrival);
+    // The forecourt side (west at T5), and the way back in, airside.
+    const forecourt = arrival.assemblyToward ?? bearing(V.inside, V.assembly);
+    const inward = (forecourt + 180) % 360;
+    // The hall: mid-façade, ~50 m in from the forecourt wall; baggage
+    // reclaim further in.
+    const hall = offset(V.inside, forecourt, 30);
+    const reclaim = offset(hall, inward, 46);
+    const gathered = CAST.map(([id]) => id).filter(
+      (id) => id !== 'T10' && id !== 'NF',
+    );
+    gathered.forEach((id, i) =>
+      P(id, {
+        // Spread along the hall (along the façade), a few metres deep.
+        at: offset(
+          offset(hall, (forecourt + 90) % 360, ((i % 9) - 4) * 4.5),
+          inward,
+          (Math.floor(i / 9) - 1) * 4,
+        ),
+        acc: 9 + ((i * 7) % 10),
+        age: 8 + ((i * 13) % 70),
+        floor: {
+          level: 0,
+          seed: 80 + i,
+          site: 'venue',
+          anchorAgo: 2400,
+          ...(id === 'LB' ? { barometer: 'missing' } : {}),
+        },
+      }),
+    );
+    // The stragglers: waiting for bags at reclaim, a minute's walk behind.
+    ['T10', 'NF'].forEach((id, i) =>
+      P(id, {
+        at: offset(reclaim, (forecourt + 90 + 180 * i) % 360, 6 + i * 3),
+        acc: 14 + i * 3,
+        age: 20 + i * 15,
+        floor: { level: 0, seed: 110 + i, site: 'venue', anchorAgo: 2400 },
+      }),
+    );
   } else {
     // Baseline, 21:32: covers every position and floor state.
     P('MR', {
@@ -750,7 +831,10 @@ export function tripTwinDemoSnapshot(
         visit_date: tripDate(v.day, now),
         room_assignments: [],
         assembly_point: {
-          label: `${v.short} assembly point (outside the main doors)`,
+          label:
+            v.role === 'arrival'
+              ? `${v.short} coach pick-up (arrivals forecourt)`
+              : `${v.short} assembly point (outside the main doors)`,
           coordinates: {
             lat: v.anchors.assembly.lat,
             lng: v.anchors.assembly.lon,
@@ -761,7 +845,7 @@ export function tripTwinDemoSnapshot(
     itinerary: venues.map((v) => ({
       id: `ev-${v.key}`,
       trip_id: TRIP,
-      title: `${v.role === 'performance' ? 'Concert' : 'Visit'} · ${v.short}`,
+      title: `${ROLE_WORD[v.role] || 'Visit'} · ${v.short}`,
       event_date: tripDate(v.day, now),
       start_time: v.start,
       end_time: v.end,

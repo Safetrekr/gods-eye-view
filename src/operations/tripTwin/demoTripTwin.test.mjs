@@ -11,6 +11,7 @@ import {
   projectBuildings,
   selectHotelFootprint,
   bannedWordHits,
+  distanceToRing,
 } from './twinData.js';
 
 const fixture = (city, kind) =>
@@ -165,4 +166,104 @@ test('no banned words in names, labels or geofences', () => {
     s.places,
   ]);
   assert.deepEqual(bannedWordHits(text), []);
+});
+
+// Demo C (Jesse, 29 Oct 2026): the London group at Heathrow T5's arrivals
+// hall, two at baggage reclaim; normal, nobody away, stale or unlocated.
+test('Demo C: all 27 inside Heathrow T5 by the 2× rule, two at reclaim, nothing to check', async () => {
+  const { siteConfig, siteCounts, sitesForCity } =
+    await import('./twinSites.js');
+  const { deriveMode } = await import('./twinData.js');
+  const key = 'london-heathrow-t5';
+  const site = siteConfig(key);
+  const s = tripTwinDemoSnapshot('london', 'c', {
+    now: Date.now(),
+    elapsed: 0,
+    pois: fixture('london', 'pois').pois,
+    poisBySite: { [key]: fixture(key, 'pois').pois },
+  });
+  assert.equal(s.scenario.key, 'c');
+  assert.equal(s.scenario.label, 'Arrival at Heathrow (Demo C)');
+  assert.equal(s.scenario.clock, '08:15:00');
+  assert.deepEqual(s.reported_incidents, []);
+  assert.equal(s.participants.length, 27);
+  const f = fixture(key, 'overpass');
+  const center = f.meta.hotel.center;
+  const projector = makeProjector(center);
+  const parsed = parseOverpassElements(f.elements);
+  const projected = projectBuildings(parsed.buildings, projector, center);
+  const sel = selectHotelFootprint(
+    projected.buildings,
+    parsed.hotels,
+    { ...center, osm_id: site.osm },
+    projector,
+  );
+  const place = s.places.find((p) => p.site_key === key);
+  const a = assessSnapshot(
+    s,
+    { xy: sel.building.xy[0], approximate: sel.approximate },
+    projector,
+    { placeId: place.id },
+  );
+  assert.equal(a.counts['Inside (likely)'], 27, JSON.stringify(a.counts));
+  assert.deepEqual(a.needs, []);
+  assert.deepEqual(deriveMode(a, {}).groups, []);
+  for (const p of s.participants) {
+    assert.equal(p.isFresh, true, p.name);
+    assert.ok(p.accuracy_m >= 8 && p.accuracy_m <= 20, `${p.name} accuracy`);
+    assert.equal(p.group_zone_state, 'inside', p.name);
+    assert.equal(p.unaccompanied, false, p.name);
+    assert.equal(p.floor_estimate?.place_id, place.id, `${p.name} floor at T5`);
+  }
+  // Everyone at the arrival site, nobody between, elsewhere or unlocated.
+  const c = siteCounts(s.participants, sitesForCity('london'));
+  assert.equal(c.bySite.find((x) => x.key === key).n, 27);
+  assert.equal(c.between + c.elsewhere + c.notLocated + c.notCurrent, 0);
+  // The chaperones are with the group in the hall; the two stragglers are
+  // further in (baggage reclaim), away from the forecourt wall.
+  const fromWall = (id) => {
+    const p = s.participants.find((x) => x.id === `twin-${id}`).coordinates;
+    return distanceToRing(projector.toXY(p.lat, p.lng), sel.building.xy[0]);
+  };
+  const hall = s.participants
+    .map((p) => p.id.slice(5))
+    .filter((id) => id !== 'T10' && id !== 'NF');
+  const hallMax = Math.max(...hall.map(fromWall));
+  assert.ok(hallMax < 70, `the hall is by the forecourt (${hallMax} m in)`);
+  for (const id of ['T10', 'NF'])
+    assert.ok(fromWall(id) > hallMax + 5, `${id} at reclaim, further in`);
+  // The plan: the arrival is Day 1's first stop, its pick-up named.
+  assert.equal(s.itinerary[0].title, 'Arrival · Heathrow T5');
+  assert.equal(s.itinerary[0].start_time, '07:30');
+  assert.match(place.assembly_point.label, /coach pick-up/);
+  assert.deepEqual(bannedWordHits(JSON.stringify([s.places, s.itinerary])), []);
+});
+
+test('Demo C is the London trip’s: another city reads it as baseline', () => {
+  for (const city of ['austin', 'dc']) {
+    const c = tripTwinDemoSnapshot(city, 'c', { now: 0, elapsed: 0 });
+    const b = tripTwinDemoSnapshot(city, 'baseline', { now: 0, elapsed: 0 });
+    assert.equal(c.scenario.key, 'baseline');
+    assert.deepEqual(c.participants, b.participants);
+  }
+});
+
+test('the existing scenarios keep their people: nobody at Heathrow in A or baseline', async () => {
+  const { siteCounts, sitesForCity } = await import('./twinSites.js');
+  for (const sc of ['baseline', 'a', 'b']) {
+    const s = tripTwinDemoSnapshot('london', sc, { now: 0, elapsed: 0 });
+    assert.equal(s.participants.length, 27);
+    const c = siteCounts(s.participants, sitesForCity('london'));
+    assert.equal(c.bySite.find((x) => x.key === 'london-heathrow-t5').n, 0);
+  }
+  // London's Demo A as before: the hotel, its assembly point, one away.
+  const a = tripTwinDemoSnapshot('london', 'a', { now: 0, elapsed: 0 });
+  const { hotel, projector } = hotelFor('london');
+  const r = assessSnapshot(a, hotel, projector);
+  assert.equal(
+    Object.values(r.counts).reduce((x, y) => x + y, 0),
+    27,
+  );
+  assert.equal(r.counts['Not located'], 1);
+  assert.equal(a.reported_incidents[0].id, 'rep-fire-4');
 });

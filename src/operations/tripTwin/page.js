@@ -38,6 +38,7 @@ import { TWIN_CITIES } from './twinCities.js';
 import {
   cityOfSite,
   siteConfig,
+  siteNoun,
   siteCounts,
   siteCountsLine,
   siteOptionLabel,
@@ -229,19 +230,37 @@ import {
   tripForCity,
   tripTile,
 } from './demoTrips.js';
+import { isTripDemo, scenarioForTrip } from './demoTripList.js';
 
 const params = new URLSearchParams(location.search);
 // Phase 3: ?site= picks any site (hotel or venue); ?city= the trip's city.
 const siteParam = siteConfig(params.get('site')) ? params.get('site') : null;
+const scenarioParam = SCENARIOS[params.get('scenario')]
+  ? params.get('scenario')
+  : 'baseline';
+// A city's own demo (Demo C: London's arrival at Heathrow) opens its city
+// when no city is named, and reads as baseline in another city.
 const cityKey = siteParam
   ? cityOfSite(siteParam)
   : TWIN_CITIES[params.get('city')]
     ? params.get('city')
-    : 'austin';
+    : SCENARIOS[scenarioParam].city || 'austin';
 const osmMode = params.get('osm') === 'live' ? 'live' : 'fixture';
-const scenario = SCENARIOS[params.get('scenario')]
-  ? params.get('scenario')
-  : 'baseline';
+const scenario =
+  SCENARIOS[scenarioParam].city && SCENARIOS[scenarioParam].city !== cityKey
+    ? 'baseline'
+    : scenarioParam;
+// A trip's extra demo, picked at launch (?scenario=c), rides along as
+// ?demo=c, so a trip switch away and back keeps it on every surface: the
+// walls, the remote and the trip tiles all ask scenarioForTrip.
+const demoPick =
+  [params.get('scenario'), params.get('demo')].find(isTripDemo) || null;
+const tripScenario = (t) => scenarioForTrip(t, demoPick);
+/** A trip switch's URL keeps the picked demo (see demoPick). */
+const keepDemo = (q) => {
+  if (demoPick) q.set('demo', demoPick);
+  return q;
+};
 const $ = (id) => document.getElementById(id);
 const status = $('tt-status');
 const cleanups = [];
@@ -388,10 +407,12 @@ async function main() {
   window.testTwinLabels = () => mapLabels.diagnostics();
   // `city` is the site on screen (hotel or venue); the trip's city is cityKey.
   const SITES = sitesForCity(cityKey);
+  // Demo B opens on the concert, Demo C on the arrival (SCENARIOS siteRole).
+  const openRole = SCENARIOS[scenario].siteRole;
   let siteKey =
     siteParam ||
-    (scenario === 'b'
-      ? SITES.find((s) => s.role === 'performance')?.key || cityKey
+    (openRole
+      ? SITES.find((s) => s.role === openRole)?.key || cityKey
       : cityKey);
   let city = siteConfig(siteKey);
   $('tt-hotel').textContent = `${city.short} ▾`;
@@ -985,9 +1006,9 @@ async function main() {
     `${o.trip.id}:${o.inc.id || `${o.inc.kind}-${o.inc.floor_label}`}`;
   let flashTrip = null;
   function switchToTrip(t) {
-    const q = new URLSearchParams(location.search);
+    const q = keepDemo(new URLSearchParams(location.search));
     q.set('city', t.city);
-    q.set('scenario', t.scenario);
+    q.set('scenario', tripScenario(t));
     q.set('site', t.city);
     location.search = `?${q}`;
   }
@@ -1139,7 +1160,7 @@ async function main() {
     const v = DEMO_TRIPS.filter((t) => t.id !== focusTrip.id)
       .map((t) => ({
         trip: t,
-        inc: (tripTwinDemoSnapshot(t.city, t.scenario, {
+        inc: (tripTwinDemoSnapshot(t.city, tripScenario(t), {
           now,
           startMs: scenarioEpoch,
         }).reported_incidents || [])[0],
@@ -1481,6 +1502,8 @@ async function main() {
         showOsmIds: $('tt-osmids').checked,
         hotelLabel: city.label,
         siteKind: city.kind === 'lodging' ? 'hotel' : 'venue',
+        // The arrival stop's card says so (Heathrow T5: "ARRIVAL · DAY 1").
+        siteKicker: city.role === 'arrival' ? 'ARRIVAL' : null,
         siteWhen: city.day ? `DAY ${city.day} · ${city.start}` : '',
         doors: twin.streets?.counts || null,
         // During an incident here the panel carries the floors; the hotel
@@ -1769,7 +1792,7 @@ async function main() {
           sel.row,
           {
             hotelPoint: city.center,
-            noun: city.kind === 'lodging' ? 'hotel' : 'venue',
+            noun: siteNoun(city),
           },
           { numbering },
           fr !== null
@@ -2024,7 +2047,7 @@ async function main() {
         weather,
         avoidAreas: pathStore.areas,
         hotelCard: twin.activePlace()?.hotel_card || null,
-        siteNoun: city.kind === 'lodging' ? 'hotel' : 'venue',
+        siteNoun: siteNoun(city),
         // Walls name the trip a calm line is about (walls-live W1).
         tripTitle: focusTrip.title,
         siteLine: lastSiteCounts ? siteCountsLine(lastSiteCounts, siteKey) : '',
@@ -2203,9 +2226,9 @@ async function main() {
       b.addEventListener('click', () => {
         closePops();
         if (here) return;
-        const q = new URLSearchParams(location.search);
+        const q = keepDemo(new URLSearchParams(location.search));
         q.set('city', t.city);
-        q.set('scenario', t.scenario);
+        q.set('scenario', tripScenario(t));
         q.set('site', t.city); // land on that trip's hotel
         location.search = `?${q}`;
       });
@@ -6770,7 +6793,7 @@ async function main() {
     renderLayers();
     twin.refresh?.();
   }
-  const siteNounNow = () => (city.kind === 'lodging' ? 'hotel' : 'venue');
+  const siteNounNow = () => siteNoun(city);
   const imperial = () => /mi$/.test(formatDistance(2000));
   const speedText = (kmh) =>
     imperial() ? `${Math.round(kmh / 1.609)} mph` : `${Math.round(kmh)} km/h`;
@@ -8442,6 +8465,12 @@ async function main() {
     const next = new URLSearchParams(location.search);
     next.set(k, v);
     if (k === 'city' || k === 'scenario') next.delete('site');
+    // A city's own demo (Demo C) opens its city; any other scenario
+    // picked here lets a carried trip demo go.
+    if (k === 'scenario') {
+      if (SCENARIOS[v]?.city) next.set('city', SCENARIOS[v].city);
+      if (!isTripDemo(v)) next.delete('demo');
+    }
     location.search = next.toString();
   };
   $('tt-scenario').addEventListener('change', (e) =>
@@ -8792,7 +8821,9 @@ async function main() {
       },
     },
     tripCity: (id) => tripById(id).city,
-    tripScenario: (id) => tripById(id).scenario,
+    tripScenario: (id) => tripScenario(tripById(id)),
+    /** The picked trip demo ('c') a reload keeps as ?demo=, or null. */
+    demoPick,
     setEpoch(ms) {
       scenarioEpoch = ms;
       feed();
@@ -9148,7 +9179,7 @@ async function main() {
           (t) =>
             t.id !== focusTrip.id &&
             (
-              tripTwinDemoSnapshot(t.city, t.scenario, {
+              tripTwinDemoSnapshot(t.city, tripScenario(t), {
                 now,
                 startMs: scenarioEpoch,
               }).reported_incidents || []
@@ -9815,7 +9846,7 @@ async function main() {
       const tiles = DEMO_TRIPS.map((t) => {
         const tile = tripTile(
           t,
-          tripTwinDemoSnapshot(t.city, t.scenario, {
+          tripTwinDemoSnapshot(t.city, tripScenario(t), {
             now,
             startMs: scenarioEpoch,
           }),
@@ -10046,7 +10077,7 @@ async function main() {
         DEMO_TRIPS.map((t) =>
           tripTile(
             t,
-            tripTwinDemoSnapshot(t.city, t.scenario, {
+            tripTwinDemoSnapshot(t.city, tripScenario(t), {
               now,
               startMs: scenarioEpoch,
             }),
@@ -10118,7 +10149,12 @@ async function main() {
     });
     cleanups.push(() => screen?.dispose());
   } else if (VIEW === 'launch')
-    showLaunch({ setup: params.get('setup'), cityKey, scenario });
+    showLaunch({
+      setup: params.get('setup'),
+      cityKey,
+      scenario,
+      demo: demoPick,
+    });
   else {
     // The All-in-one gets the stations rail (shell step B).
     stations = createStationRail({
@@ -10185,6 +10221,7 @@ async function main() {
     const entryOpts = (force) => ({
       cityKey,
       scenario,
+      demo: demoPick,
       tripId: focusTrip.id,
       siteKey: () => siteKey,
       pref,

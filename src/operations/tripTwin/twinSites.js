@@ -105,6 +105,39 @@ export const TWIN_VENUES = Object.freeze({
       assembly: { lat: 38.889005, lon: -77.020562 },
     },
   },
+  // The group's arrival (Jesse, 29 Oct 2026): landed, through passport
+  // control and baggage, gathered in the arrivals hall before the coach to
+  // the hotel. The Terminal 5A main building; its landside (arrivals
+  // forecourt, coach pick-up) faces west, so the assembly point keeps west.
+  'london-heathrow-t5': {
+    key: 'london-heathrow-t5',
+    assemblyToward: 270,
+    city: 'london',
+    kind: 'venue',
+    role: 'arrival',
+    osm: 'way/23231957',
+    label: 'Heathrow Terminal 5',
+    short: 'Heathrow T5',
+    // How a sentence names it (street photos: "towards Heathrow Terminal 5").
+    photoName: 'Heathrow Terminal 5',
+    center: { lat: 51.4717, lon: -0.48771 },
+    groundFloorLabel: 0,
+    // OSM maps `level=0-4` and a height, not building:levels: the floor
+    // count is not verified (the floor-numbering prompt, as at the hotel).
+    levels: null,
+    floorHeightM: null,
+    day: 1,
+    start: '07:30',
+    end: '09:30',
+    // The short stay car park stands 17 m off most of the west façade, so
+    // the clear forecourt point is past its south end (computeAnchors).
+    anchors: {
+      inside: { lat: 51.470817, lon: -0.487941 },
+      insideClearanceM: 84.5,
+      edge: { lat: 51.470042, lon: -0.489061 },
+      assembly: { lat: 51.469541, lon: -0.489786 },
+    },
+  },
   'london-festival-hall': {
     key: 'london-festival-hall',
     assemblyToward: 160,
@@ -191,6 +224,14 @@ export function sitesForCity(cityKey) {
 }
 
 export const cityOfSite = (key) => siteConfig(key)?.city ?? null;
+
+/** How a sentence calls the site: "the hotel", "the terminal", "the venue". */
+export const siteNoun = (site) =>
+  site?.kind === 'lodging'
+    ? 'hotel'
+    : site?.role === 'arrival'
+      ? 'terminal'
+      : 'venue';
 
 /** Switcher label: "Long Center (Day 2, 19:00)" / "Fairmont Austin (hotel)". */
 export function siteOptionLabel(site) {

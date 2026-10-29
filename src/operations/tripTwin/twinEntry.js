@@ -227,7 +227,10 @@ function openButtons(slots, urlFor) {
   };
 }
 
-export function showLaunch({ setup, cityKey, scenario }) {
+/** A picked trip demo ('c') rides on every link as &demo= (page.js demoPick). */
+const demoQuery = (demo) => (demo ? `&demo=${encodeURIComponent(demo)}` : '');
+
+export function showLaunch({ setup, cityKey, scenario, demo = null }) {
   const box = el('div', 'tt-entry');
   box.setAttribute('role', 'dialog');
   box.setAttribute('aria-label', 'Open wall screens on this computer');
@@ -237,7 +240,7 @@ export function showLaunch({ setup, cityKey, scenario }) {
   const ob = openButtons(
     defaultRoles(6),
     (slot) =>
-      `${location.origin}/twin.html?view=screen&slot=${slot}&setup=${setup}&city=${cityKey}&scenario=${scenario}`,
+      `${location.origin}/twin.html?view=screen&slot=${slot}&setup=${setup}&city=${cityKey}&scenario=${scenario}${demoQuery(demo)}`,
   );
   const opens = ob.el;
   const strip = statusStrip();
@@ -277,7 +280,8 @@ export function showLaunch({ setup, cityKey, scenario }) {
 }
 
 /**
- * showEntry({cityKey, scenario, tripId, siteKey(), pref, save, force})
+ * showEntry({cityKey, scenario, demo, tripId, siteKey(), pref, save, force})
+ * demo: a picked trip demo ('c'), carried to the walls and the remote.
  * Shows the choice unless one was remembered (force: always show).
  */
 export function showEntry(o) {
@@ -462,11 +466,13 @@ export function showEntry(o) {
     const base = lanHost
       ? `${location.protocol}//${lanHost}:${port}`
       : location.origin;
-    const remoteUrl = `${base}/twin-remote.html?setup=${setup}`;
+    // The remote shows a picked trip demo too (Demo C), so its plan, names
+    // and trip tiles match the walls.
+    const remoteUrl = `${base}/twin-remote.html?setup=${setup}${o.demo ? `&scenario=${encodeURIComponent(o.demo)}` : ''}`;
     const screenUrl = (slot) =>
-      `${location.origin}/twin.html?view=screen&slot=${slot}&setup=${setup}&city=${o.cityKey}&scenario=${o.scenario}`;
+      `${location.origin}/twin.html?view=screen&slot=${slot}&setup=${setup}&city=${o.cityKey}&scenario=${o.scenario}${demoQuery(o.demo)}`;
     const openScreen = (slot) => openScreenWindow(slot, screenUrl(slot));
-    const launchUrl = `${base}/twin.html?view=launch&setup=${setup}&city=${o.cityKey}&scenario=${o.scenario}`;
+    const launchUrl = `${base}/twin.html?view=launch&setup=${setup}&city=${o.cityKey}&scenario=${o.scenario}${demoQuery(o.demo)}`;
     const qr = el('img', 'tt-entry-qr');
     qr.alt = `QR code: open the remote at ${remoteUrl}`;
     QRCode.toDataURL(remoteUrl, {
@@ -518,7 +524,7 @@ export function showEntry(o) {
                 ),
             (() => {
               const a = el('a', 'tt-link', 'Open the remote in this window');
-              a.href = `/twin-remote.html?setup=${setup}`;
+              a.href = `/twin-remote.html?setup=${setup}${o.demo ? `&scenario=${encodeURIComponent(o.demo)}` : ''}`;
               return a;
             })(),
           );
