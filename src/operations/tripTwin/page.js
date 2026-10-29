@@ -5496,7 +5496,7 @@ async function main() {
       ],
     ],
     // Live public data (29 Oct 2026); packs under Paths in the sheet.
-    ['Traffic', [['aircraft', 'Live aircraft (OpenSky)', false]]],
+    ['Traffic', [['aircraft', 'Live aircraft (adsb.lol · OpenSky)', false]]],
     [
       'Site',
       [

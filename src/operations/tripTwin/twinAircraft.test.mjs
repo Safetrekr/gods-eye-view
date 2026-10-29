@@ -13,6 +13,7 @@ import {
   AIRCRAFT_KEEP_MS,
   POSITION_MAX_AGE_S,
   createTwinAircraft,
+  isAdsbLolVehicle,
   nearbyAircraft,
   parseFlights,
   radiusKm,
@@ -511,7 +512,7 @@ test('aircraft toggle: its own layer, off by default on every role; through the 
   );
   assert.deepEqual(entry, {
     key: 'aircraft',
-    label: 'Live aircraft (OpenSky)',
+    label: 'Live aircraft (adsb.lol · OpenSky)',
     def: false,
   });
   let state = createSession({ count: 6 });
@@ -604,4 +605,122 @@ test('aircraft toggle: its own layer, off by default on every role; through the 
     assert.equal(v.ok, true, v.reason);
     assert.equal(v.tier, 'act');
   }
+});
+
+// Jesse, 29 Oct: anonymous OpenSky showed three planes at Heathrow where
+// adsb.lol saw many more, and adsb.lol also reports airport vehicles.
+const pointBody = (now, rows) => JSON.stringify({ now: now * 1000, ac: rows });
+const row = (hex, flight, extra = {}) => ({
+  hex,
+  flight,
+  lat: 51.4705,
+  lon: -0.4877,
+  alt_baro: 'ground',
+  seen_pos: 1,
+  seen: 1,
+  ...extra,
+});
+
+test('aircraft: adsb.lol around the point is asked first; OpenSky only when it fails', async () => {
+  const t = 1_793_316_600;
+  const calls = [];
+  const air = createTwinAircraft({
+    now: () => t * 1000,
+    point: async () => {
+      calls.push('point');
+      return {
+        ok: true,
+        text: async () =>
+          pointBody(t, [
+            row('40688c', 'BAW57K', { category: 'A5', t: 'B77W' }),
+            row('43c001', 'SQUID32', { category: 'C2' }),
+            row('43c002', '', { t: 'TWR' }),
+            row('43c003', 'AOPS', { category: 'C2', t: 'SERV' }),
+          ]),
+      };
+    },
+    upstream: async () => {
+      calls.push('upstream');
+      return { ok: false, status: 503, text: async () => '' };
+    },
+  });
+  const a = await air.near(51.4723, -0.4885, 40);
+  assert.deepEqual(calls, ['point']);
+  assert.equal(a.source, 'adsb.lol');
+  assert.equal(a.status, 'live');
+  assert.deepEqual(
+    a.aircraft.map((x) => x.callsign),
+    ['BAW57K'],
+    'vehicles and the tower are not aircraft',
+  );
+
+  const failing = createTwinAircraft({
+    now: () => t * 1000,
+    point: async () => ({ ok: false, status: 429, text: async () => '' }),
+    upstream: async () => ({
+      ok: true,
+      headers: { get: () => null },
+      text: async () =>
+        JSON.stringify({
+          time: t,
+          states: [
+            [
+              '4bb203',
+              'THY8EF',
+              'Turkey',
+              t,
+              t,
+              -0.4469,
+              51.4704,
+              null,
+              true,
+              0,
+              270,
+              null,
+              null,
+              null,
+              null,
+              false,
+              0,
+              0,
+            ],
+            [
+              '43c009',
+              'TUG1',
+              'United Kingdom',
+              t,
+              t,
+              -0.47,
+              51.47,
+              null,
+              true,
+              0,
+              0,
+              null,
+              null,
+              null,
+              null,
+              false,
+              0,
+              17,
+            ],
+          ],
+        }),
+    }),
+  });
+  const b = await failing.near(51.4723, -0.4885, 40);
+  assert.equal(b.source, 'OpenSky Network');
+  assert.deepEqual(
+    b.aircraft.map((x) => x.callsign),
+    ['THY8EF'],
+  );
+});
+
+test('aircraft: vehicle rows are recognised by category and type', () => {
+  assert.equal(isAdsbLolVehicle({ category: 'C1' }), true);
+  assert.equal(isAdsbLolVehicle({ category: 'c3' }), true);
+  assert.equal(isAdsbLolVehicle({ t: 'SERV' }), true);
+  assert.equal(isAdsbLolVehicle({ t: 'twr' }), true);
+  assert.equal(isAdsbLolVehicle({ category: 'A3', t: 'A21N' }), false);
+  assert.equal(isAdsbLolVehicle({}), false);
 });

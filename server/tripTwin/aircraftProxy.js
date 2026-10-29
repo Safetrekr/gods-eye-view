@@ -13,6 +13,7 @@
 // (scripts/fixtures/trip-twin/aircraft/) and never uses the network: its
 // status is 'recorded', never 'live'.
 import { readFileSync } from 'node:fs';
+import { normalizeAdsbLolPointResponse } from '../../src/data/adsbLolFallback.js';
 import { hostCheckFor } from './twinHostCheck.js';
 import { twinHostGuard } from './twinHosts.js';
 
@@ -48,6 +49,20 @@ export function kmBetween(a, b) {
 const fin = (v) => typeof v === 'number' && Number.isFinite(v);
 const round = (v, d = 0) => (fin(v) ? Number(v.toFixed(d)) : null);
 const ICAO_RE = /^~?[0-9a-z]{6}$/;
+/**
+ * Airport vehicles and obstacles carry transponders too (tugs, ops cars,
+ * the tower's vehicles): not aircraft, never drawn as planes. adsb.lol:
+ * emitter category C* (surface vehicle or obstacle) or type TWR/SERV/GND;
+ * OpenSky: category 16-20.
+ */
+const VEHICLE_TYPES = new Set(['TWR', 'SERV', 'GND']);
+export const isAdsbLolVehicle = (row) =>
+  /^C/i.test(String(row?.category || '').trim()) ||
+  VEHICLE_TYPES.has(
+    String(row?.t || '')
+      .trim()
+      .toUpperCase(),
+  );
 
 /**
  * An OpenSky body ({time, states}) → {feedAt ms, states}; null when it is
@@ -89,6 +104,7 @@ export function nearbyAircraft(states, center, rKm, feedS, max = AIRCRAFT_MAX) {
       .trim()
       .toLowerCase();
     if (!ICAO_RE.test(icao24) || seen.has(icao24)) continue;
+    if (fin(s[17]) && s[17] >= 16 && s[17] <= 20) continue;
     const posT = fin(s[3]) ? s[3] : fin(s[4]) ? s[4] : null;
     const posAgeS = posT === null ? null : feedS - posT;
     if (posAgeS === null || posAgeS > POSITION_MAX_AGE_S) continue;
@@ -134,13 +150,21 @@ export function radiusKm(value) {
 const regionKey = (lat, lon) =>
   `${(Math.round(lat * 4) / 4).toFixed(2)},${(Math.round(lon * 4) / 4).toFixed(2)}`;
 
+/** adsb.lol's point query, in nautical miles: covers the 80 km maximum. */
+export const ADSBLOL_POINT_NM = Math.ceil(AIRCRAFT_R_MAX_KM / 1.852);
+
 /**
- * The room's aircraft cache. upstream(path, init) → fetch Response from this
- * server's own /api/flights. fixture: a recorded body (served as
- * 'recorded', never fetched).
+ * The room's aircraft cache. point(lat, lon, init) → fetch Response from
+ * adsb.lol's free point query, asked first: around a site it sees more
+ * aircraft than anonymous OpenSky (ground traffic at the stands too) and
+ * has no daily quota to run out (Jesse, 29 Oct: three planes at Heathrow
+ * where adsb.lol saw seventeen). upstream(path, init) → fetch Response from
+ * this server's own /api/flights, the fallback when the point query fails.
+ * fixture: a recorded body (served as 'recorded', never fetched).
  */
 export function createTwinAircraft({
   upstream,
+  point = null,
   fixture = null,
   now = () => Date.now(),
 } = {}) {
@@ -160,11 +184,51 @@ export function createTwinAircraft({
     return r.at > global.at ? r : global;
   }
 
+  function keepRegional(key, snap) {
+    regional.delete(key);
+    regional.set(key, snap);
+    while (regional.size > REGIONAL_MAX)
+      regional.delete(regional.keys().next().value);
+  }
+
+  /** adsb.lol around the point; null when it fails or is not a snapshot. */
+  async function readPoint(lat, lon, signal) {
+    if (!point) return null;
+    try {
+      const res = await point(lat, lon, { signal });
+      if (!res.ok) return null;
+      const payload = JSON.parse(await res.text());
+      const ac = Array.isArray(payload?.ac) ? payload.ac : [];
+      const parsed = parseFlights(
+        normalizeAdsbLolPointResponse({
+          ...payload,
+          ac: ac.filter((row) => !isAdsbLolVehicle(row)),
+        }),
+      );
+      return parsed
+        ? {
+            at: now(),
+            feedAt: parsed.feedAt,
+            states: parsed.states,
+            source: 'adsb.lol',
+          }
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
   async function read(lat, lon, key) {
     reads += 1;
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
     try {
+      const near = await readPoint(lat, lon, ctl.signal);
+      if (near) {
+        keepRegional(key, near);
+        failedAt.delete(key);
+        return near;
+      }
       const q = `lat=${lat.toFixed(2)}&lon=${lon.toFixed(2)}`;
       const res = await upstream(`/api/flights?${q}`, { signal: ctl.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -179,12 +243,8 @@ export function createTwinAircraft({
         states: parsed.states,
         source: fallback ? 'adsb.lol' : 'OpenSky Network',
       };
-      if (fallback) {
-        regional.delete(key);
-        regional.set(key, snap);
-        while (regional.size > REGIONAL_MAX)
-          regional.delete(regional.keys().next().value);
-      } else global = snap;
+      if (fallback) keepRegional(key, snap);
+      else global = snap;
       failedAt.delete(key);
       return snap;
     } catch {
@@ -290,6 +350,17 @@ export function twinAircraftProxy({ env = process.env, service = null } = {}) {
               ...init,
               headers: { Via: '1.1 trip-twin', Host: `localhost:${port()}` },
             }),
+          point: (lat, lon, init = {}) =>
+            fetch(
+              `https://api.adsb.lol/v2/lat/${lat.toFixed(2)}/lon/${lon.toFixed(2)}/dist/${ADSBLOL_POINT_NM}`,
+              {
+                ...init,
+                headers: {
+                  Accept: 'application/json',
+                  'User-Agent': 'safetrekr-trip-twin-aircraft/1.0',
+                },
+              },
+            ),
         });
       server.middlewares.use(
         '/api/twin-aircraft',
