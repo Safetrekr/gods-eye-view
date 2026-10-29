@@ -59,7 +59,7 @@ const rel = (p) => path.relative(ROOT, p).split(path.sep).join('/');
  * filter, room cache, stale handling, fallback source, recorded fixture and
  * HTTP; the page's poll; the words; the sums; the toggle everywhere).
  */
-export const BASELINE = 642;
+export const BASELINE = 644;
 /**
  * From K6 every gate re-runs the audit canary (PHASE-CF-PLAN §6.2 rule 8);
  * from L5 the token scan and the v1 migration (§6.6 L5 gate, S-14): these
