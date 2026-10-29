@@ -1,0 +1,84 @@
+/* Fitzroy V1 voice strip (remoteVoice.js; VOICE-CONTROL §3.4): listening,
+   heard, thinking, acting, done, failed. The remote's own tokens; amber only
+   means attention (voice down), the selection white means listening. */
+.rm-voice {
+  display: grid;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--rm-line-2);
+  background: rgba(8, 24, 32, 0.96);
+}
+.rm-voice-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.rm-voice-name {
+  font: 600 10px var(--rm-mono);
+  letter-spacing: 0.14em;
+  color: var(--rm-text-2);
+}
+.rm-voice-status {
+  flex: 1 1 auto;
+  font: 500 11px var(--rm-mono);
+  color: var(--rm-dim);
+}
+.rm-voice-meter {
+  width: 96px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--rm-well);
+  overflow: hidden;
+}
+.rm-voice-meter i {
+  display: block;
+  height: 100%;
+  background: var(--rm-text);
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+.rm-voice-lines {
+  display: grid;
+  gap: 2px;
+  min-height: 20px;
+  font-size: 13px;
+}
+.rm-voice-heard {
+  color: var(--rm-text-2);
+}
+.rm-voice-said {
+  color: var(--rm-text);
+}
+.rm-voice-keys {
+  display: flex;
+  gap: 10px;
+}
+.rm-voice-talk {
+  flex: 1 1 auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.rm-voice[data-phase='listening'] {
+  border-color: var(--rm-text);
+}
+.rm-voice[data-phase='listening'] .rm-voice-talk {
+  background: var(--rm-text);
+  color: var(--rm-field);
+  border-color: var(--rm-text);
+}
+.rm-voice.down {
+  border-color: var(--rm-attn);
+}
+.rm-voice.down .rm-voice-status,
+.rm-voice[data-phase='failed'] .rm-voice-status {
+  color: var(--rm-attn);
+}
+.rm-voice.muted .rm-voice-status {
+  color: var(--rm-dim);
+}
+.rm-voice-talk:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

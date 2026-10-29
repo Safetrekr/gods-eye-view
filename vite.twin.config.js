@@ -9,6 +9,7 @@ import { twinRoutingProxy } from './server/tripTwin/routingProxy.js';
 import { twinSyncRelay } from './server/tripTwin/syncRelay.js';
 import { twinStreetPhotoProxy } from './server/tripTwin/streetPhotoProxy.js';
 import { twinCameraProxy } from './server/tripTwin/cameraProxy.js';
+import { twinVoiceProxy } from './server/tripTwin/voiceProxy.js';
 import { terrainHeightsProxy } from './server/providers/terrain.js';
 import {
   machineNames,
@@ -77,6 +78,9 @@ export default async (env) => {
       // SOC multi-view (phase 10): screens + remote. LAN devices need
       // HOST=0.0.0.0 npx vite --config vite.twin.config.js
       twinSyncRelay(),
+      // Fitzroy V1: the remote on this computer reaches the local voice
+      // service (voice-lab/run_fitzroy.sh) same-origin; dev server only.
+      twinVoiceProxy(),
       ...base.slice(end),
     ],
     build: {

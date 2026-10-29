@@ -47,8 +47,10 @@ const rel = (p) => path.relative(ROOT, p).split(path.sep).join('/');
  * voice/PRE-V1-NOTES.md) raises it to the count at that change: K9
  * revision-checked undo (twinUndo.test.mjs), K10 server confirm
  * (twinConfirm.test.mjs) and the voice policy (twinVoice.test.mjs).
+ * Fitzroy V1 adds eight voice-glue, relay, audio and dev-route tests
+ * (fitzroy/fitzroyVoice.test.mjs).
  */
-export const BASELINE = 610;
+export const BASELINE = 618;
 /**
  * From K6 every gate re-runs the audit canary (PHASE-CF-PLAN §6.2 rule 8);
  * from L5 the token scan and the v1 migration (§6.6 L5 gate, S-14): these

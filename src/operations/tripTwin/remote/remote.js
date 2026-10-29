@@ -194,10 +194,22 @@ function notify(text, err = false) {
 function ask(cmd, text, label = '', hint = null) {
   return send(cmd, label, { ask: hint, text });
 }
-async function send(cmd, label = '', { ask: hint = null, text = null } = {}) {
-  if (ui.outOfDate) return notify(STATUS.RELOAD_REMOTE, true);
-  if (!ui.controller)
-    return notify('View only — take control first (top bar)', true);
+/**
+ * Send one command. Fitzroy V1 (remoteVoice.js): `voice` is the proposal's
+ * envelope ({intent} only); the relay checks it and stamps via voice. The
+ * ack is returned (a page-side refusal as {ok: false, error}).
+ */
+async function send(
+  cmd,
+  label = '',
+  { ask: hint = null, text = null, voice = null } = {},
+) {
+  const refuse = (error) => {
+    notify(error, true);
+    return { ok: false, error };
+  };
+  if (ui.outOfDate) return refuse(STATUS.RELOAD_REMOTE);
+  if (!ui.controller) return refuse('View only — take control first (top bar)');
   // K10 (S-18): no local pre-check. needsConfirm only words the question
   // the server asks, as the confirm bar always worded it.
   const words =
@@ -214,10 +226,12 @@ async function send(cmd, label = '', { ask: hint = null, text = null } = {}) {
     t: 'cmd',
     cmd,
     ...(hint ? { ask: hint } : {}),
+    ...(voice ? { voice } : {}),
   });
   if (r.code === CODE.CONFIRM_REQUIRED)
-    return askServer(r, { kind: 'cmd', cmd, label, text: words });
-  applied(r, cmd, label, before);
+    askServer(r, { kind: 'cmd', cmd, label, text: words });
+  else applied(r, cmd, label, before);
+  return r;
 }
 /** Show the server's question in the bar (K10); it ends 1 s early. */
 function askServer(r, item) {
@@ -240,6 +254,9 @@ function applied(r, cmd, label, before) {
     // A framing alone cannot be undone (K9).
     kind: r.undoId ? 'undo' : 'ok',
     undoId: r.undoId,
+    // The wall before it (Fitzroy's undo guard reads it: an undo by voice
+    // never lowers protection).
+    before,
     // Every end state says whether the wall changed (G1).
     text: said || `${label ? `${label} · ` : ''}nothing changed on the walls`,
     until: Date.now() + 10000,
@@ -292,6 +309,28 @@ function undoAnswered(r) {
   }
   ui.undoLeft = left;
   if (ui.awaitUndo) notify(left ? `Undone · ${left}` : 'Undone');
+}
+/**
+ * Undo one change (the bar's Undo; Fitzroy's "undo" with its envelope).
+ * CF-D4: an undo that lowers protection asks first, here too.
+ */
+async function undoBy(undoId, voice = null) {
+  ui.awaitUndo = true;
+  ui.undoLeft = '';
+  const r = await sync.request({
+    t: 'undo',
+    undoId,
+    ...(voice ? { voice } : {}),
+  });
+  ui.bar = null;
+  if (r.code === CODE.CONFIRM_REQUIRED) {
+    ui.awaitUndo = false;
+    askServer(r, { kind: 'undo', text: r.question?.text });
+    return r;
+  }
+  // The words come with the undone state (what really went back).
+  undoAnswered(r);
+  return r;
 }
 /** Full names on this device only (the walls show their own forms). */
 function personNames() {
@@ -1399,24 +1438,9 @@ function renderBar() {
   bar.replaceChildren(el('span', 't', b.text));
   if (b.kind === 'undo')
     bar.append(
-      btn(
-        'rm-btn',
-        `Undo (${left} s)`,
-        async () => {
-          ui.awaitUndo = true;
-          ui.undoLeft = '';
-          const r = await sync.request({ t: 'undo', undoId: b.undoId });
-          ui.bar = null;
-          // CF-D4: an undo that lowers protection asks first, here too.
-          if (r.code === CODE.CONFIRM_REQUIRED) {
-            ui.awaitUndo = false;
-            return askServer(r, { kind: 'undo', text: r.question?.text });
-          }
-          // The words come with the undone state (what really went back).
-          undoAnswered(r);
-        },
-        { 'data-tt-undo': '' },
-      ),
+      btn('rm-btn', `Undo (${left} s)`, () => undoBy(b.undoId), {
+        'data-tt-undo': '',
+      }),
     );
 }
 function renderAll() {
@@ -1564,3 +1588,33 @@ setInterval(() => {
 setInterval(() => refreshWx(), 20e3);
 app.replaceChildren(head, grid, aperture);
 head.append(el('span', 'rm-note', 'Connecting to the Trip Twin computer…'));
+
+// Fitzroy V1 (plans/trip-twin/FITZROY-V1-HOWTO.md): push-to-talk on this
+// computer, only with ?voice=1. Loaded on demand: without the flag the
+// remote is exactly as before.
+const voiceTrip = () => {
+  const t = ui.state?.session?.tripId && tripById(ui.state.session.tripId);
+  return t ? tripData(t) : null;
+};
+if (params.get('voice') === '1')
+  import('./remoteVoice.js').then(({ mountVoice }) =>
+    mountVoice({
+      mount: (node) => main.insertBefore(node, stage),
+      state: () => ui.state,
+      controller: () => ui.controller,
+      incidentOpen,
+      tripDays: () => voiceTrip()?.days?.length ?? null,
+      snapshot: () => voiceTrip()?.snapshot ?? null,
+      send,
+      undo: undoBy,
+      // This remote's own last change while its Undo lasts (touch or voice).
+      lastUndo: () =>
+        ui.bar?.kind === 'undo' && Date.now() < ui.bar.until
+          ? { undoId: ui.bar.undoId, before: ui.bar.before }
+          : null,
+      request: (msg) => sync.request(msg),
+      confirm: () =>
+        ui.confirm && Date.now() <= ui.confirm.until ? ui.confirm : null,
+      cancelConfirm,
+    }),
+  );
